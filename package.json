@@ -1,0 +1,16 @@
+{
+  "name": "cross-ai-history-manager",
+  "version": "1.0.0",
+  "description": "Cross AI history manager",
+  "license": "ISC",
+  "author": "Makarious Robert",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}
