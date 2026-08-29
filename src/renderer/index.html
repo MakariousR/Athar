@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>Chat Memory</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Chat Memory</h1>
+    <p class="subtitle">Your old chats, remembered locally.</p>
+    <span id="statusBadge" class="status-badge status-unknown">Checking Ollama…</span>
+  </header>
+
+  <!-- Setup panel: shown until Ollama + model are ready -->
+  <section id="setupPanel" class="panel hidden">
+    <h2>One-time setup</h2>
+    <p id="setupMessage">Checking your local AI engine…</p>
+    <button id="pullModelBtn" class="primary-btn hidden">Download AI model (~1GB)</button>
+    <div id="pullProgressWrap" class="progress-wrap hidden">
+      <div class="progress-bar"><div id="pullProgressFill" class="progress-fill"></div></div>
+      <span id="pullProgressText">0%</span>
+    </div>
+  </section>
+
+  <!-- Main app: file drop + search + chat -->
+  <main id="mainPanel" class="panel hidden">
+    <section id="dropZone" class="drop-zone">
+      <p><strong>Drag & drop</strong> your ChatGPT export (<code>conversations.json</code>) here</p>
+      <p class="hint">or click to choose a file</p>
+      <input type="file" id="fileInput" accept="application/json" class="hidden" />
+    </section>
+
+    <p id="parseStatus" class="parse-status hidden"></p>
+
+    <section id="askSection" class="hidden">
+      <div class="ask-row">
+        <input type="text" id="questionInput" placeholder="Ask about your past conversations…" />
+        <button id="askBtn" class="primary-btn">Ask</button>
+      </div>
+
+      <div class="columns">
+        <div class="answer-col">
+          <h3>Answer</h3>
+          <div id="answerBox" class="answer-box">Ask a question to get started.</div>
+        </div>
+        <div class="threads-col">
+          <h3>Sources used</h3>
+          <ul id="threadList" class="thread-list"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

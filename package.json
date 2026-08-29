@@ -1,16 +1,39 @@
 {
-  "name": "cross-ai-history-manager",
-  "version": "1.0.0",
-  "description": "Cross AI history manager",
-  "license": "ISC",
-  "author": "Makarious Robert",
-  "type": "commonjs",
-  "main": "index.js",
+  "name": "chat-memory-app",
+  "productName": "Chat Memory",
+  "version": "0.1.0",
+  "description": "Offline AI assistant that remembers your old ChatGPT/Claude conversations by retrieving relevant threads and feeding them to a local Ollama model.",
+  "main": "src/main/index.js",
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron": "^44.0.0"
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.example.chatmemory",
+    "productName": "Chat Memory",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png"
+    }
   }
 }
