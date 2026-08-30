@@ -1,5 +1,5 @@
 const { ipcMain } = require('electron');
-const { parseExportFile } = require('./parser/chatgpt-parser');
+const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { rankThreads } = require('./search/keyword-ranker');
 const ollama = require('./ollama/ollama-client');
 
@@ -7,7 +7,7 @@ function registerIpcHandlers() {
   // --- File parsing ---
   ipcMain.handle('file:parse', async (event, filePath) => {
     try {
-      const threads = parseExportFile(filePath);
+      const threads = parseAnyExport(filePath);
       return { success: true, threads };
     } catch (err) {
       return { success: false, error: err.message };

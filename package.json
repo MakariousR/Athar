@@ -11,10 +11,6 @@
     "start": "electron .",
     "dist": "electron-builder"
   },
-  "devDependencies": {
-    "electron": "^32.0.0",
-    "electron-builder": "^25.0.0"
-  },
   "build": {
     "appId": "com.example.chatmemory",
     "productName": "Chat Memory",
@@ -35,5 +31,9 @@
       "target": "AppImage",
       "icon": "assets/icon.png"
     }
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3"
   }
 }

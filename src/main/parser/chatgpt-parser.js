@@ -93,4 +93,38 @@ function parseExportFile(filePath) {
   return threads;
 }
 
-module.exports = { parseExportFile, reconstructThread, extractText };
+/**
+ * Auto-detects whether a conversations.json is from ChatGPT or Claude
+ * and routes to the correct parser. The rest of the app just calls this.
+ *
+ * Detection logic:
+ * - Claude exports have a `chat_messages` array on each conversation
+ * - ChatGPT exports have a `mapping` object on each conversation
+ */
+function parseAnyExport(filePath) {
+  const { parseClaudeExport } = require('./claude-parser');
+
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const data = JSON.parse(raw);
+  const conversations = Array.isArray(data) ? data : [data];
+
+  if (conversations.length === 0) return [];
+
+  const first = conversations[0];
+
+  if (first.chat_messages) {
+    // Claude format
+    return parseClaudeExport(filePath);
+  }
+
+  if (first.mapping) {
+    // ChatGPT format
+    return parseExportFile(filePath);
+  }
+
+  throw new Error(
+    'Unrecognised export format. Please use a ChatGPT or Claude conversations.json export file.'
+  );
+}
+
+module.exports = { parseExportFile, parseAnyExport, reconstructThread, extractText };
