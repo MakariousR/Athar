@@ -1,5 +1,5 @@
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
-const DEFAULT_MODEL = 'qwen3.5:0.8b'; // smallest tier, used for MVP validation
+const DEFAULT_MODEL = 'qwen3.5:0.8b';
 
 async function isOllamaRunning() {
   try {
@@ -19,14 +19,9 @@ async function listModels() {
 
 async function isModelInstalled(modelName = DEFAULT_MODEL) {
   const models = await listModels();
-  return models.some((name) => name === modelName || name.startsWith(`${modelName}-`));
+  return models.some((name) => name === modelName || name.startsWith(`${modelName}:`));
 }
 
-/**
- * Pulls a model, streaming progress events back via onProgress.
- * Each event looks like: { status: "downloading", completed, total } or
- * { status: "success" } when finished.
- */
 async function pullModel(modelName = DEFAULT_MODEL, onProgress = () => {}) {
   const res = await fetch(`${OLLAMA_BASE}/api/pull`, {
     method: 'POST',
@@ -34,9 +29,7 @@ async function pullModel(modelName = DEFAULT_MODEL, onProgress = () => {}) {
     body: JSON.stringify({ name: modelName, stream: true })
   });
 
-  if (!res.ok || !res.body) {
-    throw new Error(`Failed to start model pull: ${res.status}`);
-  }
+  if (!res.ok || !res.body) throw new Error(`Failed to start model pull: ${res.status}`);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -45,19 +38,12 @@ async function pullModel(modelName = DEFAULT_MODEL, onProgress = () => {}) {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
-    buffer = lines.pop(); // keep any partial line for the next chunk
-
+    buffer = lines.pop();
     for (const line of lines) {
       if (!line.trim()) continue;
-      try {
-        const status = JSON.parse(line);
-        onProgress(status);
-      } catch {
-        // ignore malformed/partial JSON lines
-      }
+      try { onProgress(JSON.parse(line)); } catch {}
     }
   }
 
@@ -65,42 +51,50 @@ async function pullModel(modelName = DEFAULT_MODEL, onProgress = () => {}) {
 }
 
 /**
- * Builds the final prompt sent to the model: the user's question plus
- * the full text of the top-ranked threads, each clearly labeled so the
- * model can tell threads apart and cite dates if asked.
+ * Builds the prompt with three layers:
+ * 1. System instructions
+ * 2. Imported history context (background, silent - ranked threads from uploaded export)
+ * 3. Local conversation history (the actual chat turns so far)
+ * 4. New user message
  */
-function buildPrompt(question, threads) {
-  // No relevant threads found - fall back to plain assistant mode
-  if (!threads || threads.length === 0) {
-    return (
-      `You are a helpful personal assistant. Answer the user's message naturally.\n\n` +
-      `User: ${question}\nAssistant:`
-    );
-  }
+function buildPrompt(userText, importedThreads, conversationHistory) {
+  let prompt = '';
 
-  const contextBlocks = threads
-    .map((t, i) => {
+  // Layer 1: system
+  prompt += `You are a helpful personal assistant. You have access to the user's past imported conversation history (if any) and you remember the current chat session.\n\n`;
+
+  // Layer 2: imported history context (silent background)
+  if (importedThreads && importedThreads.length > 0) {
+    prompt += `--- Relevant past conversations (for context only, do not mention these directly unless asked) ---\n`;
+    importedThreads.forEach((t, i) => {
       const date = t.createTime
         ? new Date(t.createTime * 1000).toISOString().slice(0, 10)
         : 'unknown date';
-      return `--- Thread ${i + 1}: "${t.title}" (${date}) ---\n${t.fullText}`;
-    })
-    .join('\n\n');
+      // Truncate each thread to 1500 chars to keep prompt manageable
+      const text = t.fullText.length > 1500 ? t.fullText.slice(0, 1500) + '…' : t.fullText;
+      prompt += `[Thread ${i + 1}: "${t.title}" - ${date}]\n${text}\n\n`;
+    });
+    prompt += `--- End of past context ---\n\n`;
+  }
 
-  return (
-    `You are a personal assistant with access to the user's past conversation history below. ` +
-    `Use it to answer their question. If the history doesn't contain the answer, say so.\n\n` +
-    `${contextBlocks}\n\n` +
-    `--- Current question ---\n${question}\nAssistant:`
-  );
+  // Layer 3: current session conversation history
+  if (conversationHistory && conversationHistory.length > 0) {
+    // Only include last 10 turns to avoid blowing context window
+    const recent = conversationHistory.slice(-10);
+    for (const msg of recent) {
+      const label = msg.role === 'user' ? 'User' : 'Assistant';
+      prompt += `${label}: ${msg.text}\n`;
+    }
+  }
+
+  // Layer 4: new message
+  prompt += `User: ${userText}\nAssistant:`;
+
+  return prompt;
 }
 
-/**
- * Streams a generation response token-by-token via onToken(text),
- * and returns the full concatenated response once done.
- */
-async function generate(question, threads, modelName = DEFAULT_MODEL, onToken = () => {}) {
-  const prompt = buildPrompt(question, threads);
+async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}) {
+  const prompt = buildPrompt(userText, importedThreads, conversationHistory);
 
   const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
     method: 'POST',
@@ -108,9 +102,7 @@ async function generate(question, threads, modelName = DEFAULT_MODEL, onToken = 
     body: JSON.stringify({ model: modelName, prompt, stream: true })
   });
 
-  if (!res.ok || !res.body) {
-    throw new Error(`Ollama generate failed: ${res.status}`);
-  }
+  if (!res.ok || !res.body) throw new Error(`Ollama generate failed: ${res.status}`);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -120,11 +112,9 @@ async function generate(question, threads, modelName = DEFAULT_MODEL, onToken = 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop();
-
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
@@ -133,20 +123,11 @@ async function generate(question, threads, modelName = DEFAULT_MODEL, onToken = 
           full += chunk.response;
           onToken(chunk.response);
         }
-      } catch {
-        // ignore malformed/partial JSON lines
-      }
+      } catch {}
     }
   }
 
   return full;
 }
 
-module.exports = {
-  DEFAULT_MODEL,
-  isOllamaRunning,
-  listModels,
-  isModelInstalled,
-  pullModel,
-  generate
-};
+module.exports = { DEFAULT_MODEL, isOllamaRunning, listModels, isModelInstalled, pullModel, generate };

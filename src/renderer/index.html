@@ -7,52 +7,65 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="app-header">
-    <h1>Chat Memory</h1>
-    <p class="subtitle">Your old chats, remembered locally.</p>
-    <span id="statusBadge" class="status-badge status-unknown">Checking Ollama…</span>
-  </header>
 
-  <!-- Setup panel: shown until Ollama + model are ready -->
-  <section id="setupPanel" class="panel hidden">
-    <h2>One-time setup</h2>
-    <p id="setupMessage">Checking your local AI engine…</p>
-    <button id="pullModelBtn" class="primary-btn hidden">Download AI model (~1GB)</button>
-    <div id="pullProgressWrap" class="progress-wrap hidden">
-      <div class="progress-bar"><div id="pullProgressFill" class="progress-fill"></div></div>
-      <span id="pullProgressText">0%</span>
+  <!-- SETUP OVERLAY — shown until Ollama + model are ready -->
+  <div id="setupOverlay" class="setup-overlay">
+    <div class="setup-card">
+      <h1>Chat Memory</h1>
+      <p class="setup-sub">Your personal AI that remembers your past conversations.</p>
+      <p id="setupMessage" class="setup-msg">Checking your local AI engine…</p>
+      <button id="pullModelBtn" class="primary-btn hidden">Download AI model (~1 GB)</button>
+      <div id="pullProgressWrap" class="progress-wrap hidden">
+        <div class="progress-bar"><div id="pullProgressFill" class="progress-fill"></div></div>
+        <span id="pullProgressText">0%</span>
+      </div>
     </div>
-  </section>
+  </div>
 
-  <!-- Main app: file drop + search + chat -->
-  <main id="mainPanel" class="panel hidden">
-    <section id="dropZone" class="drop-zone">
-      <p><strong>Drag & drop</strong> your <code>conversations.json</code> export here</p>
-      <p class="hint">Supports ChatGPT and Claude exports · or click to choose a file</p>
-      <input type="file" id="fileInput" accept="application/json" class="hidden" />
-    </section>
+  <!-- MAIN APP — sidebar + chat area -->
+  <div id="appShell" class="app-shell hidden">
 
-    <p id="parseStatus" class="parse-status hidden"></p>
-
-    <section id="askSection" class="hidden">
-      <div class="ask-row">
-        <input type="text" id="questionInput" placeholder="Ask about your past conversations…" />
-        <button id="askBtn" class="primary-btn">Ask</button>
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <span class="app-brand">Chat Memory</span>
+        <button id="newChatBtn" class="icon-btn" title="New chat">＋</button>
       </div>
 
-      <div class="columns">
-        <div class="answer-col">
-          <h3>Answer</h3>
-          <div id="answerBox" class="answer-box">Ask a question to get started.</div>
+      <ul id="sessionList" class="session-list"></ul>
+
+      <div class="sidebar-bottom">
+        <!-- Import history (background context) -->
+        <div id="importZone" class="import-zone" title="Import ChatGPT or Claude export for background context">
+          <span id="importLabel">＋ Import chat history</span>
+          <input type="file" id="fileInput" accept="application/json" class="hidden" />
         </div>
-        <div class="threads-col">
-          <h3>Sources used</h3>
-          <ul id="threadList" class="thread-list"></ul>
+        <p id="importStatus" class="import-status hidden"></p>
+      </div>
+    </aside>
+
+    <!-- CHAT AREA -->
+    <main class="chat-area">
+      <!-- Empty state -->
+      <div id="emptyState" class="empty-state">
+        <p class="empty-title">Chat Memory</p>
+        <p class="empty-sub">Start a new chat or select one from the sidebar.<br/>Import your ChatGPT or Claude history to give the AI context about your past work.</p>
+        <button id="emptyNewChatBtn" class="primary-btn">New chat</button>
+      </div>
+
+      <!-- Active chat -->
+      <div id="chatView" class="chat-view hidden">
+        <div id="messageList" class="message-list"></div>
+
+        <div class="input-bar">
+          <textarea id="messageInput" placeholder="Message…" rows="1"></textarea>
+          <button id="sendBtn" class="send-btn">Send</button>
         </div>
       </div>
-    </section>
-  </main>
+    </main>
+  </div>
 
-  <script src="app.js"></script>
+  <script src="marked.umd.js"></script>
+  <script src="chat.js"></script>
 </body>
 </html>
