@@ -70,6 +70,14 @@ async function pullModel(modelName = DEFAULT_MODEL, onProgress = () => {}) {
  * model can tell threads apart and cite dates if asked.
  */
 function buildPrompt(question, threads) {
+  // No relevant threads found - fall back to plain assistant mode
+  if (!threads || threads.length === 0) {
+    return (
+      `You are a helpful personal assistant. Answer the user's message naturally.\n\n` +
+      `User: ${question}\nAssistant:`
+    );
+  }
+
   const contextBlocks = threads
     .map((t, i) => {
       const date = t.createTime
@@ -83,7 +91,7 @@ function buildPrompt(question, threads) {
     `You are a personal assistant with access to the user's past conversation history below. ` +
     `Use it to answer their question. If the history doesn't contain the answer, say so.\n\n` +
     `${contextBlocks}\n\n` +
-    `--- Current question ---\n${question}`
+    `--- Current question ---\n${question}\nAssistant:`
   );
 }
 

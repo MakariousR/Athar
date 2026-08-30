@@ -144,13 +144,15 @@ async function askQuestion() {
   if (!question || loadedThreads.length === 0) return;
 
   askBtn.disabled = true;
-  answerBox.textContent = '';
+  answerBox.textContent = 'Thinking…';
 
   const rankResult = await window.api.rankThreads(loadedThreads, question, 12);
   const ranked = rankResult.success ? rankResult.ranked : [];
   renderThreadList(ranked);
 
   window.api.onGenerateToken((token) => {
+    // Clear the "Thinking…" placeholder on first token
+    if (answerBox.textContent === 'Thinking…') answerBox.textContent = '';
     answerBox.textContent += token;
   });
 
