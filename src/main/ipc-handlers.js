@@ -53,7 +53,7 @@ function registerIpcHandlers() {
     }
   });
 
-  // --- Chat sessions (local, persistent) ---
+  // --- Chat sessions ---
   ipcMain.handle('chat:list', async () => {
     try {
       return { success: true, sessions: store.loadSessions() };
@@ -98,27 +98,37 @@ function registerIpcHandlers() {
     }
   });
 
-  // --- Send a message (saves both turns, streams reply) ---
+  // --- Send a message ---
   ipcMain.handle('chat:send', async (event, sessionId, userText, importedThreads) => {
     try {
-      // Save user message
+      // 1. Load session BEFORE saving the new message so we have clean history
+      const session = store.getSession(sessionId);
+      const conversationHistory = session ? session.messages : [];
+
+      // 2. Save the user message now
       store.appendMessage(sessionId, 'user', userText);
 
-      // Load full session for conversation history
-      const session = store.getSession(sessionId);
-      const history = session.messages.slice(0, -1); // all except the one we just added
+      // 3. Build a combined query from the full conversation so far + new message.
+      //    This means imported context stays relevant across the whole chat,
+      //    not just the first message.
+      const combinedQuery = [
+        ...conversationHistory.slice(-6).map((m) => m.text), // last 3 turns of context
+        userText
+      ].join(' ');
 
-      // Rank imported history against the user's message (silent background context)
+      // 4. Rank imported threads against the combined query
       const ranked = importedThreads && importedThreads.length > 0
-        ? rankThreads(importedThreads, userText, 8)
+        ? rankThreads(importedThreads, combinedQuery, 8)
         : [];
 
+      // 5. Pass the full conversation history (all prior turns) to the model.
+      //    ollama-client slices to last 10 turns internally to avoid context overflow.
       let fullReply = '';
 
-      const result = await ollama.generate(
+      await ollama.generate(
         userText,
         ranked,
-        history,
+        conversationHistory, // full history — model sees the whole chat
         ollama.DEFAULT_MODEL,
         (token) => {
           fullReply += token;
@@ -126,15 +136,16 @@ function registerIpcHandlers() {
         }
       );
 
-      // Save assistant reply
-      store.appendMessage(sessionId, 'assistant', fullReply);
+      // 6. Save assistant reply
+      store.appendMessage(sessionId, 'assistant', fullReply || '(no response)');
 
-      // Send updated session title back (may have changed on first message)
+      // 7. Send updated title back (auto-titled on first message)
       const updated = store.getSession(sessionId);
       event.sender.send('chat:session-updated', { id: sessionId, title: updated.title });
 
       return { success: true };
     } catch (err) {
+      console.error('chat:send error:', err);
       return { success: false, error: err.message };
     }
   });
