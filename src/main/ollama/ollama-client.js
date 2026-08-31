@@ -136,7 +136,7 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
       model: modelName,
       messages,
       stream: true,
-      options: { temperature: 0.7, num_predict: 1024 }
+      options: { temperature: 0.7, num_predict: -1 }
     })
   });
 
