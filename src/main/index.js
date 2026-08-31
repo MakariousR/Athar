@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
 const { registerIpcHandlers } = require('./ipc-handlers');
 
@@ -26,6 +26,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null); // remove File/Edit/View menu bar entirely
   registerIpcHandlers();
   createWindow();
 
