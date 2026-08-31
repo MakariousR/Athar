@@ -407,3 +407,55 @@ body {
   border-top: 1px solid var(--border);
   margin: 12px 0;
 }
+
+/* ── SETUP STEPS (per-model download rows) ── */
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.setup-step {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.step-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.step-label { font-weight: 600; font-size: 13px; }
+.step-size  { font-size: 12px; color: var(--muted); }
+
+.step-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.step-progress .progress-bar  { flex: 1; height: 5px; background: var(--border); border-radius: 999px; overflow: hidden; }
+.step-progress .progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s; }
+.step-progress .progress-text { font-size: 11px; color: var(--muted); min-width: 36px; text-align: right; }
+
+.step-status { font-size: 12px; color: var(--muted); }
+
+/* Import zone loading state */
+.import-zone.loading {
+  border-color: var(--accent);
+  background: rgba(108,140,255,0.05);
+  color: var(--accent);
+  cursor: wait;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
