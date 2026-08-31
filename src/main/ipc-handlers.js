@@ -2,7 +2,8 @@ const { ipcMain } = require('electron');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { rankThreadsSemantic } = require('./search/semantic-ranker');
 const ollama = require('./ollama/ollama-client');
-const store = require('./store/chat-store');
+const store  = require('./store/chat-store');
+const embeddingStore = require('./store/embedding-store');
 
 function registerIpcHandlers() {
 
@@ -32,15 +33,69 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
+  /**
+   * Cache-aware embed handler.
+   *
+   * Flow:
+   *  1. Split threads into cached (already on disk) and uncached (need Ollama)
+   *  2. Stream progress only for uncached threads — cached ones are instant
+   *  3. Embed only the uncached subset via Ollama
+   *  4. Save new embeddings to disk cache
+   *  5. Merge cached + newly embedded and return the full set
+   */
   ipcMain.handle('file:embed', async (event, threads) => {
     try {
-      const embedded = await ollama.embedThreads(threads, (done, total) => {
-        event.sender.send('file:embed-progress', { done, total });
+      const { cached, uncached, hashMap } = embeddingStore.splitByCache(threads);
+
+      // Tell the renderer immediately how many are cached vs need embedding
+      event.sender.send('file:embed-progress', {
+        done: cached.length,
+        total: threads.length,
+        cached: cached.length,
+        toEmbed: uncached.length
       });
-      return { success: true, threads: embedded };
-    } catch (err) { return { success: false, error: err.message }; }
+
+      let newlyEmbedded = [];
+
+      if (uncached.length > 0) {
+        newlyEmbedded = await ollama.embedThreads(uncached, (done, total) => {
+          event.sender.send('file:embed-progress', {
+            done: cached.length + done,
+            total: threads.length,
+            cached: cached.length,
+            toEmbed: total,
+            embedDone: done
+          });
+        });
+
+        // Persist new embeddings to disk
+        embeddingStore.cacheNewEmbeddings(newlyEmbedded, hashMap);
+      }
+
+      // Merge: preserve original thread order
+      const embeddedMap = new Map();
+      for (const t of cached)        embeddedMap.set(t.id, t);
+      for (const t of newlyEmbedded) embeddedMap.set(t.id, t);
+      const allEmbedded = threads
+        .map((t) => embeddedMap.get(t.id))
+        .filter(Boolean);
+
+      return {
+        success: true,
+        threads: allEmbedded,
+        stats: { total: allEmbedded.length, cached: cached.length, new: newlyEmbedded.length }
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
+  ipcMain.handle('embedding:stats', async () => {
+    try { return { success: true, ...embeddingStore.getCacheStats() }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
+  // --- Chat sessions ---
   ipcMain.handle('chat:list', async () => {
     try { return { success: true, sessions: store.loadSessions() }; }
     catch (err) { return { success: false, error: err.message }; }
@@ -71,7 +126,6 @@ function registerIpcHandlers() {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
 
-      // Detect continuation intent
       const CONTINUE_TRIGGERS = /^(continue|go on|keep going|more|next|finish|complete it|proceed|and\??)\.?$/i;
       const isContinuation = CONTINUE_TRIGGERS.test(userText.trim());
 
@@ -89,22 +143,19 @@ function registerIpcHandlers() {
         }
       }
 
-      // Save original user message
       store.appendMessage(sessionId, 'user', userText);
 
-      // Combined query for semantic search
       const combinedQuery = [
         ...conversationHistory.slice(-6).map((m) => m.text),
         userText
       ].join(' ');
 
       const ranked = embeddedThreads && embeddedThreads.length > 0
-        ? await rankThreadsSemantic(embeddedThreads, combinedQuery, 8)
+        ? await rankThreadsSemantic(embeddedThreads, combinedQuery, 5)
         : [];
 
       let fullReply = '';
 
-      // Stream the prefix so the UI shows the full concatenated response
       if (continuationPrefix) {
         event.sender.send('chat:token', continuationPrefix + '\n');
         fullReply = continuationPrefix + '\n';

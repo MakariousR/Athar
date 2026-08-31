@@ -329,30 +329,47 @@ async function handleImportFile(file) {
   }
 
   const threads = parseResult.threads;
-  importStatus.textContent = `Parsed ${threads.length} conversations. Now embedding — this may take a few minutes…`;
-  importLabel.textContent = 'Embedding 0 / ' + threads.length;
+  importLabel.textContent = `Checking cache for ${threads.length} conversations…`;
   importZone.classList.add('loading');
 
-  // Step 2: embed — streams progress back
-  window.api.onEmbedProgress(({ done, total }) => {
-    importLabel.textContent = `Embedding ${done} / ${total}`;
-    importStatus.textContent = `Generating semantic vectors… ${done} / ${total} conversations`;
+  // Step 2: cache-aware embed
+  window.api.onEmbedProgress(({ done, total, cached, toEmbed, embedDone }) => {
+    if (toEmbed === 0) {
+      // Everything was cached
+      importLabel.textContent = `✓ All ${total} conversations loaded from cache`;
+      importStatus.textContent = `No embedding needed — everything was already cached.`;
+    } else if (embedDone !== undefined) {
+      importLabel.textContent = `Embedding ${cached} cached · ${embedDone}/${toEmbed} new`;
+      importStatus.textContent = `${cached} conversations loaded from cache. Embedding ${toEmbed} new ones…`;
+    } else {
+      importLabel.textContent = `${cached} cached · ${toEmbed} to embed…`;
+      importStatus.textContent = `Found ${cached} cached conversations. Need to embed ${toEmbed} new ones.`;
+    }
   });
 
   const embedResult = await window.api.embedThreads(threads);
 
+  importZone.classList.remove('loading');
+
   if (!embedResult.success) {
     importLabel.textContent = '＋ Import chat history';
     importStatus.textContent = `Embedding failed: ${embedResult.error}`;
-    importZone.classList.remove('loading');
     return;
   }
 
   embeddedThreads = embedResult.threads;
-  importZone.classList.remove('loading');
   importZone.classList.add('loaded');
+
+  const { stats } = embedResult;
   importLabel.textContent = `✓ ${embeddedThreads.length} conversations ready`;
-  importStatus.textContent = `Semantic search active — AI will find the most relevant context for each message.`;
+
+  if (stats.new === 0) {
+    importStatus.textContent = `All ${stats.total} conversations loaded from cache instantly.`;
+  } else if (stats.cached === 0) {
+    importStatus.textContent = `All ${stats.total} conversations freshly embedded and cached for next time.`;
+  } else {
+    importStatus.textContent = `${stats.cached} from cache + ${stats.new} newly embedded. All cached for next time.`;
+  }
 }
 
 // ── View helpers ──────────────────────────────────────────────────────────────

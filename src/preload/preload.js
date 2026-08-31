@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   getFilePath: (file) => webUtils.getPathForFile(file),
   parseExport: (filePath) => ipcRenderer.invoke('file:parse', filePath),
   embedThreads: (threads) => ipcRenderer.invoke('file:embed', threads),
+  getEmbeddingStats: () => ipcRenderer.invoke('embedding:stats'),
   onEmbedProgress: (cb) => {
     ipcRenderer.removeAllListeners('file:embed-progress');
     ipcRenderer.on('file:embed-progress', (_e, data) => cb(data));
