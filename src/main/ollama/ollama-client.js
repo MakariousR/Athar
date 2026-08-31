@@ -23,31 +23,23 @@ async function isModelInstalled(modelName) {
   return models.some((name) => name === modelName || name.startsWith(`${modelName}:`));
 }
 
-/**
- * Checks both required models and returns which are missing.
- * Returns: { chatInstalled, embedInstalled, allInstalled }
- */
 async function checkAllModels() {
   const models = await listModels();
   const has = (name) => models.some((m) => m === name || m.startsWith(`${name}:`));
-  const chatInstalled = has(DEFAULT_MODEL);
+  const chatInstalled  = has(DEFAULT_MODEL);
   const embedInstalled = has(EMBED_MODEL);
   return { chatInstalled, embedInstalled, allInstalled: chatInstalled && embedInstalled };
 }
 
-/**
- * Pulls a single model, streaming progress via onProgress.
- */
 async function pullModel(modelName, onProgress = () => {}) {
   const res = await fetch(`${OLLAMA_BASE}/api/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: modelName, stream: true })
   });
-
   if (!res.ok || !res.body) throw new Error(`Failed to pull ${modelName}: ${res.status}`);
 
-  const reader = res.body.getReader();
+  const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
@@ -65,10 +57,6 @@ async function pullModel(modelName, onProgress = () => {}) {
   return { success: true };
 }
 
-/**
- * Embeds a single string using nomic-embed-text.
- * Returns a float array (the embedding vector).
- */
 async function embedText(text) {
   const res = await fetch(`${OLLAMA_BASE}/api/embeddings`, {
     method: 'POST',
@@ -77,18 +65,13 @@ async function embedText(text) {
   });
   if (!res.ok) throw new Error(`Embed failed: ${res.status}`);
   const data = await res.json();
-  return data.embedding; // float[]
+  return data.embedding;
 }
 
-/**
- * Embeds all threads in batches, calling onProgress(done, total) after each.
- * Returns threads with an added .embedding field.
- */
 async function embedThreads(threads, onProgress = () => {}) {
   const results = [];
   for (let i = 0; i < threads.length; i++) {
-    const t = threads[i];
-    // Truncate to 2000 chars — nomic-embed-text has a token limit
+    const t    = threads[i];
     const text = `${t.title}\n${t.fullText}`.slice(0, 2000);
     const embedding = await embedText(text);
     results.push({ ...t, embedding });
@@ -97,24 +80,34 @@ async function embedThreads(threads, onProgress = () => {}) {
   return results;
 }
 
+/**
+ * Builds the message array for /api/chat.
+ *
+ * Imported threads are already filtered by relevance threshold and truncated
+ * to 600 chars each by semantic-ranker before reaching here.
+ * This keeps the prompt lean so the model has maximum room to generate.
+ */
 function buildMessages(userText, importedThreads, conversationHistory) {
   const messages = [];
 
-  let systemContent = `You are a helpful personal assistant. Answer clearly and concisely.`;
+  let systemContent = `You are a helpful personal assistant. Answer clearly and completely. Do not truncate code or lists — always finish what you start.`;
 
+  // Only inject threads that passed the relevance threshold in semantic-ranker
   if (importedThreads && importedThreads.length > 0) {
-    systemContent += `\n\nYou have access to the user's past conversation history for context. Use it to inform your answers if relevant, but do not mention it unless the user asks.\n\n`;
+    systemContent += `\n\nRelevant past conversations (use only if directly helpful to the question):\n\n`;
     importedThreads.forEach((t, i) => {
       const date = t.createTime
         ? new Date(t.createTime * 1000).toISOString().slice(0, 10)
         : 'unknown date';
-      const text = t.fullText.length > 1500 ? t.fullText.slice(0, 1500) + '…' : t.fullText;
-      systemContent += `[Past thread ${i + 1}: "${t.title}" - ${date}]\n${text}\n\n`;
+      // Content already truncated by ranker — 600 char safety clamp here too
+      const text = t.fullText.length > 600 ? t.fullText.slice(0, 600) + '…' : t.fullText;
+      systemContent += `[Thread ${i + 1}: "${t.title}" — ${date}]\n${text}\n\n`;
     });
   }
 
   messages.push({ role: 'system', content: systemContent });
 
+  // Last 10 conversation turns — enough for context without eating the window
   if (conversationHistory && conversationHistory.length > 0) {
     const recent = conversationHistory.slice(-10);
     for (const msg of recent) {
@@ -136,7 +129,10 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
       model: modelName,
       messages,
       stream: true,
-      options: { temperature: 0.7, num_predict: -1 }
+      options: {
+        temperature: 0.7,
+        num_predict: -1    // no hard cap — model stops when naturally done
+      }
     })
   });
 
@@ -145,10 +141,10 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
     throw new Error(`Ollama chat failed: ${errText}`);
   }
 
-  const reader = res.body.getReader();
+  const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let full = '';
+  let full   = '';
 
   while (true) {
     const { done, value } = await reader.read();
