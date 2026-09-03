@@ -24,21 +24,24 @@ function cosineSimilarity(a, b) {
  * We use 0.70 as the cutoff: strict enough to exclude noise,
  * loose enough to catch genuinely useful past threads.
  */
-const RELEVANCE_THRESHOLD = 0.70;
+/**
+ * Relevance threshold — threads scoring below this are excluded.
+ * For nomic-embed-text cosine similarity:
+ *   > 0.70  extremely close match
+ *   > 0.45  topic alignment / relevant match
+ *   < 0.45  unrelated
+ */
+const RELEVANCE_THRESHOLD = 0.45;
 
 /**
  * Hard cap on total characters of thread content injected into the prompt.
- * Keeps the prompt lean regardless of how many threads pass the threshold.
- * At ~4 chars per token this is roughly 2500 tokens of context — enough
- * for 3-4 solid thread summaries without eating the model's generation budget.
  */
-const MAX_TOTAL_CONTEXT_CHARS = 10000;
+const MAX_TOTAL_CONTEXT_CHARS = 12000;
 
 /**
- * Per-thread content truncation. We take the first 600 chars of each thread
- * (the opening exchange usually carries the most signal) rather than 1500.
+ * Per-thread content truncation — 2500 chars captures deep context.
  */
-const MAX_CHARS_PER_THREAD = 600;
+const MAX_CHARS_PER_THREAD = 2500;
 
 /**
  * Ranks embedded threads against a query, applying a relevance threshold

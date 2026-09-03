@@ -91,19 +91,31 @@ async function embedThreads(threads, onProgress = () => {}) {
 function buildMessages(userText, importedThreads, conversationHistory) {
   const messages = [];
 
-  let systemContent = `You are a helpful personal assistant. Answer clearly and completely. Do not truncate code or lists — always finish what you start.`;
+  let systemContent = `You are a personal AI memory assistant. You are given excerpts from the user's past conversation history. Your primary task is to answer the user's prompt using the facts, topics, code, and details contained in these past conversations.
 
-  // Only inject threads that passed the relevance threshold in semantic-ranker
+If past conversations are provided below, assume they contain the relevant information the user is asking about and summarize or cite them directly in your response.`;
+
+  // Inject matching threads
   if (importedThreads && importedThreads.length > 0) {
-    systemContent += `\n\nRelevant past conversations (use only if directly helpful to the question):\n\n`;
+    systemContent += `\n\n=== RETRIEVED PAST CONVERSATIONS ===\n`;
     importedThreads.forEach((t, i) => {
       const date = t.createTime
         ? new Date(t.createTime * 1000).toISOString().slice(0, 10)
         : 'unknown date';
-      // Content already truncated by ranker — 600 char safety clamp here too
-      const text = t.fullText.length > 600 ? t.fullText.slice(0, 600) + '…' : t.fullText;
-      systemContent += `[Thread ${i + 1}: "${t.title}" — ${date}]\n${text}\n\n`;
+
+      let threadDialogue = '';
+      if (t.messages && t.messages.length > 0) {
+        threadDialogue = t.messages
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+          .join('\n');
+      } else {
+        threadDialogue = t.fullText || '';
+      }
+
+      const text = threadDialogue.length > 2500 ? threadDialogue.slice(0, 2500) + '…' : threadDialogue;
+      systemContent += `\n--- Past Thread ${i + 1}: "${t.title}" (${date}) ---\n${text}\n`;
     });
+    systemContent += `\n=== END PAST CONVERSATIONS ===\n`;
   }
 
   messages.push({ role: 'system', content: systemContent });
