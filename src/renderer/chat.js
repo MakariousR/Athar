@@ -421,9 +421,14 @@ function renderHistoryTab() {
 
 // ── Message rendering ─────────────────────────────────────────────────────────
 function renderMarkdown(text) {
-  if (window.marked && text) return window.marked.parse(text, { breaks: true, gfm: true });
+  if (!text) return '';
+  // Collapse multiple blank lines before numbered headers, bold lines, and bullet points
+  let cleaned = text
+    .replace(/\n\s*\n+(\s*(\d+\.|\*\*|[\u2022\u25E6\u25CB\u2023\u2013\-\*]))/g, '\n$1')
+    .replace(/(\n\s*){3,}/g, '\n\n'); // Never allow more than 2 consecutive newlines anywhere
+  if (window.marked) return window.marked.parse(cleaned, { breaks: false, gfm: true });
   const d = document.createElement('div');
-  d.textContent = text;
+  d.textContent = cleaned;
   return d.innerHTML;
 }
 
