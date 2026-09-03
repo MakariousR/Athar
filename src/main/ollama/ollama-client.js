@@ -15,17 +15,18 @@ async function listModels() {
   const res = await fetch(`${OLLAMA_BASE}/api/tags`);
   if (!res.ok) throw new Error(`Failed to list models: ${res.status}`);
   const data = await res.json();
-  return (data.models || []).map((m) => m.name);
+  // Return objects with name + size so callers can sort lightest → heaviest
+  return (data.models || []).map((m) => ({ name: m.name, size: m.size || 0 }));
 }
 
 async function isModelInstalled(modelName) {
   const models = await listModels();
-  return models.some((name) => name === modelName || name.startsWith(`${modelName}:`));
+  return models.some((m) => m.name === modelName || m.name.startsWith(`${modelName}:`));
 }
 
 async function checkAllModels() {
   const models = await listModels();
-  const has = (name) => models.some((m) => m === name || m.startsWith(`${name}:`));
+  const has = (name) => models.some((m) => m.name === name || m.name.startsWith(`${name}:`));
   const chatInstalled  = has(DEFAULT_MODEL);
   const embedInstalled = has(EMBED_MODEL);
   return { chatInstalled, embedInstalled, allInstalled: chatInstalled && embedInstalled };

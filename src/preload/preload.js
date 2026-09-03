@@ -1,17 +1,15 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  // File / imported history
   getFilePath: (file) => webUtils.getPathForFile(file),
   parseExport: (filePath) => ipcRenderer.invoke('file:parse', filePath),
-  embedThreads: (threads) => ipcRenderer.invoke('file:embed', threads),
+  embedThreads: (threads, existing) => ipcRenderer.invoke('file:embed', threads, existing),
   getEmbeddingStats: () => ipcRenderer.invoke('embedding:stats'),
   onEmbedProgress: (cb) => {
     ipcRenderer.removeAllListeners('file:embed-progress');
     ipcRenderer.on('file:embed-progress', (_e, data) => cb(data));
   },
 
-  // Ollama setup
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
   pullModel: (modelName) => ipcRenderer.invoke('ollama:pull-model', modelName),
@@ -20,16 +18,14 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('ollama:pull-progress', (_e, status) => cb(status));
   },
 
-  // Chat sessions
   chatList: () => ipcRenderer.invoke('chat:list'),
   chatCreate: () => ipcRenderer.invoke('chat:create'),
   chatGet: (id) => ipcRenderer.invoke('chat:get', id),
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
   chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
-  chatSend: (sessionId, userText, embeddedThreads) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads),
+  chatSend: (sessionId, userText, embeddedThreads, modelName) =>
+    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName),
 
-  // Stable streaming listeners
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');
     ipcRenderer.on('chat:token', (_e, token) => cb(token));
@@ -37,5 +33,9 @@ contextBridge.exposeInMainWorld('api', {
   onSessionUpdated: (cb) => {
     ipcRenderer.removeAllListeners('chat:session-updated');
     ipcRenderer.on('chat:session-updated', (_e, data) => cb(data));
+  },
+  onChatSources: (cb) => {
+    ipcRenderer.removeAllListeners('chat:sources');
+    ipcRenderer.on('chat:sources', (_e, sources) => cb(sources));
   }
 });

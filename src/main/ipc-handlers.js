@@ -28,26 +28,22 @@ function registerIpcHandlers() {
     } catch (err) { return { success: false, error: err.message }; }
   });
 
+  // Returns threads + detected source label ('chatgpt' | 'claude' | 'unknown')
   ipcMain.handle('file:parse', async (event, filePath) => {
-    try { return { success: true, threads: parseAnyExport(filePath) }; }
-    catch (err) { return { success: false, error: err.message }; }
+    try {
+      const threads = parseAnyExport(filePath);
+      const source = threads.length > 0 ? (threads[0].source || 'unknown') : 'unknown';
+      return { success: true, threads, source };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
-  /**
-   * Cache-aware embed handler.
-   *
-   * Flow:
-   *  1. Split threads into cached (already on disk) and uncached (need Ollama)
-   *  2. Stream progress only for uncached threads — cached ones are instant
-   *  3. Embed only the uncached subset via Ollama
-   *  4. Save new embeddings to disk cache
-   *  5. Merge cached + newly embedded and return the full set
-   */
-  ipcMain.handle('file:embed', async (event, threads) => {
+  // Cache-aware embed — merges with previously embedded threads passed from renderer
+  ipcMain.handle('file:embed', async (event, threads, existingEmbedded) => {
     try {
       const { cached, uncached, hashMap } = embeddingStore.splitByCache(threads);
 
-      // Tell the renderer immediately how many are cached vs need embedding
       event.sender.send('file:embed-progress', {
         done: cached.length,
         total: threads.length,
@@ -67,23 +63,31 @@ function registerIpcHandlers() {
             embedDone: done
           });
         });
-
-        // Persist new embeddings to disk
         embeddingStore.cacheNewEmbeddings(newlyEmbedded, hashMap);
       }
 
-      // Merge: preserve original thread order
+      // Build full set for this import
       const embeddedMap = new Map();
       for (const t of cached)        embeddedMap.set(t.id, t);
       for (const t of newlyEmbedded) embeddedMap.set(t.id, t);
-      const allEmbedded = threads
-        .map((t) => embeddedMap.get(t.id))
-        .filter(Boolean);
+      const thisImport = threads.map((t) => embeddedMap.get(t.id)).filter(Boolean);
+
+      // Merge with threads from previous imports — deduplicate by id
+      const merged = new Map();
+      for (const t of (existingEmbedded || [])) merged.set(t.id, t);
+      for (const t of thisImport)               merged.set(t.id, t); // newer import wins on collision
+
+      const allEmbedded = Array.from(merged.values());
 
       return {
         success: true,
         threads: allEmbedded,
-        stats: { total: allEmbedded.length, cached: cached.length, new: newlyEmbedded.length }
+        stats: {
+          total: allEmbedded.length,
+          thisImport: thisImport.length,
+          cached: cached.length,
+          new: newlyEmbedded.length
+        }
       };
     } catch (err) {
       return { success: false, error: err.message };
@@ -95,7 +99,7 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  // --- Chat sessions ---
+  // Chat sessions
   ipcMain.handle('chat:list', async () => {
     try { return { success: true, sessions: store.loadSessions() }; }
     catch (err) { return { success: false, error: err.message }; }
@@ -121,7 +125,7 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName) => {
     try {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
@@ -154,6 +158,17 @@ function registerIpcHandlers() {
         ? await rankThreadsSemantic(embeddedThreads, combinedQuery, 5)
         : [];
 
+      // Emit sources BEFORE generation so the UI can show them alongside the response
+      if (ranked.length > 0) {
+        event.sender.send('chat:sources', ranked.map((t) => ({
+          id: t.id,
+          title: t.title,
+          source: t.source || 'unknown',
+          score: t.score,
+          date: t.createTime ? new Date(t.createTime * 1000).toISOString().slice(0, 10) : null
+        })));
+      }
+
       let fullReply = '';
 
       if (continuationPrefix) {
@@ -161,11 +176,14 @@ function registerIpcHandlers() {
         fullReply = continuationPrefix + '\n';
       }
 
+      // Use the model chosen by the user, falling back to the default
+      const chosenModel = modelName || ollama.DEFAULT_MODEL;
+
       await ollama.generate(
         effectiveUserText,
         ranked,
         conversationHistory,
-        ollama.DEFAULT_MODEL,
+        chosenModel,
         (token) => {
           fullReply += token;
           event.sender.send('chat:token', token);

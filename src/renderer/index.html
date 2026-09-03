@@ -27,9 +27,36 @@
         <button id="newChatBtn" class="icon-btn" title="New chat">＋</button>
       </div>
 
-      <ul id="sessionList" class="session-list"></ul>
+      <!-- Sidebar tabs -->
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="chats">Chats</button>
+        <button class="sidebar-tab" data-tab="history">History</button>
+      </div>
+
+      <!-- Chats tab -->
+      <div id="tabChats" class="tab-panel">
+        <ul id="sessionList" class="session-list"></ul>
+      </div>
+
+      <!-- History tab -->
+      <div id="tabHistory" class="tab-panel hidden">
+        <div id="historyList" class="history-list">
+          <p class="history-empty">No history imported yet.<br/>Use the import button below.</p>
+        </div>
+      </div>
 
       <div class="sidebar-bottom">
+        <div class="model-row">
+          <span class="model-row-label">Model</span>
+          <select id="modelSelect" class="model-select" title="Choose model"></select>
+          <div id="modelAction" class="model-action hidden">
+            <button id="modelDownloadBtn" class="model-download-btn">⬇ Download</button>
+            <div id="modelDownloadProgress" class="model-dl-progress hidden">
+              <div class="progress-bar"><div class="progress-fill" id="modelDlFill"></div></div>
+              <span id="modelDlText" class="model-dl-text">0%</span>
+            </div>
+          </div>
+        </div>
         <div id="importZone" class="import-zone">
           <span id="importLabel">＋ Import chat history</span>
           <input type="file" id="fileInput" accept="application/json" class="hidden" />
