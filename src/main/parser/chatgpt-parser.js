@@ -60,6 +60,7 @@ function reconstructThread(conversation) {
   return {
     id: conversation.conversation_id || conversation.id || title,
     title: title || 'Untitled conversation',
+    source: 'chatgpt',
     createTime: create_time || (messages[0] && messages[0].createTime) || null,
     messages,
     // Precomputed flat text used by the keyword ranker so it doesn't have

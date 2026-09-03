@@ -9,13 +9,73 @@ function getCachePath() {
   return path.join(dir, 'cache.json');
 }
 
+function getThreadsStorePath() {
+  const dir = path.join(app.getPath('userData'), 'history');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, 'threads.json');
+}
+
+/**
+ * Loads all previously persisted threads (with their embeddings) from disk on app start.
+ */
+function loadPersistedThreads() {
+  const p = getThreadsStorePath();
+  if (!fs.existsSync(p)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Saves the full active array of embedded threads to disk.
+ */
+function savePersistedThreads(threads) {
+  const p = getThreadsStorePath();
+  fs.writeFileSync(p, JSON.stringify(threads), 'utf-8');
+}
+
+/**
+ * Merges newly imported threads with existing threads.
+ * If a thread ID already exists, checks if the incoming thread contains new prompts/messages.
+ * If new messages exist, updates the thread's messages & fullText; otherwise keeps existing.
+ */
+function mergeThreads(existingThreads = [], incomingThreads = []) {
+  const map = new Map();
+  for (const t of existingThreads) {
+    map.set(t.id, { ...t });
+  }
+
+  for (const inc of incomingThreads) {
+    if (!map.has(inc.id)) {
+      map.set(inc.id, inc);
+    } else {
+      const current = map.get(inc.id);
+      const currentCount = current.messages ? current.messages.length : 0;
+      const incCount = inc.messages ? inc.messages.length : 0;
+
+      // If incoming thread has more messages or different content, merge/update
+      if (incCount > currentCount || inc.fullText !== current.fullText) {
+        map.set(inc.id, {
+          ...current,
+          ...inc,
+          // invalidate embedding if content changed so splitByCache can re-embed
+          embedding: (inc.fullText === current.fullText) ? current.embedding : undefined
+        });
+      }
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 /**
  * Stable content hash for a thread.
- * We hash title + first 2000 chars of fullText — same content = same hash,
- * so re-importing the same file never re-embeds anything.
+ * We hash title + fullText — content changes = hash changes.
  */
 function threadHash(thread) {
-  const content = `${thread.id}||${thread.title}||${thread.fullText.slice(0, 2000)}`;
+  const content = `${thread.id}||${thread.title}||${thread.fullText}`;
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
@@ -66,7 +126,9 @@ function splitByCache(threads) {
     const hash = threadHash(t);
     hashMap.set(t.id, hash);
 
-    if (cache.has(hash)) {
+    if (t.embedding) {
+      cached.push(t);
+    } else if (cache.has(hash)) {
       cached.push({ ...t, embedding: cache.get(hash).embedding });
     } else {
       uncached.push(t);
@@ -106,4 +168,12 @@ function getCacheStats() {
   return { totalCached: cache.size };
 }
 
-module.exports = { threadHash, splitByCache, cacheNewEmbeddings, getCacheStats };
+module.exports = {
+  threadHash,
+  splitByCache,
+  cacheNewEmbeddings,
+  getCacheStats,
+  loadPersistedThreads,
+  savePersistedThreads,
+  mergeThreads
+};

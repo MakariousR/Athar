@@ -39,14 +39,27 @@ function registerIpcHandlers() {
     }
   });
 
-  // Cache-aware embed — merges with previously embedded threads passed from renderer
-  ipcMain.handle('file:embed', async (event, threads, existingEmbedded) => {
+  ipcMain.handle('history:load', async () => {
     try {
-      const { cached, uncached, hashMap } = embeddingStore.splitByCache(threads);
+      const threads = embeddingStore.loadPersistedThreads();
+      return { success: true, threads };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Cache-aware & incremental embed — merges incoming threads, checks missing prompts, persists to disk
+  ipcMain.handle('file:embed', async (event, incomingThreads, existingEmbedded) => {
+    try {
+      // 1. Smart incremental merge: merge incoming with existing history, updating threads with new prompts
+      const mergedThreads = embeddingStore.mergeThreads(existingEmbedded || [], incomingThreads);
+
+      // 2. Split into cached vs uncached (new threads or threads with new content)
+      const { cached, uncached, hashMap } = embeddingStore.splitByCache(mergedThreads);
 
       event.sender.send('file:embed-progress', {
         done: cached.length,
-        total: threads.length,
+        total: mergedThreads.length,
         cached: cached.length,
         toEmbed: uncached.length
       });
@@ -57,7 +70,7 @@ function registerIpcHandlers() {
         newlyEmbedded = await ollama.embedThreads(uncached, (done, total) => {
           event.sender.send('file:embed-progress', {
             done: cached.length + done,
-            total: threads.length,
+            total: mergedThreads.length,
             cached: cached.length,
             toEmbed: total,
             embedDone: done
@@ -66,25 +79,21 @@ function registerIpcHandlers() {
         embeddingStore.cacheNewEmbeddings(newlyEmbedded, hashMap);
       }
 
-      // Build full set for this import
+      // Build full set
       const embeddedMap = new Map();
       for (const t of cached)        embeddedMap.set(t.id, t);
       for (const t of newlyEmbedded) embeddedMap.set(t.id, t);
-      const thisImport = threads.map((t) => embeddedMap.get(t.id)).filter(Boolean);
+      const allEmbedded = mergedThreads.map((t) => embeddedMap.get(t.id)).filter(Boolean);
 
-      // Merge with threads from previous imports — deduplicate by id
-      const merged = new Map();
-      for (const t of (existingEmbedded || [])) merged.set(t.id, t);
-      for (const t of thisImport)               merged.set(t.id, t); // newer import wins on collision
-
-      const allEmbedded = Array.from(merged.values());
+      // 3. Persist the updated history to disk so it reloads on restart
+      embeddingStore.savePersistedThreads(allEmbedded);
 
       return {
         success: true,
         threads: allEmbedded,
         stats: {
           total: allEmbedded.length,
-          thisImport: thisImport.length,
+          thisImport: incomingThreads.length,
           cached: cached.length,
           new: newlyEmbedded.length
         }

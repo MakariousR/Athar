@@ -33,8 +33,8 @@ let currentAssistantBubble = null;
 let currentStreamText    = '';
 let pendingSources       = null; // sources received before stream starts
 
-const CHAT_MODEL  = 'qwen3.5:0.8b';
-const EMBED_MODEL = 'nomic-embed-text';
+const CHAT_MODEL  = 'qwen2.5:3b';
+const EMBED_MODEL = 'bge-m3';
 
 let activeModel = CHAT_MODEL; // the model currently used for generation
 
@@ -96,8 +96,8 @@ async function checkSetup() {
     return;
   }
   const missing = [];
-  if (!result.chatInstalled)  missing.push({ model: CHAT_MODEL,  label: 'Chat model',      size: '~1 GB' });
-  if (!result.embedInstalled) missing.push({ model: EMBED_MODEL, label: 'Embedding model',  size: '~274 MB' });
+  if (!result.chatInstalled)  missing.push({ model: CHAT_MODEL,  label: 'Default Chat model (Qwen 2.5 3B)', size: '~1.9 GB' });
+  if (!result.embedInstalled) missing.push({ model: EMBED_MODEL, label: 'Multilingual Embedding Model (bge-m3)', size: '~560 MB' });
   if (missing.length === 0) { enterApp(); return; }
   setupStatus.textContent = `${missing.length} model${missing.length > 1 ? 's' : ''} need${missing.length === 1 ? 's' : ''} to be downloaded.`;
   renderSetupSteps(missing);
@@ -160,11 +160,28 @@ async function pullSequentially(missing, index) {
   }
 }
 
-function enterApp() {
+async function enterApp() {
   setupOverlay.classList.add('hidden');
   appShell.classList.remove('hidden');
   loadSessionList();
   loadModelSelector();
+  await initSavedHistory();
+}
+
+async function initSavedHistory() {
+  try {
+    const res = await window.api.loadSavedHistory();
+    if (res.success && res.threads && res.threads.length > 0) {
+      embeddedThreads = res.threads;
+      importZone.classList.add('loaded');
+      importLabel.textContent = `✓ ${embeddedThreads.length} total conversations`;
+      importStatus.classList.remove('hidden');
+      importStatus.textContent = `Loaded ${embeddedThreads.length} conversations from disk.`;
+      renderHistoryTab();
+    }
+  } catch (err) {
+    console.warn('Could not load saved history:', err);
+  }
 }
 
 // ── Model selector ────────────────────────────────────────────────────────────

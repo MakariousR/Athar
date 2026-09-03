@@ -1,5 +1,14 @@
 const { embedText } = require('../ollama/ollama-client');
 
+function normalizeArabicText(text) {
+  if (!text) return '';
+  return text
+    .replace(/[\u064B-\u0652\u0670]/g, '') // remove tashkeel (diacritics)
+    .replace(/[إأآا]/g, 'ا')              // normalize alef variations
+    .replace(/ة/g, 'ه')                    // normalize teh marbuta
+    .replace(/ى/g, 'ي');                   // normalize alef maqsura
+}
+
 function cosineSimilarity(a, b) {
   if (!a || !b || a.length !== b.length) return 0;
   let dot = 0, normA = 0, normB = 0;
@@ -61,7 +70,8 @@ async function rankThreadsSemantic(threads, query, topN = 5) {
   const embeddedThreads = threads.filter((t) => t.embedding && t.embedding.length > 0);
   if (embeddedThreads.length === 0) return [];
 
-  const queryEmbedding = await embedText(query.slice(0, 2000));
+  const normalizedQuery = normalizeArabicText(query.slice(0, 2000));
+  const queryEmbedding = await embedText(normalizedQuery);
 
   const scored = embeddedThreads
     .map((t) => ({

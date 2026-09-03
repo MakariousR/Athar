@@ -36,6 +36,7 @@ function parseClaudeExport(filePath) {
       return {
         id: conv.uuid || conv.name,
         title: conv.name || 'Untitled conversation',
+        source: 'claude',
         createTime,
         messages,
         // Same precomputed fullText field the keyword ranker expects

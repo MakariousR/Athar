@@ -1,6 +1,6 @@
 const OLLAMA_BASE = 'http://127.0.0.1:11434';
-const DEFAULT_MODEL = 'qwen3.5:0.8b';
-const EMBED_MODEL = 'nomic-embed-text';
+const DEFAULT_MODEL = 'qwen2.5:3b';
+const EMBED_MODEL = 'bge-m3';
 
 async function isOllamaRunning() {
   try {
