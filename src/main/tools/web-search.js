@@ -20,11 +20,39 @@ function withTimeout(promise, timeoutMs, fallbackValue) {
 }
 
 /**
+ * Decode common HTML entities.
+ */
+function decodeHtmlEntities(str) {
+  if (!str) return '';
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#\d+;/g, (match) => {
+      const num = parseInt(match.replace(/\D/g, ''), 10);
+      return !isNaN(num) ? String.fromCharCode(num) : match;
+    });
+}
+
+/**
+ * Clean HTML markup and extract plain text with basic structural formatting.
+ */
+function cleanText(htmlSnippet) {
+  if (!htmlSnippet) return '';
+  const text = htmlSnippet.replace(/<[^>]+>/g, ' ');
+  return decodeHtmlEntities(text).replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Checks if the system is currently connected to the internet.
  */
 function isOnline() {
   return new Promise((resolve) => {
-    const req = http.get('http://www.msftconnecttest.com/connecttest.txt', { timeout: 2000 }, (res) => {
+    const req = http.get('http://www.msftconnecttest.com/connecttest.txt', { timeout: 2500 }, (res) => {
       resolve(res.statusCode === 200);
     });
     req.on('error', () => resolve(false));
@@ -33,7 +61,8 @@ function isOnline() {
 }
 
 /**
- * Fast DuckDuckGo Search Scraper with strict 3-second network limit.
+ * Fast & Powerful DuckDuckGo Search Scraper with 4.5-second network limit.
+ * Extracts up to 8 search items with titles, target URLs, and snippets.
  */
 function performDuckDuckGoSearch(query) {
   return new Promise((resolve) => {
@@ -42,14 +71,14 @@ function performDuckDuckGoSearch(query) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
+        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8'
       },
-      timeout: 3000
+      timeout: 4500
     }, (res) => {
       let data = '';
       res.on('data', (chunk) => {
         data += chunk;
-        if (data.length > 150000) req.destroy(); // Cap response size
+        if (data.length > 300000) req.destroy(); // Cap response size at ~300KB
       });
 
       res.on('end', () => {
@@ -57,10 +86,10 @@ function performDuckDuckGoSearch(query) {
         const blocks = data.split(/class="result\s+/g).slice(1);
 
         for (const block of blocks) {
-          if (results.length >= 4) break;
+          if (results.length >= 8) break;
 
-          const hrefMatch = /href="([^"]+)"/i.exec(block);
           let targetUrl = '';
+          const hrefMatch = /href="([^"]+)"/i.exec(block);
           if (hrefMatch) {
             let rawHref = hrefMatch[1];
             if (rawHref.includes('uddg=')) {
@@ -76,16 +105,16 @@ function performDuckDuckGoSearch(query) {
           let snippet = '';
           const snippetMatch = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
           if (snippetMatch) {
-            snippet = snippetMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            snippet = cleanText(snippetMatch[1]);
           }
 
           let title = '';
-          const titleMatch = /class="result__title"[^>]*>([\s\S]*?)<\/a>/i.exec(block) || /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+          const titleMatch = /class="result__title"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
           if (titleMatch) {
-            title = titleMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            title = cleanText(titleMatch[1]);
           }
 
-          if (snippet || title) {
+          if (title || snippet) {
             results.push({
               title: title || 'Web Page',
               url: targetUrl || 'https://duckduckgo.com',
@@ -104,9 +133,9 @@ function performDuckDuckGoSearch(query) {
 }
 
 /**
- * Fast Web Page Scraper with 2.5s strict timeout.
+ * Advanced Web Page Content Extractor with deep structure preservation (Tables, Lists, Headings, Paragraphs).
  */
-function fetchWebPageContent(pageUrl, maxChars = 800) {
+function fetchWebPageContent(pageUrl, maxChars = 4000) {
   return new Promise((resolve) => {
     if (!pageUrl || !pageUrl.startsWith('http')) {
       return resolve({ url: pageUrl, title: 'Invalid URL', text: '' });
@@ -116,39 +145,84 @@ function fetchWebPageContent(pageUrl, maxChars = 800) {
     const req = client.get(pageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8'
       },
-      timeout: 2500
+      timeout: 4000
     }, (res) => {
       let html = '';
       res.on('data', (chunk) => {
         html += chunk;
-        if (html.length > 60000) req.destroy();
+        if (html.length > 250000) req.destroy(); // Cap at 250KB HTML
       });
 
       res.on('end', () => {
+        // Strip non-content blocks aggressively
         let cleanedHtml = html
           .replace(/<script[\s\S]*?<\/script>/gi, ' ')
           .replace(/<style[\s\S]*?<\/style>/gi, ' ')
           .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
           .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
-          .replace(/<header[\s\S]*?<\/header>/gi, ' ');
+          .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+          .replace(/<aside[\s\S]*?<\/aside>/gi, ' ')
+          .replace(/<form[\s\S]*?<\/form>/gi, ' ')
+          .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
+          .replace(/<!--[\s\S]*?-->/g, ' ');
 
         let title = '';
         const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(cleanedHtml);
-        if (titleMatch) title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+        if (titleMatch) title = cleanText(titleMatch[1]);
 
         const contentPieces = [];
-        const contentRegex = /<(p|h1|h2|h3|li|article)[^>]*>([\s\S]*?)<\/\1>/gi;
+
+        // 1. Convert tables to markdown style rows (| col1 | col2 |)
+        cleanedHtml = cleanedHtml.replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, (match, trContent) => {
+          const cells = [];
+          const cellRegex = /<(td|th)[^>]*>([\s\S]*?)<\/\1>/gi;
+          let cellMatch;
+          while ((cellMatch = cellRegex.exec(trContent)) !== null) {
+            const cellText = cleanText(cellMatch[2]);
+            if (cellText) cells.push(cellText);
+          }
+          if (cells.length > 0) {
+            const rowText = `| ${cells.join(' | ')} |`;
+            contentPieces.push(rowText);
+          }
+          return ' ';
+        });
+
+        // 2. Extract Headings, List items, Paragraphs, Articles, Blockquotes, Divs
+        const contentRegex = /<(h[1-6]|li|p|article|blockquote|section|div)[^>]*>([\s\S]*?)<\/\1>/gi;
         let match;
         while ((match = contentRegex.exec(cleanedHtml)) !== null) {
-          const text = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          if (text.length > 30) contentPieces.push(text);
+          const tag = match[1].toLowerCase();
+          const rawInner = match[2];
+          const text = cleanText(rawInner);
+
+          if (!text || text.length < 5) continue;
+
+          if (tag.startsWith('h')) {
+            contentPieces.push(`\n### ${text}`);
+          } else if (tag === 'li') {
+            contentPieces.push(`- ${text}`);
+          } else if (text.length >= 25) {
+            contentPieces.push(text);
+          }
         }
 
-        let fullText = contentPieces.length > 0
-          ? contentPieces.join('\n\n')
-          : cleanedHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        let fullText = '';
+        if (contentPieces.length > 0) {
+          // Remove duplicate adjacent entries
+          const uniquePieces = [];
+          for (const piece of contentPieces) {
+            if (uniquePieces.length === 0 || uniquePieces[uniquePieces.length - 1] !== piece) {
+              uniquePieces.push(piece);
+            }
+          }
+          fullText = uniquePieces.join('\n\n');
+        } else {
+          fullText = cleanText(cleanedHtml);
+        }
 
         if (fullText.length > maxChars) fullText = fullText.slice(0, maxChars) + '…';
 
@@ -162,8 +236,8 @@ function fetchWebPageContent(pageUrl, maxChars = 800) {
 }
 
 /**
- * Main Non-Blocking Web Search Tool.
- * Wrapped in hard 4-second global timeout so it CANNOT hang under any circumstances.
+ * Main High-Performance Non-Blocking Web Search Tool.
+ * Deeply extracts context from search results & top web pages.
  */
 async function searchWebTool(query) {
   const online = await isOnline();
@@ -186,10 +260,10 @@ async function searchWebTool(query) {
       };
     }
 
-    // Try parallel fetch of top 2 pages with 2s timeout
-    const fetchPromises = items.slice(0, 2).map((item) =>
+    // Parallel deep fetch of top 3 pages with 3.5s timeout per page
+    const fetchPromises = items.slice(0, 3).map((item) =>
       item.url && item.url.startsWith('http')
-        ? withTimeout(fetchWebPageContent(item.url, 800), 2000, { url: item.url, title: item.title, text: item.snippet })
+        ? withTimeout(fetchWebPageContent(item.url, 3500), 3500, { url: item.url, title: item.title, text: item.snippet })
         : Promise.resolve({ url: item.url, title: item.title, text: item.snippet })
     );
 
@@ -197,11 +271,12 @@ async function searchWebTool(query) {
 
     const combinedResults = items.map((item, idx) => {
       const page = pageResults[idx];
+      const deepContent = (page && page.text && page.text.length > 80) ? page.text : item.snippet;
       return {
         title: item.title,
         url: item.url,
         snippet: item.snippet,
-        extractedContent: (page && page.text && page.text.length > 50) ? page.text : item.snippet
+        extractedContent: deepContent
       };
     });
 
@@ -209,12 +284,13 @@ async function searchWebTool(query) {
       success: true,
       status: 'online',
       query,
+      resultsCount: combinedResults.length,
       results: combinedResults
     };
   };
 
-  // Hard global timeout: if searchOperation takes more than 3.5 seconds total, fallback immediately!
-  return await withTimeout(searchOperation(), 3500, {
+  // Hard global timeout: 7.5 seconds total for full search + deep page content extraction
+  return await withTimeout(searchOperation(), 7500, {
     success: true,
     status: 'timeout_fallback',
     query,
@@ -223,7 +299,7 @@ async function searchWebTool(query) {
 }
 
 /**
- * Tool 2: Web Page Content Extractor Tool with hard 3s timeout.
+ * Web Page Content Extractor Tool with hard 4.5s timeout.
  */
 async function fetchPageTool(pageUrl) {
   const online = await isOnline();
@@ -236,16 +312,17 @@ async function fetchPageTool(pageUrl) {
   }
 
   return await withTimeout(
-    fetchWebPageContent(pageUrl, 1000).then((pageData) => ({
+    fetchWebPageContent(pageUrl, 5000).then((pageData) => ({
       success: true,
       status: 'online',
       url: pageUrl,
       title: pageData.title,
       content: pageData.text || 'Could not extract page text.'
     })),
-    3000,
+    4500,
     { success: false, status: 'timeout', message: `Fetching ${pageUrl} timed out.` }
   );
 }
 
 module.exports = { isOnline, searchWebTool, fetchPageTool, fetchWebPageContent };
+

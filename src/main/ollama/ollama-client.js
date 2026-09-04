@@ -103,7 +103,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'web_search',
-      description: 'Surfs DuckDuckGo to search for current news, facts, web links, or real-time info.',
+      description: 'Searches DuckDuckGo for live facts, real-time data, specific entity names, lists, and news. Returns extracted web page text and snippets. IMPORTANT: Always extract the exact names, items, facts, or data requested by the user from these results rather than returning website titles or search result descriptions.',
       parameters: {
         type: 'object',
         properties: {
@@ -117,7 +117,7 @@ const AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'fetch_web_page',
-      description: 'Enters a specific web URL link, scrapes its main content paragraphs, and returns the page text.',
+      description: 'Fetches and extracts full article text, ordered lists, and tables from a web page URL. Use this if search snippets do not contain all the specific names, list items, or details requested by the user.',
       parameters: {
         type: 'object',
         properties: {
@@ -169,7 +169,12 @@ CRITICAL CONTEXT & BOUNDARY RULES:
    - ONLY reference background archives if the user explicitly asks about past work, or if it directly answers the user's prompt.
 2. PRIMARY FOCUS: The active chat conversation topic is your top priority. Stay focused on what the user is currently asking or building.
 3. LANGUAGE MATCHING: You MUST ALWAYS respond in the EXACT SAME LANGUAGE as the user's input prompt (e.g., if prompt is in Arabic, respond in Arabic; if English, respond in English).
-4. NO PLACEHOLDERS: Never output bracket placeholders like "[Name 1]".`;
+4. NO PLACEHOLDERS: Never output bracket placeholders like "[Name 1]".
+5. SEARCH & CONTEXT EXTRACTION INSTRUCTIONS:
+   - When using web_search or fetch_web_page, your objective is to extract SPECIFIC FACTS, NAMES, DATES, FIGURES, LISTS, and EXACT DATA requested by the user.
+   - NEVER output web page titles (e.g. "Billboard Year-End Hot 100..."), URL domain descriptions, search engine metadata, or meta snippets as your final answer.
+   - If the user asks for a specific list (e.g. "top 20 songs", "10 best movies", "list of ingredients", "key specifications"), you MUST extract and provide the actual list of item/entity names.
+   - If initial web search snippets do not contain the full list or exact names, immediately invoke fetch_web_page on the most relevant page URL or execute follow-up search queries to retrieve the full information before synthesizing your final answer.`;
 
   // Inject matching threads in explicit XML structure
   if (importedThreads && importedThreads.length > 0) {
@@ -233,7 +238,7 @@ CRITICAL CONTEXT & BOUNDARY RULES:
 async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}, onStatus = () => {}, images = []) {
   const messages = buildMessages(userText, importedThreads, conversationHistory, images);
   let step = 0;
-  const maxSteps = 4;
+  const maxSteps = 6;
   const executedToolKeys = new Set();
   let enableTools = true;
 
