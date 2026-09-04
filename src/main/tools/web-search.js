@@ -3,11 +3,28 @@ const http = require('http');
 const { URL } = require('url');
 
 /**
+ * Global Promise Timeout Wrapper.
+ * Guarantees that no tool operation can ever hang longer than timeoutMs.
+ * If a request hangs, it rejects/resolves gracefully with fallback data.
+ */
+function withTimeout(promise, timeoutMs, fallbackValue) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      resolve(fallbackValue);
+    }, timeoutMs);
+
+    promise
+      .then((res) => { clearTimeout(timer); resolve(res); })
+      .catch(() => { clearTimeout(timer); resolve(fallbackValue); });
+  });
+}
+
+/**
  * Checks if the system is currently connected to the internet.
  */
 function isOnline() {
   return new Promise((resolve) => {
-    const req = http.get('http://www.msftconnecttest.com/connecttest.txt', { timeout: 2500 }, (res) => {
+    const req = http.get('http://www.msftconnecttest.com/connecttest.txt', { timeout: 2000 }, (res) => {
       resolve(res.statusCode === 200);
     });
     req.on('error', () => resolve(false));
@@ -16,11 +33,10 @@ function isOnline() {
 }
 
 /**
- * Robust DuckDuckGo HTML Search Scraper.
- * Correctly parses result URLs, titles, and snippet text.
+ * Fast DuckDuckGo Search Scraper with strict 3-second network limit.
  */
 function performDuckDuckGoSearch(query) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
     const req = https.get(url, {
       headers: {
@@ -28,19 +44,21 @@ function performDuckDuckGoSearch(query) {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9'
       },
-      timeout: 6000
+      timeout: 3000
     }, (res) => {
       let data = '';
-      res.on('data', (chunk) => data += chunk);
+      res.on('data', (chunk) => {
+        data += chunk;
+        if (data.length > 150000) req.destroy(); // Cap response size
+      });
+
       res.on('end', () => {
         const results = [];
-        // Match DuckDuckGo result snippet blocks
         const blocks = data.split(/class="result\s+/g).slice(1);
 
         for (const block of blocks) {
           if (results.length >= 4) break;
 
-          // Extract href link
           const hrefMatch = /href="([^"]+)"/i.exec(block);
           let targetUrl = '';
           if (hrefMatch) {
@@ -55,22 +73,24 @@ function performDuckDuckGoSearch(query) {
             }
           }
 
-          // Extract snippet text
           let snippet = '';
           const snippetMatch = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
           if (snippetMatch) {
             snippet = snippetMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           }
 
-          // Extract title
           let title = '';
           const titleMatch = /class="result__title"[^>]*>([\s\S]*?)<\/a>/i.exec(block) || /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
           if (titleMatch) {
             title = titleMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           }
 
-          if (targetUrl && targetUrl.startsWith('http') && (snippet || title)) {
-            results.push({ title: title || 'Web Page', url: targetUrl, snippet: snippet || title });
+          if (snippet || title) {
+            results.push({
+              title: title || 'Web Page',
+              url: targetUrl || 'https://duckduckgo.com',
+              snippet: snippet || title
+            });
           }
         }
 
@@ -78,37 +98,32 @@ function performDuckDuckGoSearch(query) {
       });
     });
 
-    req.on('error', (err) => reject(err));
-    req.on('timeout', () => { req.destroy(); reject(new Error('Search request timed out')); });
+    req.on('error', () => resolve([]));
+    req.on('timeout', () => { req.destroy(); resolve([]); });
   });
 }
 
 /**
- * Fast HTML Scraper & Text Compressor:
- * Fetches page HTML, strips HTML tags/scripts, and extracts main paragraph text.
- * Truncates text to maxChars (default 1000) for fast response time.
+ * Fast Web Page Scraper with 2.5s strict timeout.
  */
-function fetchWebPageContent(pageUrl, maxChars = 1000) {
+function fetchWebPageContent(pageUrl, maxChars = 800) {
   return new Promise((resolve) => {
+    if (!pageUrl || !pageUrl.startsWith('http')) {
+      return resolve({ url: pageUrl, title: 'Invalid URL', text: '' });
+    }
+
     let client = pageUrl.startsWith('https') ? https : http;
     const req = client.get(pageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
       },
-      timeout: 3500
+      timeout: 2500
     }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        try {
-          const redirectUrl = new URL(res.headers.location, pageUrl).href;
-          return fetchWebPageContent(redirectUrl, maxChars).then(resolve);
-        } catch {}
-      }
-
       let html = '';
       res.on('data', (chunk) => {
         html += chunk;
-        if (html.length > 80000) req.destroy();
+        if (html.length > 60000) req.destroy();
       });
 
       res.on('end', () => {
@@ -117,8 +132,7 @@ function fetchWebPageContent(pageUrl, maxChars = 1000) {
           .replace(/<style[\s\S]*?<\/style>/gi, ' ')
           .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
           .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
-          .replace(/<header[\s\S]*?<\/header>/gi, ' ')
-          .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
+          .replace(/<header[\s\S]*?<\/header>/gi, ' ');
 
         let title = '';
         const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(cleanedHtml);
@@ -138,17 +152,18 @@ function fetchWebPageContent(pageUrl, maxChars = 1000) {
 
         if (fullText.length > maxChars) fullText = fullText.slice(0, maxChars) + '…';
 
-        resolve({ url: pageUrl, title: title || 'Web Page', text: fullText || 'No readable text content extracted.' });
+        resolve({ url: pageUrl, title: title || 'Web Page', text: fullText || '' });
       });
     });
 
-    req.on('error', () => resolve({ url: pageUrl, title: 'Error', text: 'Could not read page content.' }));
-    req.on('timeout', () => { req.destroy(); resolve({ url: pageUrl, title: 'Timeout', text: 'Page request timed out.' }); });
+    req.on('error', () => resolve({ url: pageUrl, title: 'Error', text: '' }));
+    req.on('timeout', () => { req.destroy(); resolve({ url: pageUrl, title: 'Timeout', text: '' }); });
   });
 }
 
 /**
- * Fast Web Search Tool — runs search + parallel page fetching for top 2 links.
+ * Main Non-Blocking Web Search Tool.
+ * Wrapped in hard 4-second global timeout so it CANNOT hang under any circumstances.
  */
 async function searchWebTool(query) {
   const online = await isOnline();
@@ -160,7 +175,7 @@ async function searchWebTool(query) {
     };
   }
 
-  try {
+  const searchOperation = async () => {
     const items = await performDuckDuckGoSearch(query);
     if (items.length === 0) {
       return {
@@ -171,39 +186,44 @@ async function searchWebTool(query) {
       };
     }
 
-    // Parallel fetch of top 2 web pages
+    // Try parallel fetch of top 2 pages with 2s timeout
     const fetchPromises = items.slice(0, 2).map((item) =>
       item.url && item.url.startsWith('http')
-        ? fetchWebPageContent(item.url, 1000)
+        ? withTimeout(fetchWebPageContent(item.url, 800), 2000, { url: item.url, title: item.title, text: item.snippet })
         : Promise.resolve({ url: item.url, title: item.title, text: item.snippet })
     );
 
     const pageResults = await Promise.all(fetchPromises);
 
-    const deepPageContents = pageResults.map((p, idx) => ({
-      title: p.title || items[idx].title,
-      url: p.url || items[idx].url,
-      snippet: items[idx].snippet,
-      fullArticleText: p.text
-    }));
+    const combinedResults = items.map((item, idx) => {
+      const page = pageResults[idx];
+      return {
+        title: item.title,
+        url: item.url,
+        snippet: item.snippet,
+        extractedContent: (page && page.text && page.text.length > 50) ? page.text : item.snippet
+      };
+    });
 
     return {
       success: true,
       status: 'online',
       query,
-      results: deepPageContents
+      results: combinedResults
     };
-  } catch (err) {
-    return {
-      success: false,
-      status: 'error',
-      message: `Web search error: ${err.message}`
-    };
-  }
+  };
+
+  // Hard global timeout: if searchOperation takes more than 3.5 seconds total, fallback immediately!
+  return await withTimeout(searchOperation(), 3500, {
+    success: true,
+    status: 'timeout_fallback',
+    query,
+    message: 'Web search timed out. Answering with available knowledge.'
+  });
 }
 
 /**
- * Tool 2: Web Page Content Extractor Tool.
+ * Tool 2: Web Page Content Extractor Tool with hard 3s timeout.
  */
 async function fetchPageTool(pageUrl) {
   const online = await isOnline();
@@ -215,22 +235,17 @@ async function fetchPageTool(pageUrl) {
     };
   }
 
-  try {
-    const pageData = await fetchWebPageContent(pageUrl, 1200);
-    return {
+  return await withTimeout(
+    fetchWebPageContent(pageUrl, 1000).then((pageData) => ({
       success: true,
       status: 'online',
       url: pageUrl,
       title: pageData.title,
-      content: pageData.text
-    };
-  } catch (err) {
-    return {
-      success: false,
-      status: 'error',
-      message: `Failed to fetch page ${pageUrl}: ${err.message}`
-    };
-  }
+      content: pageData.text || 'Could not extract page text.'
+    })),
+    3000,
+    { success: false, status: 'timeout', message: `Fetching ${pageUrl} timed out.` }
+  );
 }
 
 module.exports = { isOnline, searchWebTool, fetchPageTool, fetchWebPageContent };
