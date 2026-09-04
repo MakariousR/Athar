@@ -28,6 +28,13 @@ function registerIpcHandlers() {
     } catch (err) { return { success: false, error: err.message }; }
   });
 
+  ipcMain.handle('ollama:delete-model', async (event, modelName) => {
+    try {
+      await ollama.deleteModel(modelName);
+      return { success: true };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
   // Returns threads + detected source label ('chatgpt' | 'claude' | 'unknown')
   ipcMain.handle('file:parse', async (event, filePath) => {
     try {
@@ -158,8 +165,12 @@ function registerIpcHandlers() {
 
       store.appendMessage(sessionId, 'user', userText);
 
+      // Fetch full active chat history (prior turns + new user message)
+      const currentSession = store.getSession(sessionId);
+      const activeHistory = currentSession ? currentSession.messages : [];
+
       const combinedQuery = [
-        ...conversationHistory.slice(-6).map((m) => m.text),
+        ...activeHistory.slice(-6).map((m) => m.text),
         userText
       ].join(' ');
 
@@ -191,11 +202,14 @@ function registerIpcHandlers() {
       await ollama.generate(
         effectiveUserText,
         ranked,
-        conversationHistory,
+        activeHistory,
         chosenModel,
         (token) => {
           fullReply += token;
           event.sender.send('chat:token', token);
+        },
+        (statusMessage) => {
+          event.sender.send('chat:status', statusMessage);
         }
       );
 

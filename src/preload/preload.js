@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
   pullModel: (modelName) => ipcRenderer.invoke('ollama:pull-model', modelName),
+  deleteModel: (modelName) => ipcRenderer.invoke('ollama:delete-model', modelName),
   onPullProgress: (cb) => {
     ipcRenderer.removeAllListeners('ollama:pull-progress');
     ipcRenderer.on('ollama:pull-progress', (_e, status) => cb(status));
@@ -38,5 +39,9 @@ contextBridge.exposeInMainWorld('api', {
   onChatSources: (cb) => {
     ipcRenderer.removeAllListeners('chat:sources');
     ipcRenderer.on('chat:sources', (_e, sources) => cb(sources));
+  },
+  onChatStatus: (cb) => {
+    ipcRenderer.removeAllListeners('chat:status');
+    ipcRenderer.on('chat:status', (_e, status) => cb(status));
   }
 });

@@ -14,6 +14,14 @@
       <h1>Chat Memory</h1>
       <p class="setup-sub">Your personal AI that remembers your past conversations.</p>
       <p id="setupStatus" class="setup-msg">Checking your local AI engine…</p>
+      
+      <div id="setupChoices" class="setup-choices hidden">
+        <button id="setupDefaultBtn" class="primary-btn setup-choice-btn">⬇ Install Recommended (Qwen 2.5 3B)</button>
+        <div class="setup-divider"><span>OR CHOOSE ANOTHER MODEL</span></div>
+        <select id="setupModelSelect" class="model-select setup-select"></select>
+      </div>
+
+      <div id="setupCapCard" class="cap-card hidden"></div>
       <div id="setupSteps" class="setup-steps"></div>
     </div>
   </div>
@@ -49,8 +57,12 @@
         <div class="model-row">
           <span class="model-row-label">Model</span>
           <select id="modelSelect" class="model-select" title="Choose model"></select>
+          
+          <div id="sidebarCapCard" class="cap-card cap-card-sidebar hidden"></div>
+
           <div id="modelAction" class="model-action hidden">
             <button id="modelDownloadBtn" class="model-download-btn">⬇ Download</button>
+            <button id="modelDeleteBtn" class="model-delete-btn hidden">🗑️ Uninstall Model</button>
             <div id="modelDownloadProgress" class="model-dl-progress hidden">
               <div class="progress-bar"><div class="progress-fill" id="modelDlFill"></div></div>
               <span id="modelDlText" class="model-dl-text">0%</span>

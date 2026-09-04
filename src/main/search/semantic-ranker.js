@@ -1,13 +1,5 @@
 const { embedText } = require('../ollama/ollama-client');
-
-function normalizeArabicText(text) {
-  if (!text) return '';
-  return text
-    .replace(/[\u064B-\u0652\u0670]/g, '') // remove tashkeel (diacritics)
-    .replace(/[إأآا]/g, 'ا')              // normalize alef variations
-    .replace(/ة/g, 'ه')                    // normalize teh marbuta
-    .replace(/ى/g, 'ي');                   // normalize alef maqsura
-}
+const { normalizeArabicText } = require('../utils/text-normalizer');
 
 function cosineSimilarity(a, b) {
   if (!a || !b || a.length !== b.length) return 0;
@@ -73,17 +65,28 @@ async function rankThreadsSemantic(threads, query, topN = 5) {
   const normalizedQuery = normalizeArabicText(query.slice(0, 2000));
   const queryEmbedding = await embedText(normalizedQuery);
 
-  const scored = embeddedThreads
-    .map((t) => ({
-      ...t,
-      score: parseFloat(cosineSimilarity(queryEmbedding, t.embedding).toFixed(4))
-    }))
-    .filter((t) => t.score >= RELEVANCE_THRESHOLD) // drop irrelevant threads entirely
+  let scored = embeddedThreads
+    .map((t) => {
+      const semScore = cosineSimilarity(queryEmbedding, t.embedding);
+      // Keyword fallback boost: check if query words (e.g. جامعة, university) appear in thread title/text
+      const normText = normalizeArabicText(t.title + ' ' + (t.fullText || ''));
+      const queryWords = normalizedQuery.split(/\s+/).filter((w) => w.length > 2);
+      let kwHits = 0;
+      for (const word of queryWords) {
+        if (normText.includes(word)) kwHits++;
+      }
+      const kwScore = queryWords.length > 0 ? (kwHits / queryWords.length) * 0.3 : 0;
+      const finalScore = parseFloat((semScore + kwScore).toFixed(4));
+
+      return {
+        ...t,
+        score: finalScore
+      };
+    })
+    .filter((t) => t.score >= 0.55) // Strict cutoff so imported history only matches when genuinely relevant
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
 
-  // Enforce total context budget — truncate each thread and stop adding
-  // once we've hit the character cap
   let totalChars = 0;
   const result = [];
 
@@ -102,5 +105,6 @@ async function rankThreadsSemantic(threads, query, topN = 5) {
 module.exports = {
   rankThreadsSemantic,
   cosineSimilarity,
+  normalizeArabicText,
   RELEVANCE_THRESHOLD
 };

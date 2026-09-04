@@ -19,9 +19,16 @@ const sendBtn          = document.getElementById('sendBtn');
 const modelSelect           = document.getElementById('modelSelect');
 const modelAction           = document.getElementById('modelAction');
 const modelDownloadBtn      = document.getElementById('modelDownloadBtn');
+const modelDeleteBtn        = document.getElementById('modelDeleteBtn');
 const modelDownloadProgress = document.getElementById('modelDownloadProgress');
 const modelDlFill           = document.getElementById('modelDlFill');
 const modelDlText           = document.getElementById('modelDlText');
+const sidebarCapCard        = document.getElementById('sidebarCapCard');
+
+const setupChoices          = document.getElementById('setupChoices');
+const setupDefaultBtn       = document.getElementById('setupDefaultBtn');
+const setupModelSelect      = document.getElementById('setupModelSelect');
+const setupCapCard          = document.getElementById('setupCapCard');
 
 // ── App state ─────────────────────────────────────────────────────────────────
 let activeSessionId      = null;
@@ -38,26 +45,49 @@ const EMBED_MODEL = 'bge-m3';
 
 let activeModel = CHAT_MODEL; // the model currently used for generation
 
-// Curated catalog of popular Ollama chat models, lightest → heaviest.
-// sizeBytes is approximate — used for sorting uninstalled entries.
+// Curated catalog of popular Ollama chat models with rich capability metadata.
 const MODEL_CATALOG = [
-  { name: 'qwen2.5:0.5b',   label: 'Qwen 2.5 · 0.5B',    sizeBytes:   397_000_000 },
-  { name: 'gemma3:1b',      label: 'Gemma 3 · 1B',         sizeBytes:   815_000_000 },
-  { name: 'qwen2.5:1.5b',   label: 'Qwen 2.5 · 1.5B',     sizeBytes:   986_000_000 },
-  { name: 'llama3.2:1b',    label: 'Llama 3.2 · 1B',       sizeBytes: 1_321_000_000 },
-  { name: 'qwen2.5:3b',     label: 'Qwen 2.5 · 3B',        sizeBytes: 1_900_000_000 },
-  { name: 'llama3.2:3b',    label: 'Llama 3.2 · 3B',       sizeBytes: 2_020_000_000 },
-  { name: 'phi4-mini',      label: 'Phi 4 Mini · 3.8B',    sizeBytes: 2_500_000_000 },
-  { name: 'gemma3:4b',      label: 'Gemma 3 · 4B',         sizeBytes: 3_300_000_000 },
-  { name: 'mistral',        label: 'Mistral · 7B',          sizeBytes: 4_100_000_000 },
-  { name: 'llama3.1:8b',    label: 'Llama 3.1 · 8B',       sizeBytes: 4_700_000_000 },
-  { name: 'qwen2.5:7b',     label: 'Qwen 2.5 · 7B',        sizeBytes: 4_700_000_000 },
-  { name: 'gemma3:12b',     label: 'Gemma 3 · 12B',        sizeBytes: 8_100_000_000 },
-  { name: 'qwen2.5:14b',    label: 'Qwen 2.5 · 14B',       sizeBytes: 9_000_000_000 },
-  { name: 'phi4',           label: 'Phi 4 · 14B',           sizeBytes: 9_100_000_000 },
-  { name: 'llama3.3:70b',   label: 'Llama 3.3 · 70B',      sizeBytes: 43_000_000_000 },
-  { name: 'qwen2.5:72b',    label: 'Qwen 2.5 · 72B',       sizeBytes: 47_000_000_000 },
+  { name: 'qwen2.5:0.5b',   label: 'Qwen 2.5 · 0.5B',    sizeBytes:   397_000_000, ram: '~1.5 GB', vision: false, desc: 'Ultra-fast & lightweight. Best for quick answers on low-spec hardware.' },
+  { name: 'gemma3:1b',      label: 'Gemma 3 · 1B',         sizeBytes:   815_000_000, ram: '~2.0 GB', vision: false, desc: 'Google lightweight model. Fast response, low resource footprint.' },
+  { name: 'qwen2.5:1.5b',   label: 'Qwen 2.5 · 1.5B',     sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
+  { name: 'llama3.2:1b',    label: 'Llama 3.2 · 1B',       sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
+  { name: 'qwen2.5:3b',     label: 'Qwen 2.5 · 3B',        sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: '⭐ Default Recommended. Strong multilingual reasoning, tool calling & history search.' },
+  { name: 'llama3.2:3b',    label: 'Llama 3.2 · 3B',       sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
+  { name: 'phi4-mini',      label: 'Phi 4 Mini · 3.8B',    sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
+  { name: 'gemma3:4b',      label: 'Gemma 3 · 4B',         sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Includes Vision & 140+ languages. Can analyze uploaded images & screenshots.' },
+  { name: 'mistral',        label: 'Mistral · 7B',          sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
+  { name: 'llama3.1:8b',    label: 'Llama 3.1 · 8B',       sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
+  { name: 'qwen2.5:7b',     label: 'Qwen 2.5 · 7B',        sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
+  { name: 'gemma3:12b',     label: 'Gemma 3 · 12B',        sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
+  { name: 'qwen2.5:14b',    label: 'Qwen 2.5 · 14B',       sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: 'High-tier reasoning & long-document analysis for powerful PCs.' },
+  { name: 'phi4',           label: 'Phi 4 · 14B',           sizeBytes: 9_100_000_000, ram: '~14 GB',  vision: false, desc: 'Microsoft flagship 14B logic & math model.' },
+  { name: 'llama3.3:70b',   label: 'Llama 3.3 · 70B',      sizeBytes: 43_000_000_000, ram: '~48 GB',  vision: false, desc: 'Enterprise-grade 70B model. Requires high-end GPU / VRAM workstation.' },
+  { name: 'qwen2.5:72b',    label: 'Qwen 2.5 · 72B',       sizeBytes: 47_000_000_000, ram: '~52 GB',  vision: false, desc: 'Top-of-the-line 72B model. Maximum capability for workstation hardware.' }
 ];
+
+function getModelInfo(modelName) {
+  return MODEL_CATALOG.find((m) => m.name === modelName || m.name.startsWith(modelName + ':')) || {
+    name: modelName,
+    label: modelName,
+    ram: 'Unknown',
+    vision: false,
+    desc: 'Custom installed model.'
+  };
+}
+
+function renderCapCard(modelName, containerEl) {
+  if (!containerEl) return;
+  const info = getModelInfo(modelName);
+  containerEl.innerHTML = `
+    <div class="cap-title">
+      <span>${escapeHtml(info.label)}</span>
+      <span class="cap-badge ${info.vision ? 'vision' : ''}">${info.vision ? '🖼️ Vision + Text' : '⚡ Text Only'}</span>
+    </div>
+    <div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>
+    <div class="cap-desc">${escapeHtml(info.desc)}</div>
+  `;
+  containerEl.classList.remove('hidden');
+}
 
 const SOURCE_LABELS = { chatgpt: 'ChatGPT', claude: 'Claude', unknown: 'Unknown' };
 const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', unknown: '#6c8cff' };
@@ -88,6 +118,51 @@ window.api.onChatSources((sources) => {
   pendingSources = sources;
 });
 
+window.api.onChatStatus((statusData) => {
+  if (!currentAssistantBubble) return;
+
+  const info = typeof statusData === 'object'
+    ? statusData
+    : { icon: '⚡', text: statusData };
+
+  const body = currentAssistantBubble.querySelector('.message-body');
+  if (!body) return;
+
+  let box = currentAssistantBubble.querySelector('.thought-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'thought-box';
+    box.innerHTML = `
+      <div class="thought-header">
+        <span class="thought-title"><span class="thought-chevron">▼</span> Thought Process</span>
+        <span class="thought-count">1 step</span>
+      </div>
+      <div class="thought-content">
+        <ul class="thought-steps"></ul>
+      </div>`;
+
+    body.insertBefore(box, body.firstChild);
+
+    // Toggle collapse on click
+    const header = box.querySelector('.thought-header');
+    header.addEventListener('click', () => {
+      box.classList.toggle('collapsed');
+    });
+  }
+
+  const stepsList = box.querySelector('.thought-steps');
+  const stepItem  = document.createElement('li');
+  stepItem.className = 'thought-step-item';
+  stepItem.innerHTML = `<span class="thought-step-icon">${info.icon || '⚡'}</span> <span class="thought-step-text">${escapeHtml(info.text)}</span>`;
+  stepsList.appendChild(stepItem);
+
+  const countEl = box.querySelector('.thought-count');
+  const total = stepsList.querySelectorAll('li').length;
+  countEl.textContent = `${total} step${total > 1 ? 's' : ''}`;
+
+  scrollToBottom();
+});
+
 // ── Setup flow ────────────────────────────────────────────────────────────────
 async function checkSetup() {
   const result = await window.api.checkOllama();
@@ -98,10 +173,43 @@ async function checkSetup() {
   const missing = [];
   if (!result.chatInstalled)  missing.push({ model: CHAT_MODEL,  label: 'Default Chat model (Qwen 2.5 3B)', size: '~1.9 GB' });
   if (!result.embedInstalled) missing.push({ model: EMBED_MODEL, label: 'Multilingual Embedding Model (bge-m3)', size: '~560 MB' });
+
   if (missing.length === 0) { enterApp(); return; }
-  setupStatus.textContent = `${missing.length} model${missing.length > 1 ? 's' : ''} need${missing.length === 1 ? 's' : ''} to be downloaded.`;
-  renderSetupSteps(missing);
+
+  // If chat model is missing, allow user to choose default or custom model
+  if (!result.chatInstalled) {
+    setupStatus.textContent = `No chat AI model found. Install the recommended default or pick a model from the list.`;
+    setupChoices.classList.remove('hidden');
+    populateSetupModelSelect();
+  } else {
+    // Only embed model is missing — auto download
+    setupStatus.textContent = `1 system embedding model needs to be downloaded.`;
+    renderSetupSteps(missing);
+  }
 }
+
+function populateSetupModelSelect() {
+  setupModelSelect.innerHTML = '';
+  for (const m of MODEL_CATALOG) {
+    const opt = document.createElement('option');
+    opt.value = m.name;
+    opt.textContent = `${m.label} (~${formatBytes(m.sizeBytes)})`;
+    setupModelSelect.appendChild(opt);
+  }
+  setupModelSelect.value = CHAT_MODEL;
+  renderCapCard(CHAT_MODEL, setupCapCard);
+
+  setupModelSelect.addEventListener('change', () => {
+    renderCapCard(setupModelSelect.value, setupCapCard);
+  });
+}
+
+setupDefaultBtn.addEventListener('click', () => {
+  setupChoices.classList.add('hidden');
+  setupCapCard.classList.add('hidden');
+  setupStatus.textContent = `Downloading default model (Qwen 2.5 3B)…`;
+  renderSetupSteps([{ model: CHAT_MODEL, label: 'Default Chat model (Qwen 2.5 3B)', size: '~1.9 GB' }]);
+});
 
 function renderSetupSteps(missing) {
   setupSteps.innerHTML = '';
@@ -194,7 +302,11 @@ function formatBytes(bytes) {
 async function loadModelSelector() {
   try {
     const result = await window.api.listModels();
-    const installed = (result.success && result.models) ? result.models : [];
+    const installedRaw = (result.success && result.models) ? result.models : [];
+
+    // Filter out bge-m3 and embedding models — chat selector ONLY shows language models
+    const EMBED_FILTER = /bge-m3|embed|nomic-embed/i;
+    const installed = installedRaw.filter((m) => !EMBED_FILTER.test(m.name));
 
     // Helper: does the catalog name match an installed model?
     function findInstalled(catalogName) {
@@ -204,9 +316,7 @@ async function loadModelSelector() {
     }
 
     // Build list: catalog entries merged with any extra installed chat models
-    const catalogNameSet = new Set(MODEL_CATALOG.map((m) => m.name));
     const extras = installed
-      .filter((m) => !/embed/i.test(m.name))
       .filter((m) => !MODEL_CATALOG.some((c) => m.name === c.name || m.name.startsWith(c.name + ':')))
       .map((m) => ({ name: m.name, label: m.name.replace(/:latest$/, ''), sizeBytes: m.size || 0, _extra: true }));
 
@@ -245,11 +355,25 @@ async function loadModelSelector() {
 
 function refreshModelAction() {
   const opt = modelSelect.options[modelSelect.selectedIndex];
-  if (!opt) { modelAction.classList.add('hidden'); return; }
+  if (!opt) {
+    modelAction.classList.add('hidden');
+    sidebarCapCard.classList.add('hidden');
+    return;
+  }
   const isInstalled = opt.dataset.installed === 'true';
-  modelAction.classList.toggle('hidden', isInstalled);
-  if (!isInstalled) {
+
+  renderCapCard(opt.value, sidebarCapCard);
+  modelAction.classList.remove('hidden');
+
+  if (isInstalled) {
     modelDownloadProgress.classList.add('hidden');
+    modelDownloadBtn.classList.add('hidden');
+    modelDeleteBtn.classList.remove('hidden');
+    modelDeleteBtn.disabled = false;
+    modelDeleteBtn.textContent = '🗑️ Uninstall Model';
+  } else {
+    modelDownloadProgress.classList.add('hidden');
+    modelDeleteBtn.classList.add('hidden');
     modelDownloadBtn.classList.remove('hidden');
     modelDownloadBtn.disabled = false;
     modelDownloadBtn.textContent = '⬇ Download';
@@ -294,6 +418,23 @@ modelDownloadBtn.addEventListener('click', async () => {
     modelDownloadBtn.classList.remove('hidden');
     modelDownloadBtn.disabled = false;
     modelDownloadBtn.textContent = '⬇ Retry';
+  }
+});
+
+modelDeleteBtn.addEventListener('click', async () => {
+  const modelName = modelSelect.value;
+  if (!confirm(`Are you sure you want to uninstall and remove "${modelName}" from your storage?`)) return;
+
+  modelDeleteBtn.disabled = true;
+  modelDeleteBtn.textContent = 'Deleting…';
+
+  const result = await window.api.deleteModel(modelName);
+  if (result.success) {
+    setTimeout(() => loadModelSelector(), 500);
+  } else {
+    alert(`Failed to delete model: ${result.error}`);
+    modelDeleteBtn.disabled = false;
+    modelDeleteBtn.textContent = '🗑️ Uninstall Model';
   }
 });
 
