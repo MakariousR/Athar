@@ -235,27 +235,46 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
   let step = 0;
   const maxSteps = 4;
   const executedToolKeys = new Set();
+  let enableTools = true;
 
   onStatus({ icon: '🧠', text: 'Thinking & planning execution steps…' });
 
   while (step < maxSteps) {
     step++;
 
-    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+    const reqBody = {
+      model: modelName,
+      messages,
+      stream: true,
+      options: { temperature: 0.7, num_ctx: 8192, num_predict: -1 }
+    };
+    if (enableTools) {
+      reqBody.tools = AGENT_TOOLS;
+    }
+
+    let res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: modelName,
-        messages,
-        tools: AGENT_TOOLS,
-        stream: true,
-        options: { temperature: 0.7, num_ctx: 8192, num_predict: -1 }
-      })
+      body: JSON.stringify(reqBody)
     });
 
-    if (!res.ok || !res.body) {
-      const errText = await res.text().catch(() => res.status);
-      throw new Error(`Ollama chat failed: ${errText}`);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => String(res.status));
+      if (enableTools && (errText.includes('does not support tools') || errText.includes('tools'))) {
+        // Model does not support tools API — fallback to normal generation without tools
+        enableTools = false;
+        delete reqBody.tools;
+        res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        });
+      }
+
+      if (!res.ok || !res.body) {
+        const finalErr = res.ok ? '' : await res.text().catch(() => String(res.status));
+        throw new Error(`Ollama chat failed: ${finalErr || errText}`);
+      }
     }
 
     const reader  = res.body.getReader();
