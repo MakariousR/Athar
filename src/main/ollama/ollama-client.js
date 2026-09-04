@@ -94,55 +94,7 @@ async function embedThreads(threads, onProgress = () => {}) {
   return results;
 }
 
-/**
- * Builds the message array for /api/chat.
- */
-function buildMessages(userText, importedThreads, conversationHistory) {
-  const messages = [];
 
-  let systemContent = `You are an intelligent personal AI assistant.
-
-CRITICAL RULES:
-1. LANGUAGE MATCHING: You MUST ALWAYS respond in the EXACT SAME LANGUAGE as the user's input prompt (e.g. if prompt is in Arabic, respond completely in Arabic; if prompt is in English, respond in English).
-2. NEVER output template placeholders like "[Specific Name]", "[University Name 1]", or "[Insert Name]".
-3. If past conversations or web search results are provided below, synthesize and cite their actual facts, names, and code directly.`;
-
-  // Inject matching threads
-  if (importedThreads && importedThreads.length > 0) {
-    systemContent += `\n\n=== RETRIEVED PAST CONVERSATIONS ===\n`;
-    importedThreads.forEach((t, i) => {
-      const date = t.createTime
-        ? new Date(t.createTime * 1000).toISOString().slice(0, 10)
-        : 'unknown date';
-
-      let threadDialogue = '';
-      if (t.messages && t.messages.length > 0) {
-        threadDialogue = t.messages
-          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
-          .join('\n');
-      } else {
-        threadDialogue = t.fullText || '';
-      }
-
-      const text = threadDialogue.length > 2500 ? threadDialogue.slice(0, 2500) + '…' : threadDialogue;
-      systemContent += `\n--- Past Thread ${i + 1}: "${t.title}" (${date}) ---\n${text}\n`;
-    });
-    systemContent += `\n=== END PAST CONVERSATIONS ===\n`;
-  }
-
-  messages.push({ role: 'system', content: systemContent });
-
-  // Last 10 conversation turns — enough for context without eating the window
-  if (conversationHistory && conversationHistory.length > 0) {
-    const recent = conversationHistory.slice(-10);
-    for (const msg of recent) {
-      messages.push({ role: msg.role, content: msg.text });
-    }
-  }
-
-  messages.push({ role: 'user', content: userText });
-  return messages;
-}
 
 const { searchWebTool, fetchPageTool } = require('../tools/web-search');
 
@@ -207,18 +159,22 @@ async function executeTool(toolName, args, onStatus = () => {}) {
 function buildMessages(userText, importedThreads, conversationHistory) {
   const messages = [];
 
-  let systemContent = `You are an intelligent personal AI agent equipped with live internet search and deep web page reading tools.
+  let systemContent = `You are an intelligent personal AI agent.
 
-CRITICAL CONTEXT PRIORITY (INSIDE-TO-OUTSIDE RULE):
-1. PRIMARY FOCUS: Your CURRENT active chat conversation is your top priority. If the user is working on a specific project or topic in this chat (e.g. building a calculator app), ALWAYS stay focused on that current topic. Never switch topics or abandon the user's active project based on imported history.
-2. SECONDARY FOCUS: Imported past history is purely secondary reference. ONLY refer to imported past history if it directly answers the user's specific prompt. If imported history is about a different topic, IGNORE IT and focus on the current chat.
-3. DEEP ANALYTICAL COMPOSITION: Read full article text from web search, analyze facts, synthesize key developments, and write clear, well-structured news paragraphs. NEVER echo raw headlines verbatim.
-4. LANGUAGE MATCHING: You MUST ALWAYS respond in the EXACT SAME LANGUAGE as the user's input prompt (e.g., if prompt is in Arabic, respond in Arabic; if English, respond in English).
-5. NO PLACEHOLDERS: Never output bracket placeholders like "[Name 1]".`;
+CRITICAL CONTEXT & BOUNDARY RULES:
+1. STRICT BOUNDARY BETWEEN ARCHIVE & ACTIVE CHAT:
+   - Items inside <background_reference_archive> are imported past logs from old ChatGPT/Claude exports. They are PASSIVE REFERENCE ONLY.
+   - The active user chat session history represents the real-time conversation.
+   - NEVER confuse past imported threads with the active chat session history.
+   - ONLY reference background archives if the user explicitly asks about past work, or if it directly answers the user's prompt.
+2. PRIMARY FOCUS: The active chat conversation topic is your top priority. Stay focused on what the user is currently asking or building.
+3. LANGUAGE MATCHING: You MUST ALWAYS respond in the EXACT SAME LANGUAGE as the user's input prompt (e.g., if prompt is in Arabic, respond in Arabic; if English, respond in English).
+4. NO PLACEHOLDERS: Never output bracket placeholders like "[Name 1]".`;
 
-  // Inject matching threads
+  // Inject matching threads in explicit XML structure
   if (importedThreads && importedThreads.length > 0) {
-    systemContent += `\n\n=== RETRIEVED PAST CONVERSATIONS ===\n`;
+    systemContent += `\n\n<background_reference_archive>\n`;
+    systemContent += `The following are imported past conversation logs from prior exports. Treat them solely as background knowledge.\n`;
     importedThreads.forEach((t, i) => {
       const date = t.createTime
         ? new Date(t.createTime * 1000).toISOString().slice(0, 10)
@@ -234,9 +190,9 @@ CRITICAL CONTEXT PRIORITY (INSIDE-TO-OUTSIDE RULE):
       }
 
       const text = threadDialogue.length > 2500 ? threadDialogue.slice(0, 2500) + '…' : threadDialogue;
-      systemContent += `\n--- Past Thread ${i + 1}: "${t.title}" (${date}) ---\n${text}\n`;
+      systemContent += `\n<past_thread index="${i + 1}" title="${t.title}" date="${date}">\n${text}\n</past_thread>\n`;
     });
-    systemContent += `\n=== END PAST CONVERSATIONS ===\n`;
+    systemContent += `</background_reference_archive>\n`;
   }
 
   messages.push({ role: 'system', content: systemContent });
@@ -276,7 +232,7 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
         messages,
         tools: AGENT_TOOLS,
         stream: true,
-        options: { temperature: 0.7, num_predict: -1 }
+        options: { temperature: 0.7, num_ctx: 8192, num_predict: -1 }
       })
     });
 

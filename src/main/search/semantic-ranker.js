@@ -32,7 +32,7 @@ function cosineSimilarity(a, b) {
  *   > 0.45  topic alignment / relevant match
  *   < 0.45  unrelated
  */
-const RELEVANCE_THRESHOLD = 0.45;
+const RELEVANCE_THRESHOLD = 0.68;
 
 /**
  * Hard cap on total characters of thread content injected into the prompt.
@@ -83,7 +83,7 @@ async function rankThreadsSemantic(threads, query, topN = 5) {
         score: finalScore
       };
     })
-    .filter((t) => t.score >= 0.55) // Strict cutoff so imported history only matches when genuinely relevant
+    .filter((t) => t.score >= RELEVANCE_THRESHOLD) // Strict cutoff so imported history only matches when genuinely relevant
     .sort((a, b) => b.score - a.score)
     .slice(0, topN);
 
