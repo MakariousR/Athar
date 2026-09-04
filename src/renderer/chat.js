@@ -16,6 +16,9 @@ const chatView         = document.getElementById('chatView');
 const messageList      = document.getElementById('messageList');
 const messageInput     = document.getElementById('messageInput');
 const sendBtn          = document.getElementById('sendBtn');
+const attachImgBtn     = document.getElementById('attachImgBtn');
+const imageFileInput   = document.getElementById('imageFileInput');
+const imagePreviewBar = document.getElementById('imagePreviewBar');
 const modelSelect           = document.getElementById('modelSelect');
 const modelAction           = document.getElementById('modelAction');
 const modelDownloadBtn      = document.getElementById('modelDownloadBtn');
@@ -39,6 +42,7 @@ let currentAssistantEl   = null;
 let currentAssistantBubble = null;
 let currentStreamText    = '';
 let pendingSources       = null; // sources received before stream starts
+let attachedImages       = [];   // [{ name, dataUrl, base64 }]
 
 const CHAT_MODEL  = 'qwen2.5:3b';
 const EMBED_MODEL = 'bge-m3';
@@ -353,6 +357,100 @@ async function loadModelSelector() {
   }
 }
 
+function updateVisionCapability() {
+  const info = getModelInfo(activeModel);
+  if (info && info.vision) {
+    attachImgBtn.classList.remove('hidden');
+    attachImgBtn.title = `Attach image for ${info.label}`;
+  } else {
+    attachImgBtn.classList.add('hidden');
+    clearAttachedImages();
+  }
+}
+
+function clearAttachedImages() {
+  attachedImages = [];
+  if (imagePreviewBar) {
+    imagePreviewBar.innerHTML = '';
+    imagePreviewBar.classList.add('hidden');
+  }
+  if (imageFileInput) imageFileInput.value = '';
+}
+
+function removeAttachedImage(index) {
+  attachedImages.splice(index, 1);
+  renderImagePreviews();
+}
+
+function renderImagePreviews() {
+  if (!imagePreviewBar) return;
+  if (attachedImages.length === 0) {
+    imagePreviewBar.innerHTML = '';
+    imagePreviewBar.classList.add('hidden');
+    return;
+  }
+  imagePreviewBar.innerHTML = '';
+  imagePreviewBar.classList.remove('hidden');
+
+  attachedImages.forEach((img, idx) => {
+    const chip = document.createElement('div');
+    chip.className = 'image-preview-chip';
+    chip.innerHTML = `
+      <img src="${img.dataUrl}" alt="Preview" />
+      <div class="image-preview-info">
+        <span class="image-preview-name">${escapeHtml(img.name)}</span>
+      </div>
+      <button type="button" class="image-preview-remove" title="Remove image">&times;</button>
+    `;
+    chip.querySelector('.image-preview-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeAttachedImage(idx);
+    });
+    imagePreviewBar.appendChild(chip);
+  });
+}
+
+function addImageFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    const base64 = dataUrl.split(',')[1];
+    attachedImages.push({
+      name: file.name || 'Pasted Image',
+      dataUrl,
+      base64
+    });
+    renderImagePreviews();
+  };
+  reader.readAsDataURL(file);
+}
+
+if (attachImgBtn && imageFileInput) {
+  attachImgBtn.addEventListener('click', () => imageFileInput.click());
+  imageFileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+      addImageFile(e.target.files[0]);
+    }
+  });
+}
+
+if (messageInput) {
+  messageInput.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    const info = getModelInfo(activeModel);
+    if (!info || !info.vision) return;
+
+    for (const item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) addImageFile(file);
+      }
+    }
+  });
+}
+
 function refreshModelAction() {
   const opt = modelSelect.options[modelSelect.selectedIndex];
   if (!opt) {
@@ -378,6 +476,8 @@ function refreshModelAction() {
     modelDownloadBtn.disabled = false;
     modelDownloadBtn.textContent = '⬇ Download';
   }
+
+  updateVisionCapability();
 }
 
 modelSelect.addEventListener('change', () => {
@@ -575,10 +675,10 @@ function renderMarkdown(text) {
 
 function renderMessages(messages) {
   messageList.innerHTML = '';
-  for (const msg of messages) appendMessageBubble(msg.role, msg.text);
+  for (const msg of messages) appendMessageBubble(msg.role, msg.text, msg.images || []);
 }
 
-function appendMessageBubble(role, text) {
+function appendMessageBubble(role, text, images = []) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
 
@@ -600,6 +700,16 @@ function appendMessageBubble(role, text) {
 
   body.appendChild(roleLabel);
   body.appendChild(textEl);
+
+  if (images && images.length > 0) {
+    for (const imgStr of images) {
+      const imgEl = document.createElement('img');
+      imgEl.className = 'msg-image-thumb';
+      imgEl.src = imgStr.startsWith('data:') ? imgStr : `data:image/png;base64,${imgStr}`;
+      body.appendChild(imgEl);
+    }
+  }
+
   div.appendChild(avatar);
   div.appendChild(body);
   messageList.appendChild(div);
@@ -648,15 +758,20 @@ function scrollToBottom() { messageList.scrollTop = messageList.scrollHeight; }
 async function sendMessage() {
   if (isStreaming || !activeSessionId) return;
   const text = messageInput.value.trim();
-  if (!text) return;
+  if (!text && attachedImages.length === 0) return;
+
+  const currentImagesBase64 = attachedImages.map((i) => i.base64);
+  const currentImagesDataUrl = attachedImages.map((i) => i.dataUrl);
 
   messageInput.value = '';
   messageInput.style.height = 'auto';
+  clearAttachedImages();
+
   isStreaming = true;
   sendBtn.disabled = true;
   pendingSources = null;
 
-  appendMessageBubble('user', text);
+  appendMessageBubble('user', text, currentImagesDataUrl);
 
   const assistantTextEl = appendMessageBubble('assistant', '');
   const assistantBubble = assistantTextEl.closest('.message');
@@ -668,7 +783,7 @@ async function sendMessage() {
 
   scrollToBottom();
 
-  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel);
+  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64);
 
   currentAssistantEl     = null;
   currentAssistantBubble = null;

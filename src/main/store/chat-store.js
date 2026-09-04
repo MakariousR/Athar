@@ -40,18 +40,22 @@ function getSession(id) {
   return loadSessions().find((s) => s.id === id) || null;
 }
 
-function appendMessage(sessionId, role, text) {
+function appendMessage(sessionId, role, text, images = []) {
   const sessions = loadSessions();
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
 
   const message = { role, text, timestamp: Date.now() };
+  if (images && images.length > 0) {
+    message.images = images;
+  }
   session.messages.push(message);
   session.updatedAt = Date.now();
 
   // Auto-title the session from the first user message if still default
   if (role === 'user' && session.title === 'New chat' && session.messages.length === 1) {
-    session.title = text.slice(0, 40) + (text.length > 40 ? '…' : '');
+    const titleBase = text || 'Image message';
+    session.title = titleBase.slice(0, 40) + (titleBase.length > 40 ? '…' : '');
   }
 
   saveSessions(sessions);

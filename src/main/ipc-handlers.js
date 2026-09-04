@@ -141,7 +141,7 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = []) => {
     try {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
@@ -163,7 +163,7 @@ function registerIpcHandlers() {
         }
       }
 
-      store.appendMessage(sessionId, 'user', userText);
+      store.appendMessage(sessionId, 'user', userText, images);
 
       // Fetch full active chat history (prior turns + new user message)
       const currentSession = store.getSession(sessionId);
@@ -210,7 +210,8 @@ function registerIpcHandlers() {
         },
         (statusMessage) => {
           event.sender.send('chat:status', statusMessage);
-        }
+        },
+        images
       );
 
       store.appendMessage(sessionId, 'assistant', fullReply || '(no response)');

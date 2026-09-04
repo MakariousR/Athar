@@ -156,7 +156,7 @@ async function executeTool(toolName, args, onStatus = () => {}) {
   return { error: `Unknown tool: ${toolName}` };
 }
 
-function buildMessages(userText, importedThreads, conversationHistory) {
+function buildMessages(userText, importedThreads, conversationHistory, images = []) {
   const messages = [];
 
   let systemContent = `You are an intelligent personal AI agent.
@@ -200,21 +200,38 @@ CRITICAL CONTEXT & BOUNDARY RULES:
   // Append active chat history turns (prior turns + user message)
   if (conversationHistory && conversationHistory.length > 0) {
     const recent = conversationHistory.slice(-12);
-    for (const msg of recent) {
+    for (let i = 0; i < recent.length; i++) {
+      const msg = recent[i];
       const text = msg.text || msg.content || '';
-      if (text) {
-        messages.push({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: text });
+      if (text || (msg.images && msg.images.length > 0)) {
+        const msgObj = {
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: text
+        };
+        // If message has attached images (Base64), include them
+        if (msg.images && msg.images.length > 0) {
+          msgObj.images = msg.images;
+        }
+        // If this is the final turn and new images are provided, merge them
+        if (i === recent.length - 1 && msg.role === 'user' && images && images.length > 0) {
+          msgObj.images = Array.from(new Set([...(msgObj.images || []), ...images]));
+        }
+        messages.push(msgObj);
       }
     }
   } else {
-    messages.push({ role: 'user', content: userText });
+    const userMsgObj = { role: 'user', content: userText };
+    if (images && images.length > 0) {
+      userMsgObj.images = images;
+    }
+    messages.push(userMsgObj);
   }
 
   return messages;
 }
 
-async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}, onStatus = () => {}) {
-  const messages = buildMessages(userText, importedThreads, conversationHistory);
+async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}, onStatus = () => {}, images = []) {
+  const messages = buildMessages(userText, importedThreads, conversationHistory, images);
   let step = 0;
   const maxSteps = 4;
   const executedToolKeys = new Set();

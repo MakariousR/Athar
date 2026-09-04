@@ -25,8 +25,8 @@ contextBridge.exposeInMainWorld('api', {
   chatGet: (id) => ipcRenderer.invoke('chat:get', id),
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
   chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
-  chatSend: (sessionId, userText, embeddedThreads, modelName) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName),
+  chatSend: (sessionId, userText, embeddedThreads, modelName, images = []) =>
+    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName, images),
 
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');
