@@ -51,22 +51,25 @@ let activeModel = CHAT_MODEL; // the model currently used for generation
 
 // Curated catalog of popular Ollama chat models with rich capability metadata.
 const MODEL_CATALOG = [
-  { name: 'qwen2.5:0.5b',   label: 'Qwen 2.5 · 0.5B',    sizeBytes:   397_000_000, ram: '~1.5 GB', vision: false, desc: 'Ultra-fast & lightweight. Best for quick answers on low-spec hardware.' },
-  { name: 'gemma3:1b',      label: 'Gemma 3 · 1B',         sizeBytes:   815_000_000, ram: '~2.0 GB', vision: false, desc: 'Google lightweight model. Fast response, low resource footprint.' },
-  { name: 'qwen2.5:1.5b',   label: 'Qwen 2.5 · 1.5B',     sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
-  { name: 'llama3.2:1b',    label: 'Llama 3.2 · 1B',       sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
-  { name: 'qwen2.5:3b',     label: 'Qwen 2.5 · 3B',        sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: '⭐ Default Recommended. Strong multilingual reasoning, tool calling & history search.' },
-  { name: 'llama3.2:3b',    label: 'Llama 3.2 · 3B',       sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
-  { name: 'phi4-mini',      label: 'Phi 4 Mini · 3.8B',    sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
-  { name: 'gemma3:4b',      label: 'Gemma 3 · 4B',         sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Includes Vision & 140+ languages. Can analyze uploaded images & screenshots.' },
-  { name: 'mistral',        label: 'Mistral · 7B',          sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
-  { name: 'llama3.1:8b',    label: 'Llama 3.1 · 8B',       sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
-  { name: 'qwen2.5:7b',     label: 'Qwen 2.5 · 7B',        sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
-  { name: 'gemma3:12b',     label: 'Gemma 3 · 12B',        sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
-  { name: 'qwen2.5:14b',    label: 'Qwen 2.5 · 14B',       sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: 'High-tier reasoning & long-document analysis for powerful PCs.' },
-  { name: 'phi4',           label: 'Phi 4 · 14B',           sizeBytes: 9_100_000_000, ram: '~14 GB',  vision: false, desc: 'Microsoft flagship 14B logic & math model.' },
-  { name: 'llama3.3:70b',   label: 'Llama 3.3 · 70B',      sizeBytes: 43_000_000_000, ram: '~48 GB',  vision: false, desc: 'Enterprise-grade 70B model. Requires high-end GPU / VRAM workstation.' },
-  { name: 'qwen2.5:72b',    label: 'Qwen 2.5 · 72B',       sizeBytes: 47_000_000_000, ram: '~52 GB',  vision: false, desc: 'Top-of-the-line 72B model. Maximum capability for workstation hardware.' }
+  { name: 'qwen2.5:0.5b',      label: 'Qwen 2.5 · 0.5B',        sizeBytes:   397_000_000, ram: '~1.5 GB', vision: false, desc: 'Ultra-fast & lightweight. Best for quick answers on low-spec hardware.' },
+  { name: 'gemma3:1b',         label: 'Gemma 3 · 1B',           sizeBytes:   815_000_000, ram: '~2.0 GB', vision: false, desc: 'Google lightweight model. Fast response, low resource footprint.' },
+  { name: 'qwen2.5:1.5b',      label: 'Qwen 2.5 · 1.5B',       sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
+  { name: 'llama3.2:1b',       label: 'Llama 3.2 · 1B',         sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
+  { name: 'qwen2.5:3b',        label: 'Qwen 2.5 · 3B',          sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: '⭐ Default Recommended. Strong multilingual reasoning, tool calling & history search.' },
+  { name: 'qwen2.5-vl:3b',     label: 'Qwen 2.5 VL · 3B',       sizeBytes: 1_950_000_000, ram: '~3.5 GB', vision: true,  desc: '🖼️ Fast Vision + Tools. Compact multimodal model for visual analysis & reasoning.' },
+  { name: 'llama3.2:3b',       label: 'Llama 3.2 · 3B',         sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
+  { name: 'phi4-mini',         label: 'Phi 4 Mini · 3.8B',      sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
+  { name: 'gemma3:4b',         label: 'Gemma 3 · 4B',           sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Includes Vision & 140+ languages. Can analyze uploaded images & screenshots.' },
+  { name: 'mistral',           label: 'Mistral · 7B',            sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
+  { name: 'llama3.1:8b',       label: 'Llama 3.1 · 8B',         sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
+  { name: 'qwen2.5:7b',        label: 'Qwen 2.5 · 7B',          sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
+  { name: 'qwen2.5-vl:7b',     label: 'Qwen 2.5 VL · 7B',       sizeBytes: 4_750_000_000, ram: '~8.0 GB', vision: true,  desc: '🖼️🔥 Top Recommended All-Rounder! Vision + Native Tools + Top-Tier Coding & Reasoning.' },
+  { name: 'llama3.2-vision:11b', label: 'Llama 3.2 Vision · 11B', sizeBytes: 7_900_000_000, ram: '~11 GB',  vision: true,  desc: '🖼️ Meta flagship vision model. High-res image understanding, document OCR & tools.' },
+  { name: 'gemma3:12b',        label: 'Gemma 3 · 12B',          sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
+  { name: 'qwen2.5:14b',       label: 'Qwen 2.5 · 14B',         sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: 'High-tier reasoning & long-document analysis for powerful PCs.' },
+  { name: 'phi4',              label: 'Phi 4 · 14B',             sizeBytes: 9_100_000_000, ram: '~14 GB',  vision: false, desc: 'Microsoft flagship 14B logic & math model.' },
+  { name: 'llama3.3:70b',      label: 'Llama 3.3 · 70B',        sizeBytes: 43_000_000_000, ram: '~48 GB',  vision: false, desc: 'Enterprise-grade 70B model. Requires high-end GPU / VRAM workstation.' },
+  { name: 'qwen2.5:72b',       label: 'Qwen 2.5 · 72B',         sizeBytes: 47_000_000_000, ram: '~52 GB',  vision: false, desc: 'Top-of-the-line 72B model. Maximum capability for workstation hardware.' }
 ];
 
 function getModelInfo(modelName) {
