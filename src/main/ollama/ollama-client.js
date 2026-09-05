@@ -139,8 +139,19 @@ const AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'get_current_date',
+      description: 'Returns today\'s local date and ISO date. Always use this when checking whether information, documentation, or an API update is current.',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_current_time',
-      description: 'Returns the current local date and time.',
+      description: 'Returns the current local date, time, timezone, and ISO date. Use it to verify dates and distinguish current information from historical information.',
       parameters: {
         type: 'object',
         properties: {}
@@ -160,6 +171,9 @@ async function executeTool(toolName, args, onStatus = () => {}) {
     } else if (result.status === 'no_results') {
       onStatus({ icon: '🔎', text: `No results found for "${args.query}" — trying another approach…` });
     }
+    if (result.resultsCount > 0) {
+      onStatus({ icon: '✅', text: `Search complete: ${result.resultsCount} source${result.resultsCount !== 1 ? 's' : ''} added to the research context.` });
+    }
     return result;
   }
   if (toolName === 'fetch_web_page') {
@@ -170,11 +184,28 @@ async function executeTool(toolName, args, onStatus = () => {}) {
     } else {
       onStatus({ icon: '⚠️', text: `Could not load page — will rely on search snippets.` });
     }
+    if (result.success && result.content) {
+      onStatus({ icon: '✅', text: `Page extraction complete: ${result.content.length.toLocaleString()} characters available.` });
+    }
     return result;
+  }
+  if (toolName === 'get_current_date') {
+    onStatus({ icon: '📅', text: 'Checking today\'s date…' });
+    const now = new Date();
+    return {
+      date: now.toLocaleDateString(),
+      isoDate: now.toISOString().slice(0, 10),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    };
   }
   if (toolName === 'get_current_time') {
     onStatus({ icon: '🕒', text: `Checking current date and time…` });
-    return { date: new Date().toLocaleString() };
+    const now = new Date();
+    return {
+      date: now.toLocaleString(),
+      isoDate: now.toISOString().slice(0, 10),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    };
   }
   return { error: `Unknown tool: ${toolName}` };
 }
@@ -278,15 +309,19 @@ CRITICAL CONTEXT & BOUNDARY RULES:
 3. LANGUAGE MATCHING: You MUST ALWAYS respond in the EXACT SAME LANGUAGE as the user's input prompt (e.g., if prompt is in Arabic, respond in Arabic; if English, respond in English).
 4. NO PLACEHOLDERS: Never output bracket placeholders like "[Name 1]".
 5. SEARCH & SCRAPED CONTEXT INSTRUCTIONS:
-   - When web_search or fetch_web_page is executed, full scraped webpage content is ingested.
+  - ALWAYS use web_search before answering. Your training data may be outdated, even when the user does not explicitly ask for internet research.
+  - ALWAYS use get_current_date to establish today's date and verify dates in the sources.
+  - For software, code, libraries, APIs, packages, or technical instructions, search for the latest official documentation, release notes, and API changes before answering. Prefer official documentation and repositories.
+  - For requests containing latest, current, newest, update, recent, today, or version, you MUST report the concrete dated changes, versions, and facts found in the sources. Do not replace them with generic advice to visit a website.
+  - Do not claim that no updates exist when the tool results contain dated updates. State the latest dated update found and identify the source.
+  - When web_search or fetch_web_page is executed, cleaned relevant webpage content is ingested.
    - Your objective is to extract SPECIFIC FACTS, NAMES, DATES, FIGURES, LISTS, and EXACT REAL DATA requested by the user directly from the scraped webpage content.
    - NEVER output placeholder syntax like "[Title]", "[Artist]", "[Name]", "[Description]", or generic brackets. Always use the actual real entity/item names found in the scraped text.
    - NEVER output web page titles, search snippet descriptions, or URL domain metadata as your final answer when the user requested factual content or lists.
    - If initial web search results do not contain all requested items, execute fetch_web_page on the relevant target URL or run a follow-up query to retrieve complete information before synthesizing your final response.
-6. MANDATORY INTERNAL CHAIN-OF-THOUGHT (SCRATCHPAD):
-   - You MUST ALWAYS begin your response with a <think> tag and write out your step-by-step internal reasoning, planning, logic evaluation, and draft steps.
-   - Close your reasoning block with a </think> tag before providing your final answer.
-   - All final answers, summaries, code blocks, or structured deliverables MUST be placed strictly outside the <think>...</think> block.
+6. REASONING AND FINAL ANSWER:
+  - Do not expose private step-by-step chain-of-thought. Reason internally when useful, then provide the complete answer directly.
+  - Always include the final answer, even when the model does not support <think> tags.
 7. AGENTIC SELF-CHECK PROTOCOL:
    - After receiving tool results you will be asked to review your findings before answering.
    - Ask yourself: "Do I now have ALL the specific names, items, dates, figures, or facts the user requested?"
@@ -294,7 +329,11 @@ CRITICAL CONTEXT & BOUNDARY RULES:
    - If NO or UNCERTAIN → call the appropriate tool again with a more specific query or a targeted URL.
    - NEVER write a partial answer and promise to search more. Either search first, or deliver a complete answer.
    - NEVER fabricate, guess, or invent data items (names, songs, titles, numbers) that were not found in search results.
-   - NEVER output the raw text of a tool call (e.g. JSON). Either call a tool properly, or write your final answer.`;
+  - NEVER output the raw text of a tool call (e.g. JSON). Either call a tool properly, or write your final answer.
+8. COMPLETE ANSWERS:
+  - Do not answer with only a topic label, title, or short summary such as "simple cheesecake recipe".
+  - Fulfill the user's requested format and include all relevant details found in the sources.
+  - For recipes, include the complete ingredient list, quantities, instructions, temperature, time, and serving or storage notes when available.`;
 
   // Inject matching threads in explicit XML structure
   if (importedThreads && importedThreads.length > 0) {
@@ -408,6 +447,20 @@ function extractTextToolCalls(text) {
   return results;
 }
 
+function extractEmbeddedFinalAnswer(text) {
+  const match = /(?:^|\n)\s*final\s+answer\s*:\s*/i.exec(text || '');
+  if (!match) return '';
+  return text.slice(match.index + match[0].length)
+    .replace(/<\/?think>/gi, '')
+    .trim();
+}
+
+function extractProseFetchRequest(text) {
+  if (!/fetch_web_page|fetch the full text|call the fetch/i.test(text || '')) return '';
+  const match = /(https?:\/\/[^\s<>\])}"']+)/i.exec(text);
+  return match ? match[1].replace(/[),.;]+$/, '') : '';
+}
+
 function normalizeToolArguments(args) {
   if (!args) return {};
   if (typeof args === 'string') {
@@ -419,9 +472,10 @@ function normalizeToolArguments(args) {
 async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}, onReasoningToken = () => {}, onStatus = () => {}, images = []) {
   const messages = buildMessages(userText, importedThreads, conversationHistory, images);
   let step = 0;
-  const agentDeadline = Date.now() + 180000;
+  const agentDeadline = Date.now() + 45000;
   const executedToolKeys = new Set();
   let enableTools = true;
+  let synthesisRetries = 0;
 
   // Track the most recent iteration's token buffer and content for timeout fallback handling.
   let lastTokenBuffer = [];
@@ -429,10 +483,34 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
 
   onStatus({ icon: '🧠', text: 'Thinking & planning execution steps…' });
 
+  // Seed every conversation with fresh web context and the current date. This
+  // prevents an old model from answering freshness-sensitive questions from memory.
+  onStatus({ icon: '🌐', text: 'Gathering current web information before answering…' });
+  const currentDate = await executeTool('get_current_date', {}, onStatus);
+  const initialSearchQuery = `${userText} latest current official updates version release date`;
+  const initialSearch = await executeTool('web_search', {
+    query: initialSearchQuery
+  }, onStatus);
+  const initialSearchCall = {
+    id: 'mandatory-web-search',
+    type: 'function',
+    function: { name: 'web_search', arguments: { query: initialSearchQuery } }
+  };
+  messages.push({ role: 'assistant', content: '', tool_calls: [initialSearchCall] });
+  messages.push({ role: 'tool', content: JSON.stringify(initialSearch) });
+  messages.push({ role: 'assistant', content: '', tool_calls: [{
+    id: 'mandatory-current-date',
+    type: 'function',
+    function: { name: 'get_current_date', arguments: {} }
+  }] });
+  messages.push({ role: 'tool', content: JSON.stringify(currentDate) });
+  executedToolKeys.add(`web_search:${JSON.stringify({ query: initialSearchQuery })}`);
+  executedToolKeys.add('get_current_date:{}');
+
   while (Date.now() < agentDeadline) {
     step++;
     const timeRemaining = agentDeadline - Date.now();
-    const finalWindow = timeRemaining < 30000;
+    const finalWindow = timeRemaining < 10000;
 
     // Keep exploring until the time budget is nearly exhausted, then reserve
     // a final synthesis window instead of stopping at an arbitrary step count.
@@ -509,6 +587,12 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
       }
     }
     parser.flush();
+    // Some models put "Final Answer:" inside an unclosed <think> block.
+    // Recover that answer so the visible response is not empty.
+    const embeddedFinalAnswer = extractEmbeddedFinalAnswer(fullContent);
+    if (embeddedFinalAnswer && !parser.fullOutput.trim()) {
+      tokenBuffer.push(embeddedFinalAnswer);
+    }
     lastFullContent = fullContent;
 
     // ── Determine active tool calls for this turn ───────────────────────────
@@ -536,6 +620,40 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
       });
 
       if (textToolCalls.length === 0) {
+        const visibleText = fullContent.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim();
+
+        // Smaller models sometimes request a tool in prose instead of emitting
+        // a structured call. Execute that request internally and keep the prose
+        // out of the user-visible answer.
+        const proseFetchUrl = extractProseFetchRequest(visibleText);
+        if (proseFetchUrl) {
+          const fetchKey = `fetch_web_page:${JSON.stringify({ url: proseFetchUrl })}`;
+          if (!executedToolKeys.has(fetchKey)) {
+            executedToolKeys.add(fetchKey);
+            messages.push({ role: 'assistant', content: fullContent });
+            const toolResult = await executeTool('fetch_web_page', { url: proseFetchUrl }, onStatus);
+            messages.push({ role: 'tool', content: JSON.stringify(toolResult) });
+            messages.push({
+              role: 'user',
+              content: 'The requested page has now been fetched. Write the complete final answer using its content. Do not describe your research process or request another tool.'
+            });
+            continue;
+          }
+        }
+
+        const needsDetailedSynthesis = executedToolKeys.size > 0 && visibleText.length < 160 && synthesisRetries < 2;
+        if (needsDetailedSynthesis) {
+          synthesisRetries++;
+          enableTools = false;
+          messages.push({ role: 'assistant', content: fullContent });
+          messages.push({
+            role: 'user',
+            content: 'Your previous response was only a short summary, not the requested answer. Rewrite it as a complete answer using the retrieved web content. Include every specific detail the user requested. If this is a recipe, include the full ingredient list with quantities, step-by-step instructions, oven temperature, timing, and serving or storage notes. Do not mention this instruction and do not call another tool.'
+          });
+          onStatus({ icon: '🧾', text: 'Expanding the short summary into the complete answer…' });
+          continue;
+        }
+
         // A repeated tool call is not a final answer. Ask the model to synthesize
         // from the existing result instead of displaying the duplicate JSON.
         const repeatedToolCall = toolCalls.length > 0 || detectedTextToolCalls.length > 0;

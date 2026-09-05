@@ -3,10 +3,6 @@ const http = require('http');
 const querystring = require('querystring');
 const { URL } = require('url');
 
-let browserSession;
-let browserWindow;
-let browserQueue = Promise.resolve();
-
 /**
  * Global Promise Timeout Wrapper.
  * Guarantees that no tool operation can ever hang longer than timeoutMs.
@@ -71,90 +67,49 @@ function cleanText(htmlSnippet) {
   return decodeHtmlEntities(text).replace(/\s+/g, ' ').trim();
 }
 
-function needsBrowserFallback(text, html) {
-  const source = `${text || ''} ${html || ''}`.toLowerCase();
-  return !text || text.length < 180 || /enable javascript|javascript is required|accept cookies|cookie consent|verify you are human|checking your browser|access denied|one more step/.test(source);
-}
-
-/**
- * Uses Electron's Chromium engine for pages that require JavaScript or cookies.
- * The persistent partition keeps accepted consent cookies for later requests.
- */
-async function runBrowserPage(pageUrl, script) {
-  const task = browserQueue.then(async () => {
-    try {
-      const { BrowserWindow, session } = require('electron');
-      browserSession = browserSession || session.fromPartition('persist:web-tools');
-      browserWindow = browserWindow || new BrowserWindow({
-        show: false,
-        webPreferences: {
-          session: browserSession,
-          contextIsolation: true,
-          javascript: true,
-          nodeIntegration: false,
-          sandbox: true
-        }
-      });
-
-      await browserWindow.loadURL(pageUrl, {
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36'
-      });
-
-      return await browserWindow.webContents.executeJavaScript(script);
-    } catch {
-      return null;
-    }
-  });
-  browserQueue = task.catch(() => undefined);
-  return task;
-}
-
-async function fetchRenderedPageContent(pageUrl, maxChars = 4000) {
-  const pageData = await runBrowserPage(pageUrl, `(async () => {
-    const acceptTerms = /accept|agree|allow|consent|got it|continue/i;
-    const buttons = [...document.querySelectorAll('button, [role="button"], input[type="submit"]')];
-    const consentButton = buttons.find((button) => acceptTerms.test(button.innerText || button.value || ''));
-    if (consentButton) consentButton.click();
-    await new Promise((resolve) => setTimeout(resolve, 1400));
-    const nodes = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,article,blockquote,td,th')];
-    const text = nodes
-      .map((node) => node.innerText.trim())
-      .filter((value, index, values) => value.length >= 5 && values.indexOf(value) === index)
-      .join('\\n\\n');
-    return { title: document.title || 'Web Page', text };
-  })()`);
-
-  if (!pageData) return { url: pageUrl, title: 'Browser fetch failed', text: '' };
-  return {
-    url: pageUrl,
-    title: pageData.title || 'Web Page',
-    text: String(pageData.text || '').slice(0, maxChars)
-  };
-}
-
 async function performGoogleSearch(query) {
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(optimizeQuery(query))}&num=8&hl=en`;
-  const results = await runBrowserPage(searchUrl, `(async () => {
-    const acceptTerms = /accept all|i agree|agree/i;
-    const buttons = [...document.querySelectorAll('button, [role="button"]')];
-    const consentButton = buttons.find((button) => acceptTerms.test(button.innerText || ''));
-    if (consentButton) consentButton.click();
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    const output = [];
-    const seen = new Set();
-    for (const heading of document.querySelectorAll('h3')) {
-      const link = heading.closest('a');
-      const url = link && link.href;
-      if (!url || !/^https?:/i.test(url) || /google\./i.test(new URL(url).hostname) || seen.has(url)) continue;
-      seen.add(url);
-      const container = heading.closest('div[data-snhf]') || heading.parentElement?.parentElement;
-      const lines = (container?.innerText || '').split('\\n').map((line) => line.trim()).filter(Boolean);
-      output.push({ title: heading.innerText.trim(), url, snippet: lines.slice(1, 4).join(' ') });
-      if (output.length >= 8) break;
-    }
-    return output;
-  })()`);
-  return Array.isArray(results) ? results : [];
+  return new Promise((resolve) => {
+    const req = https.get(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      timeout: 6000
+    }, (res) => {
+      let html = '';
+      res.on('data', (chunk) => {
+        html += chunk;
+        if (html.length > 500000) req.destroy();
+      });
+      res.on('end', () => {
+        const results = [];
+        const seen = new Set();
+        const headingPattern = /<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+        let headingMatch;
+        while ((headingMatch = headingPattern.exec(html)) !== null && results.length < 8) {
+          const blockStart = Math.max(0, html.lastIndexOf('<a ', headingMatch.index));
+          const block = html.slice(blockStart, html.indexOf('</a>', headingMatch.index) + 4);
+          const hrefMatch = /href="([^"]+)"/i.exec(block);
+          if (!hrefMatch) continue;
+
+          let targetUrl = decodeHtmlEntities(hrefMatch[1]);
+          if (targetUrl.startsWith('/url?')) {
+            try { targetUrl = new URL(`https://www.google.com${targetUrl}`).searchParams.get('q') || ''; } catch {}
+          }
+          if (!/^https?:/i.test(targetUrl) || /(^|\.)google\./i.test(new URL(targetUrl).hostname) || seen.has(targetUrl)) continue;
+
+          const title = cleanText(headingMatch[1]);
+          const snippet = cleanText(block.replace(headingMatch[0], ''));
+          seen.add(targetUrl);
+          results.push({ title: title || 'Web Page', url: targetUrl, snippet: snippet || title });
+        }
+        resolve(results);
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.on('timeout', () => { req.destroy(); resolve([]); });
+  });
 }
 
 /**
@@ -324,7 +279,8 @@ function fetchWebPageContent(pageUrl, maxChars = 4000, redirectCount = 0) {
           .replace(/<form[\s\S]*?<\/form>/gi, ' ')
           .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
           .replace(/<dialog[\s\S]*?<\/dialog>/gi, ' ')
-          .replace(/<(div|section|aside)[^>]*(?:id|class)="[^"]*(?:cookie|consent|banner|modal|popup|overlay|gdpr|notice|ad-wrapper)[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<(div|section|aside)[^>]*(?:id|class)="[^"]*(?:cookie|consent|banner|modal|popup|overlay|gdpr|notice|ad-wrapper|advert|sponsor|social|share|related|recommend)[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<(script|style|link|meta|iframe|canvas|template)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
           .replace(/<!--[\s\S]*?-->/g, ' ');
 
         let title = '';
@@ -395,15 +351,11 @@ function fetchWebPageContent(pageUrl, maxChars = 4000, redirectCount = 0) {
           fullText = cleanText(cleanedHtml);
         }
 
-        // Per-page truncation limit
+        // Keep each selected page bounded, but do not apply a second global
+        // context cap that can remove ingredients, API examples, or release notes.
         if (fullText.length > maxChars) fullText = fullText.slice(0, maxChars) + '…';
 
-        const result = { url: pageUrl, title: title || 'Web Page', text: fullText || '' };
-        if (!needsBrowserFallback(result.text, html)) return resolve(result);
-
-        fetchRenderedPageContent(pageUrl, maxChars).then((rendered) => {
-          resolve(rendered.text.length > result.text.length ? rendered : result);
-        });
+        resolve({ url: pageUrl, title: title || 'Web Page', text: fullText || '' });
       });
     });
 
@@ -435,8 +387,8 @@ function deduplicateContent(pages) {
 
 /**
  * Stage 3: Clean, Deduplicate, Truncate & Full Pipeline Handler.
- * Runs: Query Optimization → Fetch & Scrape (6 pages, 6k chars each)
- *   → Deduplication → Structured Context Assembly (max 14,000 chars / ~3,500 tokens).
+ * Runs: Query Optimization → Fetch & Scrape (top 3 pages, 5k chars each)
+ *   → Deduplication → Structured Context Assembly without a global character cap.
  */
 async function searchWebTool(rawQuery) {
   const query = optimizeQuery(rawQuery);
@@ -460,20 +412,19 @@ async function searchWebTool(rawQuery) {
       };
     }
 
-    // Read top pages one by one so the web tree preserves source order and
-    // the browser session can retain consent cookies between pages.
-    const topItems = items.slice(0, 6);
+    // Read top pages one by one so the web tree preserves source order.
+    const topItems = items.slice(0, 3);
     const pageResults = [];
     for (const item of topItems) {
       if (!item.url || !item.url.startsWith('http')) {
         pageResults.push({ url: item.url, title: item.title, text: item.snippet });
         continue;
       }
-      const rendered = await withTimeout(fetchRenderedPageContent(item.url, 6000), 9000, null);
-      const fallback = rendered && rendered.text.length > 0
-        ? rendered
-        : await withTimeout(fetchWebPageContent(item.url, 6000), 6000, { url: item.url, title: item.title, text: item.snippet });
-      pageResults.push(fallback);
+      pageResults.push(await withTimeout(
+        fetchWebPageContent(item.url, 5000),
+        4500,
+        { url: item.url, title: item.title, text: item.snippet }
+      ));
     }
 
     // Build result set, skipping pages with insufficient content (< 150 chars) to save budget
@@ -495,7 +446,7 @@ async function searchWebTool(rawQuery) {
 
     // Assemble structured context with per-source quality labels
     let aggregatedContext = '';
-    combinedResults.slice(0, 6).forEach((res, i) => {
+    combinedResults.slice(0, 3).forEach((res, i) => {
       if (!res.extractedContent) return;
       const len = res.extractedContent.length;
       const quality = len > 1500 ? 'HIGH' : len > 400 ? 'MED' : 'LOW';
@@ -503,11 +454,6 @@ async function searchWebTool(rawQuery) {
         `=== Source ${i + 1} (${quality} — ${len} chars) ===\n` +
         `Title: ${res.title}\nURL: ${res.url}\nContent:\n${res.extractedContent}\n\n`;
     });
-
-    // Memory safety: cap total context at 14,000 characters (~3,500 tokens)
-    if (aggregatedContext.length > 14000) {
-      aggregatedContext = aggregatedContext.slice(0, 14000) + '\n[Content truncated for length...]';
-    }
 
     return {
       success: true,
@@ -519,8 +465,7 @@ async function searchWebTool(rawQuery) {
     };
   };
 
-  // Browser-backed sequential extraction needs a larger budget than raw HTTP.
-  return await withTimeout(searchOperation(), 60000, {
+  return await withTimeout(searchOperation(), 15000, {
     success: true,
     status: 'timeout_fallback',
     query,
@@ -538,10 +483,7 @@ async function fetchPageTool(pageUrl) {
 
   return await withTimeout(
     (async () => {
-      const rendered = await fetchRenderedPageContent(normalizedUrl, 10000);
-      const pageData = rendered.text
-        ? rendered
-        : await fetchWebPageContent(normalizedUrl, 8000);
+      const pageData = await fetchWebPageContent(normalizedUrl, 10000);
       let content = pageData.text || 'Could not extract page text.';
       if (content.length > 10000) {
         content = content.slice(0, 10000) + '\n[Content truncated for length...]';
