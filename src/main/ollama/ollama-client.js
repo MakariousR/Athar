@@ -52,16 +52,7 @@ async function pullModel(modelName, onProgress = () => {}) {
     buffer = lines.pop();
     for (const line of lines) {
       if (!line.trim()) continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(line);
-      } catch {}
-      if (parsed) {
-        if (parsed.error) {
-          throw new Error(parsed.error);
-        }
-        onProgress(parsed);
-      }
+      try { onProgress(JSON.parse(line)); } catch {}
     }
   }
   return { success: true };
@@ -152,115 +143,17 @@ const AGENT_TOOLS = [
 async function executeTool(toolName, args, onStatus = () => {}) {
   if (toolName === 'web_search') {
     onStatus({ icon: '🌐', text: `Searching web for: "${args.query}"` });
-    const result = await searchWebTool(args.query);
-    if (result.resultsCount > 0) {
-      onStatus({ icon: '📊', text: `Retrieved ${result.resultsCount} source${result.resultsCount !== 1 ? 's' : ''} — analyzing content…` });
-    } else if (result.status === 'offline') {
-      onStatus({ icon: '⚠️', text: 'No internet connection — using local knowledge.' });
-    } else if (result.status === 'no_results') {
-      onStatus({ icon: '🔎', text: `No results found for "${args.query}" — trying another approach…` });
-    }
-    return result;
+    return await searchWebTool(args.query);
   }
   if (toolName === 'fetch_web_page') {
-    onStatus({ icon: '📄', text: `Opening page: ${String(args.url).slice(0, 50)}…` });
-    const result = await fetchPageTool(args.url);
-    if (result.success && result.content) {
-      onStatus({ icon: '📋', text: `Page loaded: "${result.title || 'Untitled'}" — extracting content…` });
-    } else {
-      onStatus({ icon: '⚠️', text: `Could not load page — will rely on search snippets.` });
-    }
-    return result;
+    onStatus({ icon: '📄', text: `Opening page: ${args.url.slice(0, 45)}…` });
+    return await fetchPageTool(args.url);
   }
   if (toolName === 'get_current_time') {
     onStatus({ icon: '🕒', text: `Checking current date and time…` });
     return { date: new Date().toLocaleString() };
   }
   return { error: `Unknown tool: ${toolName}` };
-}
-
-class ThinkTagStreamParser {
-  constructor(onToken, onReasoningToken) {
-    this.onToken = onToken || (() => {});
-    this.onReasoningToken = onReasoningToken || (() => {});
-    this.inThink = false;
-    this.buffer = '';
-    this.fullReasoning = '';
-    this.fullOutput = '';
-  }
-
-  process(chunk) {
-    this.buffer += chunk;
-
-    while (this.buffer.length > 0) {
-      if (!this.inThink) {
-        const thinkStart = this.buffer.indexOf('<think>');
-        if (thinkStart !== -1) {
-          const before = this.buffer.slice(0, thinkStart);
-          if (before) {
-            this.fullOutput += before;
-            this.onToken(before);
-          }
-          this.inThink = true;
-          this.buffer = this.buffer.slice(thinkStart + '<think>'.length);
-        } else {
-          const partialIdx = this.buffer.lastIndexOf('<');
-          if (partialIdx !== -1 && '<think>'.startsWith(this.buffer.slice(partialIdx))) {
-            const safe = this.buffer.slice(0, partialIdx);
-            if (safe) {
-              this.fullOutput += safe;
-              this.onToken(safe);
-            }
-            this.buffer = this.buffer.slice(partialIdx);
-            break;
-          } else {
-            this.fullOutput += this.buffer;
-            this.onToken(this.buffer);
-            this.buffer = '';
-          }
-        }
-      } else {
-        const thinkEnd = this.buffer.indexOf('</think>');
-        if (thinkEnd !== -1) {
-          const inside = this.buffer.slice(0, thinkEnd);
-          if (inside) {
-            this.fullReasoning += inside;
-            this.onReasoningToken(inside);
-          }
-          this.inThink = false;
-          this.buffer = this.buffer.slice(thinkEnd + '</think>'.length);
-        } else {
-          const partialIdx = this.buffer.lastIndexOf('<');
-          if (partialIdx !== -1 && '</think>'.startsWith(this.buffer.slice(partialIdx))) {
-            const safe = this.buffer.slice(0, partialIdx);
-            if (safe) {
-              this.fullReasoning += safe;
-              this.onReasoningToken(safe);
-            }
-            this.buffer = this.buffer.slice(partialIdx);
-            break;
-          } else {
-            this.fullReasoning += this.buffer;
-            this.onReasoningToken(this.buffer);
-            this.buffer = '';
-          }
-        }
-      }
-    }
-  }
-
-  flush() {
-    if (this.buffer.length > 0) {
-      if (this.inThink) {
-        this.fullReasoning += this.buffer;
-        this.onReasoningToken(this.buffer);
-      } else {
-        this.fullOutput += this.buffer;
-        this.onToken(this.buffer);
-      }
-      this.buffer = '';
-    }
-  }
 }
 
 function buildMessages(userText, importedThreads, conversationHistory, images = []) {
@@ -277,24 +170,11 @@ CRITICAL CONTEXT & BOUNDARY RULES:
 2. PRIMARY FOCUS: The active chat conversation topic is your top priority. Stay focused on what the user is currently asking or building.
 3. LANGUAGE MATCHING: You MUST ALWAYS respond in the EXACT SAME LANGUAGE as the user's input prompt (e.g., if prompt is in Arabic, respond in Arabic; if English, respond in English).
 4. NO PLACEHOLDERS: Never output bracket placeholders like "[Name 1]".
-5. SEARCH & SCRAPED CONTEXT INSTRUCTIONS:
-   - When web_search or fetch_web_page is executed, full scraped webpage content is ingested.
-   - Your objective is to extract SPECIFIC FACTS, NAMES, DATES, FIGURES, LISTS, and EXACT REAL DATA requested by the user directly from the scraped webpage content.
-   - NEVER output placeholder syntax like "[Title]", "[Artist]", "[Name]", "[Description]", or generic brackets. Always use the actual real entity/item names found in the scraped text.
-   - NEVER output web page titles, search snippet descriptions, or URL domain metadata as your final answer when the user requested factual content or lists.
-   - If initial web search results do not contain all requested items, execute fetch_web_page on the relevant target URL or run a follow-up query to retrieve complete information before synthesizing your final response.
-6. MANDATORY INTERNAL CHAIN-OF-THOUGHT (SCRATCHPAD):
-   - You MUST ALWAYS begin your response with a <think> tag and write out your step-by-step internal reasoning, planning, logic evaluation, and draft steps.
-   - Close your reasoning block with a </think> tag before providing your final answer.
-   - All final answers, summaries, code blocks, or structured deliverables MUST be placed strictly outside the <think>...</think> block.
-7. AGENTIC SELF-CHECK PROTOCOL:
-   - After receiving tool results you will be asked to review your findings before answering.
-   - Ask yourself: "Do I now have ALL the specific names, items, dates, figures, or facts the user requested?"
-   - If YES → write the complete, well-structured final answer immediately. Do NOT call another tool.
-   - If NO or UNCERTAIN → call the appropriate tool again with a more specific query or a targeted URL.
-   - NEVER write a partial answer and promise to search more. Either search first, or deliver a complete answer.
-   - NEVER fabricate, guess, or invent data items (names, songs, titles, numbers) that were not found in search results.
-   - NEVER output the raw text of a tool call (e.g. JSON). Either call a tool properly, or write your final answer.`;
+5. SEARCH & CONTEXT EXTRACTION INSTRUCTIONS:
+   - When using web_search or fetch_web_page, your objective is to extract SPECIFIC FACTS, NAMES, DATES, FIGURES, LISTS, and EXACT DATA requested by the user.
+   - NEVER output web page titles (e.g. "Billboard Year-End Hot 100..."), URL domain descriptions, search engine metadata, or meta snippets as your final answer.
+   - If the user asks for a specific list (e.g. "top 20 songs", "10 best movies", "list of ingredients", "key specifications"), you MUST extract and provide the actual list of item/entity names.
+   - If initial web search snippets do not contain the full list or exact names, immediately invoke fetch_web_page on the most relevant page URL or execute follow-up search queries to retrieve the full information before synthesizing your final answer.`;
 
   // Inject matching threads in explicit XML structure
   if (importedThreads && importedThreads.length > 0) {
@@ -355,101 +235,27 @@ CRITICAL CONTEXT & BOUNDARY RULES:
   return messages;
 }
 
-// Detects tool calls that the model emitted as plain JSON text instead of
-// using the structured tool_calls field. Some models (e.g. qwen2.5:3b) accept
-// the tools schema without error but write the call as raw content.
-function extractTextToolCalls(text) {
-  const results = [];
-  // Strip <think>…</think> blocks before scanning
-  const stripped = text.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim();
-  if (!stripped) return results;
-
-  const normalizeCall = (parsed) => {
-    if (!parsed || typeof parsed !== 'object') return null;
-    const source = parsed.function || parsed.tool || parsed;
-    const name = source.name || source.function?.name;
-    let args = source.arguments ?? source.parameters ?? source.input ?? {};
-    if (typeof args === 'string') {
-      try { args = JSON.parse(args); } catch { return null; }
-    }
-    return typeof name === 'string' && args && typeof args === 'object'
-      ? { function: { name, arguments: args } }
-      : null;
-  };
-
-  // Try the whole stripped output as a single tool-call JSON object
-  try {
-    const parsed = JSON.parse(stripped);
-    const call = normalizeCall(parsed);
-    if (call) { results.push(call); return results; }
-  } catch {}
-
-  // Fallback: locate JSON objects embedded anywhere in the text
-  let i = 0;
-  while (i < stripped.length) {
-    if (stripped[i] === '{') {
-      let depth = 0;
-      let j = i;
-      while (j < stripped.length) {
-        if (stripped[j] === '{') depth++;
-        else if (stripped[j] === '}') { depth--; if (depth === 0) break; }
-        j++;
-      }
-      try {
-        const parsed = JSON.parse(stripped.slice(i, j + 1));
-        const call = normalizeCall(parsed);
-        if (call) results.push(call);
-      } catch {}
-      i = j + 1;
-    } else {
-      i++;
-    }
-  }
-  return results;
-}
-
-function normalizeToolArguments(args) {
-  if (!args) return {};
-  if (typeof args === 'string') {
-    try { return JSON.parse(args); } catch { return {}; }
-  }
-  return args;
-}
-
-async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}, onReasoningToken = () => {}, onStatus = () => {}, images = []) {
+async function generate(userText, importedThreads, conversationHistory, modelName = DEFAULT_MODEL, onToken = () => {}, onStatus = () => {}, images = []) {
   const messages = buildMessages(userText, importedThreads, conversationHistory, images);
   let step = 0;
-  const agentDeadline = Date.now() + 180000;
+  const maxSteps = 6;
   const executedToolKeys = new Set();
   let enableTools = true;
 
-  // Track the most recent iteration's token buffer and content for timeout fallback handling.
-  let lastTokenBuffer = [];
-  let lastFullContent = '';
-
   onStatus({ icon: '🧠', text: 'Thinking & planning execution steps…' });
 
-  while (Date.now() < agentDeadline) {
+  while (step < maxSteps) {
     step++;
-    const timeRemaining = agentDeadline - Date.now();
-    const finalWindow = timeRemaining < 30000;
-
-    // Keep exploring until the time budget is nearly exhausted, then reserve
-    // a final synthesis window instead of stopping at an arbitrary step count.
-    if (finalWindow && enableTools) enableTools = false;
 
     const reqBody = {
       model: modelName,
       messages,
       stream: true,
-      options: {
-        temperature: 0.7,
-        num_ctx: 8192,
-        // Uncapped on tool-call steps; capped at 2048 on synthesis steps
-        num_predict: finalWindow ? 2048 : -1
-      }
+      options: { temperature: 0.7, num_ctx: 8192, num_predict: -1 }
     };
-    if (enableTools) reqBody.tools = AGENT_TOOLS;
+    if (enableTools) {
+      reqBody.tools = AGENT_TOOLS;
+    }
 
     let res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: 'POST',
@@ -460,7 +266,7 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
     if (!res.ok) {
       const errText = await res.text().catch(() => String(res.status));
       if (enableTools && (errText.includes('does not support tools') || errText.includes('tools'))) {
-        // Model does not support the tools API — fallback to plain generation
+        // Model does not support tools API — fallback to normal generation without tools
         enableTools = false;
         delete reqBody.tools;
         res = await fetch(`${OLLAMA_BASE}/api/chat`, {
@@ -469,24 +275,18 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
           body: JSON.stringify(reqBody)
         });
       }
+
       if (!res.ok || !res.body) {
         const finalErr = res.ok ? '' : await res.text().catch(() => String(res.status));
         throw new Error(`Ollama chat failed: ${finalErr || errText}`);
       }
     }
 
-    // ── Stream this iteration ───────────────────────────────────────────────
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let fullContent = '';
     let toolCalls = [];
-
-    // Buffer content tokens; only forwarded to onToken when this turn is confirmed
-    // as a final answer — prevents raw tool-call JSON from appearing in the chat UI.
-    const tokenBuffer = [];
-    lastTokenBuffer = tokenBuffer;
-    const parser = new ThinkTagStreamParser((t) => tokenBuffer.push(t), onReasoningToken);
 
     while (true) {
       const { done, value } = await reader.read();
@@ -500,7 +300,7 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
           const chunk = JSON.parse(line);
           if (chunk.message) {
             const token = chunk.message.content;
-            if (token) { fullContent += token; parser.process(token); }
+            if (token) { fullContent += token; onToken(token); }
             if (chunk.message.tool_calls && chunk.message.tool_calls.length > 0) {
               toolCalls.push(...chunk.message.tool_calls);
             }
@@ -508,99 +308,45 @@ async function generate(userText, importedThreads, conversationHistory, modelNam
         } catch {}
       }
     }
-    parser.flush();
-    lastFullContent = fullContent;
 
-    // ── Determine active tool calls for this turn ───────────────────────────
-    // Deduplicate structured tool calls to prevent infinite loops
-    const uniqueToolCalls = toolCalls.map((call) => ({
-      ...call,
-      function: { ...call.function, arguments: normalizeToolArguments(call.function?.arguments) }
-    })).filter((call) => {
+    // Filter out duplicate tool calls already executed in previous turns to prevent infinite loops
+    const uniqueToolCalls = toolCalls.filter((call) => {
       const key = `${call.function.name}:${JSON.stringify(call.function.arguments || {})}`;
       if (executedToolKeys.has(key)) return false;
       executedToolKeys.add(key);
       return true;
     });
 
-    let activeCalls = uniqueToolCalls;
+    // If no new tool calls requested, we are done!
+    if (uniqueToolCalls.length === 0) {
+      onStatus({ icon: '✨', text: 'Final answer synthesized.' });
+      return fullContent;
+    }
 
-    if (activeCalls.length === 0) {
-      // No structured tool calls — check if the model emitted a call as plain text
-      const detectedTextToolCalls = extractTextToolCalls(fullContent);
-      const textToolCalls = detectedTextToolCalls.filter((call) => {
-        const key = `${call.function.name}:${JSON.stringify(call.function.arguments || {})}`;
-        if (executedToolKeys.has(key)) return false;
-        executedToolKeys.add(key);
-        return true;
+    // Store assistant message with tool calls
+    messages.push({
+      role: 'assistant',
+      content: fullContent,
+      tool_calls: uniqueToolCalls
+    });
+
+    // Execute each unique tool call
+    for (const call of uniqueToolCalls) {
+      const fnName = call.function.name;
+      const fnArgs = call.function.arguments || {};
+
+      const toolResult = await executeTool(fnName, fnArgs, onStatus);
+
+      messages.push({
+        role: 'tool',
+        content: JSON.stringify(toolResult)
       });
-
-      if (textToolCalls.length === 0) {
-        // A repeated tool call is not a final answer. Ask the model to synthesize
-        // from the existing result instead of displaying the duplicate JSON.
-        const repeatedToolCall = toolCalls.length > 0 || detectedTextToolCalls.length > 0;
-        if (repeatedToolCall) {
-          messages.push({ role: 'assistant', content: fullContent });
-          messages.push({
-            role: 'user',
-            content: 'The requested tool call was already completed. Do not call any tool again. Write the complete final answer using the tool results already provided.'
-          });
-          onStatus({ icon: '🧾', text: 'Preparing the final answer from the retrieved results…' });
-          continue;
-        }
-
-        // ✅ Genuine final answer — flush buffered tokens to the UI
-        for (const t of tokenBuffer) onToken(t);
-        onStatus({ icon: '✨', text: 'Final answer synthesized.' });
-        return fullContent;
-      }
-
-      // Text-based tool calls found — discard buffer so raw JSON stays hidden
-      activeCalls = textToolCalls;
-    }
-    // For structured tool calls the model sends empty content, so the buffer
-    // is naturally empty — no discard needed.
-
-    // ── Execute tool calls ──────────────────────────────────────────────────
-    messages.push({ role: 'assistant', content: fullContent, tool_calls: activeCalls });
-
-    for (const call of activeCalls) {
-      const toolResult = await executeTool(
-        call.function.name,
-        normalizeToolArguments(call.function.arguments),
-        onStatus
-      );
-      messages.push({ role: 'tool', content: JSON.stringify(toolResult) });
     }
 
-    // ── Inject internal self-reflection prompt ──────────────────────────────
-    // This user-role message lives ONLY in the local messages array for this
-    // generate() call. It is never streamed to the UI, never saved to the
-    // session store, and never appears in future conversation history.
-    const reflectionContent = finalWindow
-      ? `IMPORTANT: The web research time budget is nearly exhausted. Do NOT call any more tools. ` +
-        `Write the complete, accurate, well-structured final answer to the user's question right now. ` +
-        `Use only the information found in the tool results above — do not fabricate anything.`
-      : `Review the tool results you just received:\n` +
-        `1. Do you have ALL the specific names, facts, items, dates, or data the user asked for?\n` +
-        `2. Is anything still missing, vague, or unverified?\n\n` +
-        `→ If MISSING: call the appropriate tool again with a more targeted query or a specific URL.\n` +
-        `→ If COMPLETE: write the full, well-structured final answer now — do not call any more tools.\n\n` +
-        `Continue researching only when a specific fact is still missing. Be decisive.`;
-
-    messages.push({ role: 'user', content: reflectionContent });
-    onStatus({ icon: '🔍', text: finalWindow ? 'Preparing the final answer…' : `Reviewing findings… (research pass ${step})` });
+    onStatus({ icon: '🔄', text: 'Analyzing observations & drafting answer…' });
   }
 
-  // Never expose a tool call if the research time budget expires while
-  // repeating one. A clean fallback is safer than leaking raw JSON.
-  if (extractTextToolCalls(lastFullContent).length === 0) {
-    for (const t of lastTokenBuffer) onToken(t);
-  } else {
-    onToken('I could not complete the web-assisted answer within the available steps. Please try the request again.');
-  }
-  onStatus({ icon: '✨', text: 'Final answer synthesized.' });
-  return lastFullContent;
+  return fullContent;
 }
 
 module.exports = {
@@ -614,6 +360,5 @@ module.exports = {
   deleteModel,
   embedText,
   embedThreads,
-  ThinkTagStreamParser,
   generate
 };

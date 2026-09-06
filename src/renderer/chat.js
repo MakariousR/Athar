@@ -44,7 +44,7 @@ let currentStreamText    = '';
 let pendingSources       = null; // sources received before stream starts
 let attachedImages       = [];   // [{ name, dataUrl, base64 }]
 
-const CHAT_MODEL  = 'gemma3:4b'; // the default chat model to use if none is installed
+const CHAT_MODEL  = 'qwen2.5:3b';
 const EMBED_MODEL = 'bge-m3';
 
 let activeModel = CHAT_MODEL; // the model currently used for generation
@@ -54,23 +54,18 @@ const MODEL_CATALOG = [
   { name: 'qwen2.5:0.5b',      label: 'Qwen 2.5 · 0.5B',        sizeBytes:   397_000_000, ram: '~1.5 GB', vision: false, desc: 'Ultra-fast & lightweight. Best for quick answers on low-spec hardware.' },
   { name: 'gemma3:1b',         label: 'Gemma 3 · 1B',           sizeBytes:   815_000_000, ram: '~2.0 GB', vision: false, desc: 'Google lightweight model. Fast response, low resource footprint.' },
   { name: 'qwen2.5:1.5b',      label: 'Qwen 2.5 · 1.5B',       sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
-  { name: 'deepseek-r1:1.5b',   label: 'DeepSeek R1 · 1.5B',     sizeBytes: 1_100_000_000, ram: '~2.3 GB', vision: false, desc: '🧠 Native Reasoning Model. Generates deep step-by-step internal chain-of-thought.' },
   { name: 'llama3.2:1b',       label: 'Llama 3.2 · 1B',         sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
-  { name: 'qwen2.5-coder:3b',  label: 'Qwen 2.5 Coder · 3B',    sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: '💻 Dedicated Compact Coding Model. Fast & precise code generation.' },
   { name: 'qwen2.5:3b',        label: 'Qwen 2.5 · 3B',          sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: '⭐ Default Recommended. Strong multilingual reasoning, tool calling & history search.' },
+  { name: 'qwen2.5-vl:3b',     label: 'Qwen 2.5 VL · 3B',       sizeBytes: 1_950_000_000, ram: '~3.5 GB', vision: true,  desc: '🖼️ Fast Vision + Tools. Compact multimodal model for visual analysis & reasoning.' },
   { name: 'llama3.2:3b',       label: 'Llama 3.2 · 3B',         sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
   { name: 'phi4-mini',         label: 'Phi 4 Mini · 3.8B',      sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
-  { name: 'gemma3:4b',         label: 'Gemma 3 · 4B',           sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Fast Multimodal Vision + 140+ languages. Analyzes images & screenshots.' },
-  { name: 'llava:7b',          label: 'LLaVA · 7B',             sizeBytes: 4_500_000_000, ram: '~7.5 GB', vision: true,  desc: '🖼️ Classic Open Source Vision Model. High accuracy image understanding.' },
-  { name: 'deepseek-r1:7b',     label: 'DeepSeek R1 · 7B',       sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: '🧠🔥 Flagship Open Reasoning Model. Deep step-by-step chain-of-thought & logic.' },
-  { name: 'deepseek-r1:8b',     label: 'DeepSeek R1 · 8B',       sizeBytes: 4_900_000_000, ram: '~8.5 GB', vision: false, desc: '🧠 Meta Llama-based DeepSeek R1 reasoning variant.' },
-  { name: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder · 7B',    sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: '💻🔥 #1 Open Source Coding Model. Elite code generation, refactoring & debugging.' },
+  { name: 'gemma3:4b',         label: 'Gemma 3 · 4B',           sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Includes Vision & 140+ languages. Can analyze uploaded images & screenshots.' },
   { name: 'mistral',           label: 'Mistral · 7B',            sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
   { name: 'llama3.1:8b',       label: 'Llama 3.1 · 8B',         sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
   { name: 'qwen2.5:7b',        label: 'Qwen 2.5 · 7B',          sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
+  { name: 'qwen2.5-vl:7b',     label: 'Qwen 2.5 VL · 7B',       sizeBytes: 4_750_000_000, ram: '~8.0 GB', vision: true,  desc: '🖼️🔥 Top Recommended All-Rounder! Vision + Native Tools + Top-Tier Coding & Reasoning.' },
   { name: 'llama3.2-vision:11b', label: 'Llama 3.2 Vision · 11B', sizeBytes: 7_900_000_000, ram: '~11 GB',  vision: true,  desc: '🖼️ Meta flagship vision model. High-res image understanding, document OCR & tools.' },
   { name: 'gemma3:12b',        label: 'Gemma 3 · 12B',          sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
-  { name: 'deepseek-r1:14b',    label: 'DeepSeek R1 · 14B',      sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: '🧠 High-tier DeepSeek R1 reasoning model for complex math, code & logic.' },
   { name: 'qwen2.5:14b',       label: 'Qwen 2.5 · 14B',         sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: 'High-tier reasoning & long-document analysis for powerful PCs.' },
   { name: 'phi4',              label: 'Phi 4 · 14B',             sizeBytes: 9_100_000_000, ram: '~14 GB',  vision: false, desc: 'Microsoft flagship 14B logic & math model.' },
   { name: 'llama3.3:70b',      label: 'Llama 3.3 · 70B',        sizeBytes: 43_000_000_000, ram: '~48 GB',  vision: false, desc: 'Enterprise-grade 70B model. Requires high-end GPU / VRAM workstation.' },
@@ -108,12 +103,6 @@ const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', unknown: '#6c8cff
 window.api.onChatToken((token) => {
   if (!currentAssistantEl) return;
   currentAssistantBubble.classList.remove('typing-indicator');
-  
-  const reasoningStatus = currentAssistantBubble.querySelector('.reasoning-status');
-  if (reasoningStatus && reasoningStatus.textContent === 'Thinking…') {
-    reasoningStatus.textContent = 'Complete';
-  }
-
   currentStreamText += token;
   currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
 
@@ -122,44 +111,6 @@ window.api.onChatToken((token) => {
     renderSourceChips(currentAssistantBubble, pendingSources);
     pendingSources = null;
   }
-  scrollToBottom();
-});
-
-window.api.onChatReasoningToken((token) => {
-  if (!currentAssistantBubble) return;
-  currentAssistantBubble.classList.remove('typing-indicator');
-
-  const body = currentAssistantBubble.querySelector('.message-body');
-  if (!body) return;
-
-  let box = currentAssistantBubble.querySelector('.reasoning-box');
-  if (!box) {
-    box = document.createElement('div');
-    box.className = 'reasoning-box';
-    box.innerHTML = `
-      <div class="reasoning-header">
-        <span class="reasoning-title"><span class="reasoning-chevron">▼</span> Internal Reasoning</span>
-        <span class="reasoning-status">Thinking…</span>
-      </div>
-      <div class="reasoning-content">
-        <pre class="reasoning-text"></pre>
-      </div>`;
-
-    const textEl = currentAssistantBubble.querySelector('.message-text');
-    if (textEl) {
-      body.insertBefore(box, textEl);
-    } else {
-      body.appendChild(box);
-    }
-
-    const header = box.querySelector('.reasoning-header');
-    header.addEventListener('click', () => {
-      box.classList.toggle('collapsed');
-    });
-  }
-
-  const preEl = box.querySelector('.reasoning-text');
-  preEl.textContent += token;
   scrollToBottom();
 });
 

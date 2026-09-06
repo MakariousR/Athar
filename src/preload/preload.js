@@ -32,10 +32,6 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.removeAllListeners('chat:token');
     ipcRenderer.on('chat:token', (_e, token) => cb(token));
   },
-  onChatReasoningToken: (cb) => {
-    ipcRenderer.removeAllListeners('chat:reasoning-token');
-    ipcRenderer.on('chat:reasoning-token', (_e, token) => cb(token));
-  },
   onSessionUpdated: (cb) => {
     ipcRenderer.removeAllListeners('chat:session-updated');
     ipcRenderer.on('chat:session-updated', (_e, data) => cb(data));

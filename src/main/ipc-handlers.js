@@ -208,9 +208,6 @@ function registerIpcHandlers() {
           fullReply += token;
           event.sender.send('chat:token', token);
         },
-        (reasoningToken) => {
-          event.sender.send('chat:reasoning-token', reasoningToken);
-        },
         (statusMessage) => {
           event.sender.send('chat:status', statusMessage);
         },
