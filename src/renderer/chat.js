@@ -138,7 +138,7 @@ window.api.onChatReasoningToken((token) => {
     box.className = 'reasoning-box';
     box.innerHTML = `
       <div class="reasoning-header">
-        <span class="reasoning-title"><span class="reasoning-chevron">▼</span> Model Reasoning</span>
+        <span class="reasoning-title"><span class="reasoning-chevron">▼</span> Internal Reasoning</span>
         <span class="reasoning-status">Thinking…</span>
       </div>
       <div class="reasoning-content">
@@ -190,7 +190,7 @@ window.api.onChatStatus((statusData) => {
     box.className = 'thought-box';
     box.innerHTML = `
       <div class="thought-header">
-        <span class="thought-title"><span class="thought-chevron">▼</span> Agent Process</span>
+        <span class="thought-title"><span class="thought-chevron">▼</span> Thought Process</span>
         <span class="thought-count">1 step</span>
       </div>
       <div class="thought-content">
