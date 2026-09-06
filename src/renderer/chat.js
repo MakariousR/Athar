@@ -44,7 +44,7 @@ let currentStreamText    = '';
 let pendingSources       = null; // sources received before stream starts
 let attachedImages       = [];   // [{ name, dataUrl, base64 }]
 
-const CHAT_MODEL  = 'qwen2.5:3b';
+const CHAT_MODEL  = 'qwen2.5-coder:7b';
 const EMBED_MODEL = 'bge-m3';
 
 let activeModel = CHAT_MODEL; // the model currently used for generation
@@ -100,18 +100,33 @@ const SOURCE_LABELS = { chatgpt: 'ChatGPT', claude: 'Claude', unknown: 'Unknown'
 const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', unknown: '#6c8cff' };
 
 // ── Stable IPC listeners ──────────────────────────────────────────────────────
+
+// FIX: rendering full markdown on every single token was O(n^2) over a long
+// response (re-parsing the whole accumulated string each time) and caused
+// visible jank on longer answers. Batch DOM updates to at most once per
+// animation frame instead of once per token — still feels live, far cheaper.
+let renderScheduled = false;
+function scheduleRender() {
+  if (renderScheduled || !currentAssistantEl) return;
+  renderScheduled = true;
+  requestAnimationFrame(() => {
+    renderScheduled = false;
+    if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
+    scrollToBottom();
+  });
+}
+
 window.api.onChatToken((token) => {
   if (!currentAssistantEl) return;
   currentAssistantBubble.classList.remove('typing-indicator');
   currentStreamText += token;
-  currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
+  scheduleRender();
 
   // Render source chips once the first token arrives
   if (pendingSources) {
     renderSourceChips(currentAssistantBubble, pendingSources);
     pendingSources = null;
   }
-  scrollToBottom();
 });
 
 window.api.onSessionUpdated(({ id, title }) => {
@@ -131,6 +146,22 @@ window.api.onChatStatus((statusData) => {
   const info = typeof statusData === 'object'
     ? statusData
     : { icon: '⚡', text: statusData };
+
+  // FIX: the backend agent loop can run several internal steps before it has
+  // a real final answer (e.g. a step that streams "let me search for that…"
+  // and then turns out to just be a tool call). Previously every step's
+  // tokens kept getting appended to the same `currentStreamText`, with
+  // nothing to say "that text wasn't the answer, throw it away." That let
+  // leftover thinking text and even raw fallback tool-call JSON get stuck in
+  // front of the real answer. The backend now emits `{ type: 'reset' }`
+  // right before each new step starts (and immediately once it detects a
+  // step ended in a tool call), and we clear the visible/accumulated text
+  // here in response.
+  if (info.type === 'reset') {
+    currentStreamText = '';
+    if (currentAssistantEl) currentAssistantEl.innerHTML = '';
+    return;
+  }
 
   const body = currentAssistantBubble.querySelector('.message-body');
   if (!body) return;
@@ -664,13 +695,49 @@ function renderHistoryTab() {
 }
 
 // ── Message rendering ─────────────────────────────────────────────────────────
+
+// FIX: the model's context can include raw scraped web page content (from
+// the pre-research pipeline / web_search tool). If a page contained
+// something like an <img onerror=...> payload or a <script> tag and the
+// model echoed it back verbatim, `marked.parse` would happily pass that
+// straight through and it would execute as live HTML once written via
+// innerHTML below. This is a minimal, dependency-free scrub — strip
+// <script>/<style> tags, on* event-handler attributes, and javascript:
+// URLs — applied to the rendered HTML right before it's inserted into the
+// DOM. It's not a full sanitizer; if a proper one (e.g. DOMPurify) is
+// available in the app bundle already, prefer wiring that in instead.
+function sanitizeHtml(html) {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+
+  const walk = (node) => {
+    for (const el of Array.from(node.querySelectorAll('*'))) {
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'script' || tag === 'style' || tag === 'iframe' || tag === 'object' || tag === 'embed') {
+        el.remove();
+        continue;
+      }
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase();
+        const value = attr.value.trim().toLowerCase();
+        if (name.startsWith('on')) el.removeAttribute(attr.name);
+        if ((name === 'href' || name === 'src') && value.startsWith('javascript:')) {
+          el.removeAttribute(attr.name);
+        }
+      }
+    }
+  };
+  walk(container);
+  return container.innerHTML;
+}
+
 function renderMarkdown(text) {
   if (!text) return '';
   // Collapse multiple blank lines before numbered headers, bold lines, and bullet points
   let cleaned = text
     .replace(/\n\s*\n+(\s*(\d+\.|\*\*|[\u2022\u25E6\u25CB\u2023\u2013\-\*]))/g, '\n$1')
     .replace(/(\n\s*){3,}/g, '\n\n'); // Never allow more than 2 consecutive newlines anywhere
-  if (window.marked) return window.marked.parse(cleaned, { breaks: false, gfm: true });
+  if (window.marked) return sanitizeHtml(window.marked.parse(cleaned, { breaks: false, gfm: true }));
   const d = document.createElement('div');
   d.textContent = cleaned;
   return d.innerHTML;
@@ -787,6 +854,12 @@ async function sendMessage() {
   scrollToBottom();
 
   const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64);
+
+  // FIX: rendering is now throttled to one rAF per batch of tokens (see
+  // onChatToken), so make sure the last batch is actually painted before we
+  // detach currentAssistantEl below — otherwise the very last chunk of text
+  // could silently never make it to the DOM.
+  if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
 
   currentAssistantEl     = null;
   currentAssistantBubble = null;
