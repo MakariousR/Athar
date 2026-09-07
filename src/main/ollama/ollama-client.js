@@ -2,6 +2,18 @@ const OLLAMA_BASE  = 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'gemma3:4b';
 const EMBED_MODEL   = 'bge-m3';
 
+// FIX: small local timeout helper (web-search.js has its own copy, not
+// exported) — used below so the new "does this need a search?" self-check
+// call can never hang the whole response if the local model stalls.
+function withLocalTimeout(promise, ms, fallback) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const t = setTimeout(() => { if (!settled) { settled = true; resolve(fallback); } }, ms);
+    promise.then((v) => { if (!settled) { settled = true; clearTimeout(t); resolve(v); } })
+           .catch(() => { if (!settled) { settled = true; clearTimeout(t); resolve(fallback); } });
+  });
+}
+
 async function isOllamaRunning() {
   try {
     const res = await fetch(OLLAMA_BASE, { method: 'GET' });
@@ -219,6 +231,62 @@ function isResearchQuery(text) {
   return SEARCH_INTENT_PATTERNS.some((re) => re.test(text));
 }
 
+// ─── Self-ask: does THIS question need current/updated info? ─────────────────
+/**
+ * The keyword patterns above only catch questions that explicitly say
+ * "search"/"latest"/"current"/etc. Plenty of questions implicitly need
+ * live information without using any of those words — "who is the CEO of
+ * X", "is this show still running", "what's the exchange rate", "who won
+ * the game last night" — and a local model with a stale training cutoff has
+ * no way to know its own answer might be wrong unless it's asked to reason
+ * about that directly.
+ *
+ * So when the fast keyword check doesn't fire, we make one small, cheap,
+ * non-streaming call to the model itself, asking it to reason about whether
+ * THIS SPECIFIC question depends on something that could have changed since
+ * its training — a genuine "ask yourself first" step, not just regex
+ * guessing. Kept short (num_predict small, temp 0) and time-boxed so it can
+ * never meaningfully delay the real answer; if it fails or times out we just
+ * don't force a search (the model can still decide to call web_search
+ * itself mid-answer, same as before this change).
+ */
+async function selfCheckNeedsSearch(userText, modelName, onStatus = () => {}) {
+  const now = new Date();
+
+  // FIX: this used to hardcode "your training cutoff is roughly 2023–2024",
+  // which was only true for one specific model. The catalog offers dozens of
+  // different models (0.5B to 72B, several vendors), each with its own real
+  // cutoff that this app has no reliable way to look up via the Ollama API.
+  // Instead of guessing a date, we tell the model its OWN cutoff is unknown
+  // to us and let it reason from that uncertainty — this holds for any
+  // model, present or future, without needing per-model configuration.
+  const classifierPrompt = `You are a strict binary classifier. Decide whether answering the user's question ACCURATELY requires searching the internet for current or real-world information, as opposed to being answerable from stable, general knowledge.
+
+Today's real date is ${now.toDateString()} (current year: ${now.getFullYear()}). You do not reliably know your own training cutoff date, and it may be well before today — possibly by months or years. So for anything that depends on the current state of the world (who currently holds a position, prices, scores, schedules, software versions, ongoing situations, recent news), assume your internal knowledge could be outdated or simply wrong, regardless of how confident it feels.
+
+Ask yourself about THIS question specifically:
+- Does the correct answer depend on something that changes over time (who currently holds a position, a price, a score, a version number, an ongoing event)?
+- Does it reference "now", "current", "latest", "still", "today", or a recent/ongoing event, even implicitly?
+- Would an answer from memory plausibly be stale or wrong — as opposed to the question being timeless, conceptual, personal, creative, mathematical, or about how something works in general?
+
+User question: "${userText}"
+
+Respond with EXACTLY one word — YES if a live web search is needed to answer this accurately, or NO if general knowledge is reliable enough. No punctuation, no explanation, just YES or NO.`;
+
+  const call = (async () => {
+    const res = await ollamaChat({
+      model: modelName,
+      messages: [{ role: 'user', content: classifierPrompt }],
+      stream: false,
+      options: { temperature: 0, num_predict: 5 }
+    });
+    const data = await res.json();
+    return (data.message?.content || '').trim().toUpperCase().startsWith('Y');
+  })();
+
+  return withLocalTimeout(call, 8000, false);
+}
+
 /**
  * Build a concise search query from the user's natural language message.
  * Strips filler words and keeps the core topic.
@@ -231,11 +299,169 @@ function buildSearchQuery(userText) {
     .slice(0, 120);
 }
 
+// ─── Accuracy layer 2: cross-source verification ──────────────────────────────
+/**
+ * Structural source-diversity info (see formatKnowledgeBase in web-search.js)
+ * tells us HOW MANY domains contributed, but not WHETHER they actually agree
+ * with each other on the specific facts that matter. This makes one extra
+ * model call over the freshly-crawled research, asking it to explicitly sort
+ * facts into "confirmed by multiple independent sources", "only seen once",
+ * and "sources actually disagree" — before that research ever reaches the
+ * answer-generation step. The result is appended to the research context so
+ * the final answer can lean on corroborated facts and hedge or flag the rest,
+ * instead of presenting everything with equal (false) confidence.
+ */
+async function crossCheckResearch(query, researchText, modelName, onStatus = () => {}) {
+  if (!researchText || researchText.length < 200) return '';
+
+  onStatus({ icon: '🔎', text: 'Cross-checking sources for agreement…' });
+
+  const prompt = `You are a research cross-checker, not the final answerer. Below is web research gathered for the query: "${query}". Each source is separated and labeled with its title/domain/URL.
+
+${researchText.slice(0, 8000)}
+
+Review the sources above and produce a short, internal verification note with exactly these three sections:
+CONFIRMED: key specific facts (names, numbers, dates, statuses) that appear consistently on 2 or more DIFFERENT domains. Up to 4 items, each under 15 words. Write "none" if there are none.
+UNCONFIRMED: specific facts that appear on only ONE domain. Up to 3 items, each under 15 words. Write "none" if there are none.
+CONTRADICTIONS: places where sources directly disagree with each other. Up to 3 items, each under 20 words. Write "none" if there are none.
+
+Be concise. No preamble, no other commentary, just the three labeled sections.`;
+
+  const call = (async () => {
+    const res = await ollamaChat({
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
+      options: { temperature: 0.2, num_predict: 220 }
+    });
+    const data = await res.json();
+    return (data.message?.content || '').trim();
+  })();
+
+  return withLocalTimeout(call, 15000, '');
+}
+
+// ─── Accuracy layer 3: post-answer grounding check ────────────────────────────
+/**
+ * Even with good research and a cross-check note, a model can still state
+ * something confidently that the sources never actually said (ordinary
+ * hallucination layered on top of real search results). This runs once,
+ * after the final answer text exists, comparing it against everything that
+ * was actually gathered during this turn and asking specifically: which
+ * concrete claims in the answer are NOT backed by the research? It only
+ * flags — it doesn't silently rewrite the answer — so the user sees exactly
+ * what wasn't verifiable rather than getting a answer that's been
+ * second-guessed and altered without their knowledge.
+ */
+async function checkAnswerGrounding(answerText, researchText, modelName) {
+  if (!answerText || !researchText || researchText.length < 200) return null;
+
+  const prompt = `You are a fact-grounding checker. Compare the ANSWER to the RESEARCH it was supposed to be based on.
+
+RESEARCH:
+"""
+${researchText.slice(0, 7000)}
+"""
+
+ANSWER:
+"""
+${answerText.slice(0, 2500)}
+"""
+
+Identify ONLY specific factual claims in the ANSWER (names, numbers, dates, statuses, events) that are NOT supported anywhere in the RESEARCH, or that contradict it. Ignore phrasing, summarizing, or reasonable inference — only flag claims that are genuinely absent or contradicted.
+
+If every specific claim in the ANSWER is supported by the RESEARCH, respond with exactly: NONE
+Otherwise respond with a short comma-separated list (max 3 items, each under 12 words) of the unsupported claims — nothing else, no preamble.`;
+
+  const call = (async () => {
+    const res = await ollamaChat({
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
+      options: { temperature: 0, num_predict: 150 }
+    });
+    const data = await res.json();
+    const reply = (data.message?.content || '').trim();
+    if (!reply || /^none\.?$/i.test(reply)) return null;
+    return reply;
+  })();
+
+  // Fail-open: if the check itself errors or times out, don't block or
+  // falsely flag the answer — just skip the note.
+  return withLocalTimeout(call, 12000, null);
+}
+
+/**
+ * When checkAnswerGrounding flags specific claims, this asks the model to
+ * revise its own answer using only what the research actually supports,
+ * rather than just appending a warning label to text that's still wrong.
+ * Returns the revised text, or null if the call fails/times out (caller
+ * falls back to the warning-footer behavior in that case).
+ */
+async function reviseAnswerForGrounding(userText, originalAnswer, unsupportedNote, researchText, modelName) {
+  const prompt = `You previously answered a user's question, but a fact-check pass found that some claims in your answer aren't actually supported by the research you had available. Revise the answer: remove or correct ONLY the specific unsupported/incorrect claims listed below, using ONLY what the research below actually supports. Keep everything else from the original answer that IS supported, and keep the same language, tone, and formatting style as the original. Do not mention this revision process, the fact-check, or the research to the user — just output the corrected final answer directly, as if it were your first response.
+
+ORIGINAL USER QUESTION: "${userText}"
+
+RESEARCH:
+"""
+${researchText.slice(0, 7000)}
+"""
+
+YOUR ORIGINAL ANSWER:
+"""
+${originalAnswer.slice(0, 3000)}
+"""
+
+CLAIMS FLAGGED AS UNSUPPORTED OR INCORRECT: ${unsupportedNote}
+
+Write the corrected final answer now, nothing else:`;
+
+  const call = (async () => {
+    const res = await ollamaChat({
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
+      options: { temperature: 0.3, num_predict: 900 }
+    });
+    const data = await res.json();
+    const reply = (data.message?.content || '').trim();
+    return reply || null;
+  })();
+
+  return withLocalTimeout(call, 20000, null);
+}
+
+/**
+ * Delivers already-complete, confirmed-final text to onToken as a simulated
+ * live stream (small chunks with a tiny delay) rather than all at once. Used
+ * because real tokens are no longer relayed live during generation (see the
+ * streaming loop in generate()) — everything now waits until a step is
+ * confirmed final, so this is what makes the finished answer still feel
+ * like it's streaming in rather than popping in as one block.
+ */
+async function replayAsStream(text, onToken) {
+  if (!text) return;
+  const chunkSize = 4;
+  for (let i = 0; i < text.length; i += chunkSize) {
+    onToken(text.slice(i, i + chunkSize));
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 12));
+  }
+}
+
 // ─── System prompt builder ────────────────────────────────────────────────────
 function buildMessages(userText, importedThreads, conversationHistory, images = [], researchContext = '') {
   const messages = [];
 
+  const now = new Date();
+
   let systemContent = `You are an intelligent personal AI agent with real-time web access.
+
+Today's real date is ${now.toDateString()} (current year: ${now.getFullYear()}). You do not
+reliably know your own training cutoff date, and it may be well before today. Treat anything
+about current events, who currently holds a role, prices, scores, versions, or ongoing
+situations as something you cannot know reliably on your own, no matter how confident it feels.
 
 CRITICAL RULES:
 1. ARCHIVE BOUNDARY: Items in <background_reference_archive> are PASSIVE REFERENCE ONLY from old exports. Never confuse them with the active conversation.
@@ -250,7 +476,12 @@ CRITICAL RULES:
      call), base your answer on it and only state what it actually says — never invent facts.
    - If the research content is genuinely empty, irrelevant, or errored, say so honestly
      instead of forcing an answer around it.
-   - Always cite sources (page titles + URLs) from the research when available.`;
+   - Always cite sources (page titles + URLs) from the research when available.
+   - If the research includes a "SOURCE VERIFICATION NOTE" or a source-diversity warning
+     (single domain vs multiple independent domains), use it: state CONFIRMED (multi-source)
+     facts plainly, hedge UNCONFIRMED (single-source) facts explicitly (e.g. "according to
+     [source]…"), and surface any CONTRADICTIONS to the user rather than picking one side
+     silently.`;
 
   // Inject pre-crawled research context directly into system prompt
   if (researchContext) {
@@ -261,11 +492,17 @@ CRITICAL RULES:
 
 <web_research>\n${researchContext}\n</web_research>`;
   } else {
-    systemContent += `\n\n6. SEARCH INSTRUCTIONS: For questions about recent events, news, current versions,
-   or anything that may have changed, call web_search. Extract specific facts, names,
-   dates, and figures from the results — never return raw metadata. If one search isn't
-   enough, call it again with a refined query, but stop once you have enough to answer.`;
+    systemContent += `\n\n6. SEARCH INSTRUCTIONS: Before answering, silently ask yourself: "Does this depend on
+   something that could have changed since my training cutoff (whenever that was), or on
+   who/what/how much something currently is?" If yes — even if the user didn't use words like
+   "search" or "latest" — call web_search first rather than answering from memory. This covers
+   things like current role-holders, prices, scores, schedules, software versions, and ongoing
+   situations. Only skip the search for genuinely timeless, conceptual, personal, creative,
+   mathematical, or how-it-works-in-general questions. Extract specific facts, names, dates,
+   and figures from the results — never return raw metadata. If one search isn't enough,
+   call it again with a refined query, but stop once you have enough to answer.`;
   }
+
 
   // Inject background archive
   if (importedThreads && importedThreads.length > 0) {
@@ -345,12 +582,45 @@ async function generate(
   // ── Phase 1: Pre-research (independent of model tool-calling) ──────────────
   // Run the full web research pipeline BEFORE the model loop so the model
   // always receives real content even if it fails to call tools correctly.
+  //
+  // FIX: this used to be gated purely on `isResearchQuery`'s keyword regex,
+  // which only fires for questions that explicitly say "search"/"latest"/
+  // etc. Most questions that actually need current info don't use those
+  // words ("who is the CEO of X", "is this app still free"), so those
+  // silently got answered from the local model's stale training data with
+  // no search at all. Now, if the keywords don't fire, we ask the model
+  // itself (selfCheckNeedsSearch) whether THIS question needs live info —
+  // a real per-question decision instead of a fixed word list.
   let researchContext = '';
-  if (isResearchQuery(userText)) {
+  let needsSearch = isResearchQuery(userText);
+
+  // Accumulates every piece of real research text gathered this turn
+  // (pre-research below, plus any web_search/fetch_web_page tool results
+  // during the agent loop) — used at the very end for the grounding check
+  // (accuracy layer 3) that verifies the final answer against it.
+  const researchLog = [];
+
+  if (!needsSearch) {
+    onStatus({ icon: '🤔', text: 'Checking whether this needs current information…' });
+    needsSearch = await selfCheckNeedsSearch(userText, modelName, onStatus);
+  }
+
+  if (needsSearch) {
     const query = buildSearchQuery(userText);
     onStatus({ icon: '🔬', text: `Pre-researching: "${query}"…` });
     try {
       researchContext = await searchWebTool(query, onStatus);
+
+      // Accuracy layer 2: cross-check the gathered sources against each
+      // other BEFORE they're handed to the answering model, so corroborated
+      // vs single-source vs contradicted facts are distinguished up front.
+      if (researchContext && !researchContext.startsWith('ERROR:')) {
+        const verification = await crossCheckResearch(query, researchContext, modelName, onStatus);
+        if (verification) {
+          researchContext += `\n\n=== SOURCE VERIFICATION NOTE (auto-generated, internal) ===\n${verification}\n`;
+        }
+        researchLog.push(researchContext);
+      }
     } catch (e) {
       researchContext = `Research error: ${e.message}`;
     }
@@ -430,6 +700,21 @@ async function generate(
     let toolCalls = [];
     let streamError = null;
 
+    // FIX: the previous approach relayed tokens live based on a heuristic
+    // (did the text start with '{' or '```'?) and only caught up after the
+    // fact for anything that slipped past it — e.g. a model that writes
+    // explanatory prose BEFORE printing inline tool-call JSON ("Let me
+    // check that...\n\n{...}"), or a JSON shape extractFallbackToolCall
+    // doesn't recognize. Both cases streamed the whole step live and either
+    // flashed-then-vanished, or worse, got returned to the user as-is
+    // because it didn't get recognized as a tool call at all. A heuristic
+    // can always be wrong, so we no longer try to guess mid-stream: this
+    // step's tokens are only ever accumulated into `fullContent` here, and
+    // never handed to onToken. They only reach the user once the whole step
+    // has finished AND is confirmed to be the real final answer — see
+    // finalizeAnswer() below, which replays the confirmed text as a
+    // simulated stream so it still feels live without any risk of showing
+    // something that turns out not to be the answer.
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -447,7 +732,7 @@ async function generate(
           if (chunk.error) { streamError = chunk.error; continue; }
           if (chunk.message) {
             const token = chunk.message.content;
-            if (token) { fullContent += token; onToken(token); }
+            if (token) fullContent += token;
             if (chunk.message.tool_calls?.length > 0) {
               toolCalls.push(...chunk.message.tool_calls);
             }
@@ -494,6 +779,7 @@ async function generate(
     // and tell the model explicitly, so it can either use the earlier
     // result or try something different, instead of the user getting silence.
     const triedButAllDuped = uniqueToolCalls.length === 0 && (attemptedCount > 0 || fallbackAttempted);
+
     if (triedButAllDuped) {
       messages.push({
         role: 'assistant',
@@ -507,10 +793,9 @@ async function generate(
       continue;
     }
 
-    // No tool calls → final answer
+    // No tool calls → this step is the real final answer.
     if (uniqueToolCalls.length === 0) {
-      onStatus({ icon: '✨', text: 'Answer ready.' });
-      return fullContent;
+      return await finalizeAnswer(fullContent);
     }
 
     // Push assistant turn
@@ -525,19 +810,72 @@ async function generate(
       const fnName = call.function.name;
       const fnArgs = call.function.arguments || {};
       const result = await executeTool(fnName, fnArgs, onStatus);
+      const resultText = typeof result === 'string' ? result : JSON.stringify(result);
       messages.push({
         role: 'tool',
         name: fnName, // helps templates that expect the tool name on the result message
-        content: typeof result === 'string' ? result : JSON.stringify(result)
+        content: resultText
       });
+      // Feed real research tool results (not e.g. get_current_time) into the
+      // grounding-check log used at the end of this turn.
+      if ((fnName === 'web_search' || fnName === 'fetch_web_page') && resultText) {
+        researchLog.push(resultText);
+      }
     }
 
     onStatus({ icon: '🔄', text: 'Analyzing results — continuing…' });
   }
 
-  // Reached maxSteps or the time budget — return whatever we have
-  onStatus({ icon: '✨', text: 'Answer ready.' });
-  return fullContent || "I ran out of steps/time while researching this — here's what I found so far, but I wasn't able to fully finish.";
+  // Reached maxSteps or the time budget — return whatever we have.
+  return await finalizeAnswer(
+    fullContent || "I ran out of steps/time while researching this — here's what I found so far, but I wasn't able to fully finish."
+  );
+
+  // ── Accuracy layer 3: post-answer grounding check + correction ─────────────
+  // Declared as a closure so it can see researchLog/modelName/onStatus/userText
+  // above without threading them through every return site individually.
+  //
+  // FIX: this used to only APPEND a warning footer when unsupported claims
+  // were found, leaving the wrong/unverified text itself untouched in the
+  // answer — which didn't actually fix "the model outputs wrong data", it
+  // just labeled it. Now, when the grounding check flags something, we make
+  // one more model call asking it to revise the answer using only what the
+  // research actually supports, and use the corrected text. The footer
+  // warning is now only a fallback for if that revision call itself fails.
+  //
+  // This is also the only place that ever calls onToken with real content —
+  // see the streaming loop above: nothing is relayed live during generation
+  // anymore, specifically so nothing tool-call-related or unverified can
+  // ever appear in the answer box, even briefly. This function delivers the
+  // final, checked text via a simulated-typing replay so it still reads as
+  // a live response.
+  async function finalizeAnswer(text) {
+    if (researchLog.length > 0 && text) {
+      onStatus({ icon: '🧾', text: 'Checking the answer against sources…' });
+      const combinedResearch = researchLog.join('\n\n');
+      const unsupported = await checkAnswerGrounding(text, combinedResearch, modelName);
+
+      if (unsupported) {
+        onStatus({ icon: '🛠️', text: 'Found unverified details — correcting the answer…' });
+        const revised = await reviseAnswerForGrounding(userText, text, unsupported, combinedResearch, modelName);
+        if (revised) {
+          text = revised;
+          onStatus({ icon: '✅', text: 'Answer corrected to match the sources found.' });
+        } else {
+          // Revision call itself failed/timed out — fail open to a visible
+          // warning rather than silently keeping unverified text unflagged.
+          onStatus({ icon: '⚠️', text: 'Some details may not be fully verified — noted below.' });
+          text += `\n\n---\n⚠️ *Not fully verified against the sources found: ${unsupported}*`;
+        }
+      } else {
+        onStatus({ icon: '✅', text: 'Answer checks out against the sources found.' });
+      }
+    }
+
+    await replayAsStream(text, onToken);
+    onStatus({ icon: '✨', text: 'Answer ready.' });
+    return text;
+  }
 }
 
 module.exports = {
