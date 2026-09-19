@@ -2,7 +2,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const OLLAMA_BASE  = 'http://127.0.0.1:11434';
-const DEFAULT_MODEL = 'gemma3:4b';
+const DEFAULT_MODEL = 'qwen2.5-coder:7b';
 const EMBED_MODEL   = 'bge-m3';
 
 // FIX: small local timeout helper (web-search.js has its own copy, not
