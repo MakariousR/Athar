@@ -20,13 +20,25 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('ollama:pull-progress', (_e, status) => cb(status));
   },
 
+  selectWorkspace: () => ipcRenderer.invoke('workspace:select'),
+  getWorkspace: () => ipcRenderer.invoke('workspace:get'),
+  clearWorkspace: () => ipcRenderer.invoke('workspace:clear'),
+
+  onToolPermissionRequest: (cb) => {
+    ipcRenderer.removeAllListeners('tool:permission-request');
+    ipcRenderer.on('tool:permission-request', (_e, data) => cb(data));
+  },
+  respondToolPermission: (requestId, approved) => {
+    ipcRenderer.send('tool:permission-response', { requestId, approved });
+  },
+
   chatList: () => ipcRenderer.invoke('chat:list'),
   chatCreate: () => ipcRenderer.invoke('chat:create'),
   chatGet: (id) => ipcRenderer.invoke('chat:get', id),
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
   chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
-  chatSend: (sessionId, userText, embeddedThreads, modelName, images = []) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName, images),
+  chatSend: (sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null) =>
+    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName, images, workspaceDir),
 
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');

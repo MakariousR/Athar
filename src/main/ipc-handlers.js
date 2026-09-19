@@ -1,11 +1,50 @@
-const { ipcMain } = require('electron');
+const { ipcMain, dialog } = require('electron');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { rankThreadsSemantic } = require('./search/semantic-ranker');
 const ollama = require('./ollama/ollama-client');
+const { WORKSPACE_KEYWORDS } = ollama;
 const store  = require('./store/chat-store');
 const embeddingStore = require('./store/embedding-store');
 
+let activeWorkspacePath = null;
+const pendingPermissions = new Map();
+
 function registerIpcHandlers() {
+
+  // Workspace handlers
+  ipcMain.handle('workspace:select', async () => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Select Workspace Folder',
+        properties: ['openDirectory']
+      });
+      if (!result.canceled && result.filePaths.length > 0) {
+        activeWorkspacePath = result.filePaths[0];
+        return { success: true, workspacePath: activeWorkspacePath };
+      }
+      return { success: false, canceled: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('workspace:get', async () => {
+    return { success: true, workspacePath: activeWorkspacePath };
+  });
+
+  ipcMain.handle('workspace:clear', async () => {
+    activeWorkspacePath = null;
+    return { success: true };
+  });
+
+  // Tool Permission Response listener from Renderer UI
+  ipcMain.on('tool:permission-response', (event, { requestId, approved }) => {
+    const resolver = pendingPermissions.get(requestId);
+    if (resolver) {
+      resolver(Boolean(approved));
+      pendingPermissions.delete(requestId);
+    }
+  });
 
   ipcMain.handle('ollama:check', async () => {
     const running = await ollama.isOllamaRunning();
@@ -48,8 +87,10 @@ function registerIpcHandlers() {
 
   ipcMain.handle('history:load', async () => {
     try {
-      const threads = embeddingStore.loadPersistedThreads();
-      return { success: true, threads };
+      const imported = embeddingStore.loadPersistedThreads();
+      const appThreads = await embeddingStore.getEmbeddedAppThreads(ollama);
+      const combined = embeddingStore.mergeThreads(imported, appThreads);
+      return { success: true, threads: combined };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -141,7 +182,7 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = []) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null) => {
     try {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
@@ -150,12 +191,10 @@ function registerIpcHandlers() {
       const isContinuation = CONTINUE_TRIGGERS.test(userText.trim());
 
       let effectiveUserText = userText;
-      let continuationPrefix = '';
 
       if (isContinuation) {
         const lastAssistant = [...conversationHistory].reverse().find((m) => m.role === 'assistant');
         if (lastAssistant && lastAssistant.text) {
-          continuationPrefix = lastAssistant.text;
           effectiveUserText =
             `Please continue exactly from where you left off. ` +
             `Your previous response ended with:\n\n${lastAssistant.text.slice(-500)}\n\n` +
@@ -169,13 +208,26 @@ function registerIpcHandlers() {
       const currentSession = store.getSession(sessionId);
       const activeHistory = currentSession ? currentSession.messages : [];
 
+      const chosenModel = modelName || ollama.DEFAULT_MODEL;
+      const effectiveWorkspace = workspaceDir || activeWorkspacePath;
+
+      // Check if user request is targeting local workspace project files or git repository.
+      const isWorkspaceOperation = Boolean(effectiveWorkspace) && WORKSPACE_KEYWORDS.test(userText);
+
+      // Combine imported threads with all embedded in-app chat session threads
+      const appThreads = await embeddingStore.getEmbeddedAppThreads(ollama);
+      const allCandidateThreads = embeddingStore.mergeThreads(embeddedThreads || [], appThreads);
+      const searchableThreads = allCandidateThreads.filter((t) => t.id !== sessionId);
+
       const combinedQuery = [
         ...activeHistory.slice(-6).map((m) => m.text),
         userText
       ].join(' ');
 
-      const ranked = embeddedThreads && embeddedThreads.length > 0
-        ? await rankThreadsSemantic(embeddedThreads, combinedQuery, 5)
+      // Priority 1: Current Chat & Active Workspace Project
+      // Only query background imported history (Priority 2) if this is NOT a local workspace project action
+      const ranked = (!isWorkspaceOperation && searchableThreads.length > 0)
+        ? await rankThreadsSemantic(searchableThreads, combinedQuery, 3)
         : [];
 
       // Emit sources BEFORE generation so the UI can show them alongside the response
@@ -191,13 +243,28 @@ function registerIpcHandlers() {
 
       let fullReply = '';
 
-      if (continuationPrefix) {
-        event.sender.send('chat:token', continuationPrefix + '\n');
-        fullReply = continuationPrefix + '\n';
-      }
+      // Real-time user permission prompt handler
+      const onRequestPermission = ({ toolName, args }) => {
+        return new Promise((resolve) => {
+          const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          pendingPermissions.set(requestId, resolve);
 
-      // Use the model chosen by the user, falling back to the default
-      const chosenModel = modelName || ollama.DEFAULT_MODEL;
+          event.sender.send('tool:permission-request', {
+            requestId,
+            toolName,
+            args,
+            workspaceDir: effectiveWorkspace
+          });
+
+          // 5-minute timeout fallback
+          setTimeout(() => {
+            if (pendingPermissions.has(requestId)) {
+              pendingPermissions.delete(requestId);
+              resolve(false);
+            }
+          }, 5 * 60 * 1000);
+        });
+      };
 
       await ollama.generate(
         effectiveUserText,
@@ -211,7 +278,9 @@ function registerIpcHandlers() {
         (statusMessage) => {
           event.sender.send('chat:status', statusMessage);
         },
-        images
+        images,
+        effectiveWorkspace,
+        onRequestPermission
       );
 
       store.appendMessage(sessionId, 'assistant', fullReply || '(no response)');

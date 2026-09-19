@@ -35,5 +35,10 @@
   "devDependencies": {
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "ai": "^7.0.105",
+    "ai-sdk-ollama": "^4.3.0",
+    "zod": "^4.6.5"
   }
 }

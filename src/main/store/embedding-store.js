@@ -168,6 +168,63 @@ function getCacheStats() {
   return { totalCached: cache.size };
 }
 
+/**
+ * Converts an in-app chat session from chat-store into a standard thread object format.
+ */
+function sessionToThread(session) {
+  if (!session || !session.messages || session.messages.length === 0) return null;
+  const fullText = session.messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join('\n');
+  return {
+    id: session.id,
+    title: session.title || 'In-App Chat',
+    source: 'app',
+    createTime: Math.floor((session.createdAt || Date.now()) / 1000),
+    messages: session.messages.map((m) => ({
+      role: m.role,
+      text: m.text,
+      createTime: m.timestamp ? Math.floor(m.timestamp / 1000) : null
+    })),
+    fullText
+  };
+}
+
+/**
+ * Loads all in-app chat sessions, converts them to thread objects,
+ * checks cache, embeds any new/updated sessions, and returns embedded thread objects.
+ */
+async function getEmbeddedAppThreads(ollamaClient) {
+  try {
+    const store = require('./chat-store');
+    const sessions = store.loadSessions();
+    const appThreads = sessions.map(sessionToThread).filter(Boolean);
+    if (appThreads.length === 0) return [];
+
+    const { cached, uncached, hashMap } = splitByCache(appThreads);
+
+    let newlyEmbedded = [];
+    if (uncached.length > 0 && ollamaClient) {
+      try {
+        const running = await ollamaClient.isOllamaRunning();
+        if (running) {
+          newlyEmbedded = await ollamaClient.embedThreads(uncached);
+          cacheNewEmbeddings(newlyEmbedded, hashMap);
+        }
+      } catch (err) {
+        console.warn('Failed to embed uncached app sessions:', err);
+      }
+    }
+
+    const embeddedMap = new Map();
+    for (const t of cached) embeddedMap.set(t.id, t);
+    for (const t of newlyEmbedded) embeddedMap.set(t.id, t);
+
+    return appThreads.map((t) => embeddedMap.get(t.id)).filter(Boolean);
+  } catch (err) {
+    console.warn('Error loading embedded app threads:', err);
+    return [];
+  }
+}
+
 module.exports = {
   threadHash,
   splitByCache,
@@ -175,5 +232,8 @@ module.exports = {
   getCacheStats,
   loadPersistedThreads,
   savePersistedThreads,
-  mergeThreads
+  mergeThreads,
+  sessionToThread,
+  getEmbeddedAppThreads
 };
+

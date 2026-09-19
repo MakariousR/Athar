@@ -33,8 +33,33 @@ const setupDefaultBtn       = document.getElementById('setupDefaultBtn');
 const setupModelSelect      = document.getElementById('setupModelSelect');
 const setupCapCard          = document.getElementById('setupCapCard');
 
+const workspaceZone         = document.getElementById('workspaceZone');
+const workspaceText         = document.getElementById('workspaceText');
+const clearWorkspaceBtn     = document.getElementById('clearWorkspaceBtn');
+
+const permissionModal       = document.getElementById('permissionModal');
+const permToolName          = document.getElementById('permToolName');
+const permTarget            = document.getElementById('permTarget');
+const permPreviewBlock      = document.getElementById('permPreviewBlock');
+const permContent           = document.getElementById('permContent');
+const permDenyBtn           = document.getElementById('permDenyBtn');
+const permApproveBtn        = document.getElementById('permApproveBtn');
+
+const settingsModal         = document.getElementById('settingsModal');
+const settingsBtn           = document.getElementById('settingsBtn');
+const sidebarSettingsBtn    = document.getElementById('sidebarSettingsBtn');
+const closeSettingsBtn      = document.getElementById('closeSettingsBtn');
+const settingsBackdrop      = document.querySelector('.settings-backdrop');
+
+const sidebarToggleBtn      = document.getElementById('sidebarToggleBtn');
+const headerChatTitle       = document.getElementById('headerChatTitle');
+const headerModelPill       = document.getElementById('headerModelPill');
+const headerModelName       = document.getElementById('headerModelName');
+
 // ── App state ─────────────────────────────────────────────────────────────────
 let activeSessionId      = null;
+let activeWorkspaceDir   = null;
+let currentPermissionReqId = null;
 let embeddedThreads      = [];   // all threads from ALL imports merged, with embeddings
 let importedSources      = [];   // [{ source, label, count, importedAt }] for history tab
 let isStreaming          = false;
@@ -96,8 +121,8 @@ function renderCapCard(modelName, containerEl) {
   containerEl.classList.remove('hidden');
 }
 
-const SOURCE_LABELS = { chatgpt: 'ChatGPT', claude: 'Claude', unknown: 'Unknown' };
-const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', unknown: '#6c8cff' };
+const SOURCE_LABELS = { chatgpt: 'ChatGPT', claude: 'Claude', app: 'In-App Chat', unknown: 'Unknown' };
+const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', app: '#ab68ff', unknown: '#6c8cff' };
 
 // ── Stable IPC listeners ──────────────────────────────────────────────────────
 
@@ -312,6 +337,100 @@ async function enterApp() {
   loadSessionList();
   loadModelSelector();
   await initSavedHistory();
+  await initWorkspace();
+  setupPermissionModal();
+}
+
+async function initWorkspace() {
+  try {
+    const res = await window.api.getWorkspace();
+    if (res.success && res.workspacePath) {
+      setWorkspaceUI(res.workspacePath);
+    } else {
+      setWorkspaceUI(null);
+    }
+  } catch (e) {
+    setWorkspaceUI(null);
+  }
+}
+
+function setWorkspaceUI(folderPath) {
+  activeWorkspaceDir = folderPath;
+  if (folderPath) {
+    const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
+    workspaceText.textContent = `📁 ${folderName}`;
+    workspaceZone.title = `Workspace: ${folderPath}`;
+    workspaceZone.classList.add('active');
+    clearWorkspaceBtn.classList.remove('hidden');
+  } else {
+    workspaceText.textContent = '📁 Select Workspace';
+    workspaceZone.title = 'Select folder for File & Git tools';
+    workspaceZone.classList.remove('active');
+    clearWorkspaceBtn.classList.add('hidden');
+  }
+}
+
+if (workspaceZone) {
+  workspaceZone.addEventListener('click', async (e) => {
+    if (e.target.closest('#clearWorkspaceBtn')) return;
+    const res = await window.api.selectWorkspace();
+    if (res.success && res.workspacePath) {
+      setWorkspaceUI(res.workspacePath);
+    }
+  });
+}
+
+if (clearWorkspaceBtn) {
+  clearWorkspaceBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await window.api.clearWorkspace();
+    setWorkspaceUI(null);
+  });
+}
+
+function setupPermissionModal() {
+  window.api.onToolPermissionRequest((data) => {
+    const { requestId, toolName, args } = data;
+    currentPermissionReqId = requestId;
+
+    permToolName.textContent = toolName;
+
+    const targetStr = args.rel_path || args.files || args.target || args.name || args.message || 'Workspace Repository';
+    permTarget.textContent = targetStr;
+
+    let previewContent = '';
+    if (args.content) previewContent = args.content;
+    else if (args.target_text && args.replacement_text) {
+      previewContent = `Replace:\n${args.target_text}\n\nWith:\n${args.replacement_text}`;
+    } else if (args.message) {
+      previewContent = `Commit message: "${args.message}"`;
+    }
+
+    if (previewContent) {
+      permContent.textContent = previewContent;
+      permPreviewBlock.classList.remove('hidden');
+    } else {
+      permPreviewBlock.classList.add('hidden');
+    }
+
+    permissionModal.classList.remove('hidden');
+  });
+
+  permDenyBtn.addEventListener('click', () => {
+    if (currentPermissionReqId) {
+      window.api.respondToolPermission(currentPermissionReqId, false);
+      currentPermissionReqId = null;
+    }
+    permissionModal.classList.add('hidden');
+  });
+
+  permApproveBtn.addEventListener('click', () => {
+    if (currentPermissionReqId) {
+      window.api.respondToolPermission(currentPermissionReqId, true);
+      currentPermissionReqId = null;
+    }
+    permissionModal.classList.add('hidden');
+  });
 }
 
 async function initSavedHistory() {
@@ -512,6 +631,7 @@ function refreshModelAction() {
   }
 
   updateVisionCapability();
+  updateHeaderModelDisplay();
 }
 
 modelSelect.addEventListener('change', () => {
@@ -579,6 +699,9 @@ document.querySelectorAll('.sidebar-tab').forEach((tab) => {
     document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
     tab.classList.add('active');
     document.getElementById(`tab${tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)}`).classList.remove('hidden');
+    if (tab.dataset.tab === 'history') {
+      renderHistoryTab();
+    }
   });
 });
 
@@ -634,7 +757,10 @@ async function openSession(id) {
     el.classList.toggle('active', el.dataset.id === id);
   });
   const { session } = await window.api.chatGet(id);
-  renderMessages(session.messages || []);
+  if (headerChatTitle && session) {
+    headerChatTitle.textContent = session.title || 'Chat Memory';
+  }
+  renderMessages(session ? session.messages || [] : []);
   showChatView();
   scrollToBottom();
   messageInput.focus();
@@ -642,7 +768,7 @@ async function openSession(id) {
 
 // ── History tab ───────────────────────────────────────────────────────────────
 function renderHistoryTab() {
-  if (importedSources.length === 0) {
+  if (!embeddedThreads || embeddedThreads.length === 0) {
     historyList.innerHTML = '<p class="history-empty">No history imported yet.<br/>Use the import button below.</p>';
     return;
   }
@@ -853,7 +979,7 @@ async function sendMessage() {
 
   scrollToBottom();
 
-  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64);
+  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64, activeWorkspaceDir);
 
   // FIX: rendering is now throttled to one rAF per batch of tokens (see
   // onChatToken), so make sure the last batch is actually painted before we
@@ -974,9 +1100,59 @@ async function handleImportFile(file) {
   document.querySelector('[data-tab="history"]').click();
 }
 
+// ── Settings Modal & Sidebar Toggle ──────────────────────────────────────────
+function openSettingsModal() {
+  if (settingsModal) settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+  if (settingsModal) settingsModal.classList.add('hidden');
+}
+
+function toggleSidebar() {
+  if (!appShell) return;
+  const isCollapsed = appShell.classList.toggle('sidebar-collapsed');
+  localStorage.setItem('sidebarCollapsed', isCollapsed ? 'true' : 'false');
+}
+
+function updateHeaderModelDisplay() {
+  if (!headerModelName) return;
+  const info = getModelInfo(activeModel);
+  headerModelName.textContent = `Model: ${info.label || activeModel}`;
+}
+
+if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+if (sidebarSettingsBtn) sidebarSettingsBtn.addEventListener('click', openSettingsModal);
+if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettingsModal);
+if (settingsBackdrop) settingsBackdrop.addEventListener('click', closeSettingsModal);
+if (headerModelPill) headerModelPill.addEventListener('click', openSettingsModal);
+
+if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', toggleSidebar);
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsModal && !settingsModal.classList.contains('hidden')) {
+    closeSettingsModal();
+  }
+});
+
+// Restore saved sidebar collapsed state
+if (localStorage.getItem('sidebarCollapsed') === 'true' && appShell) {
+  appShell.classList.add('sidebar-collapsed');
+}
+
 // ── View helpers ──────────────────────────────────────────────────────────────
-function showChatView() { emptyState.classList.add('hidden'); chatView.classList.remove('hidden'); }
-function showEmptyState() { chatView.classList.add('hidden'); emptyState.classList.remove('hidden'); }
+function showChatView() {
+  emptyState.classList.add('hidden');
+  chatView.classList.remove('hidden');
+  updateHeaderModelDisplay();
+}
+
+function showEmptyState() {
+  chatView.classList.add('hidden');
+  emptyState.classList.remove('hidden');
+  if (headerChatTitle) headerChatTitle.textContent = 'Chat Memory';
+  updateHeaderModelDisplay();
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 checkSetup();

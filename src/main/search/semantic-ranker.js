@@ -27,12 +27,12 @@ function cosineSimilarity(a, b) {
  */
 /**
  * Relevance threshold — threads scoring below this are excluded.
- * For nomic-embed-text cosine similarity:
- *   > 0.70  extremely close match
- *   > 0.45  topic alignment / relevant match
- *   < 0.45  unrelated
+ * For bge-m3 / nomic-embed-text cosine similarity:
+ *   > 0.80  extremely close match
+ *   > 0.65  relevant (related topic, worth including)
+ *   < 0.65  unrelated / noise — excluded to protect active chat & workspace context
  */
-const RELEVANCE_THRESHOLD = 0.68;
+const RELEVANCE_THRESHOLD = 0.65;
 
 /**
  * Hard cap on total characters of thread content injected into the prompt.

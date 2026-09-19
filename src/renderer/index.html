@@ -27,11 +27,88 @@
   </div>
 
   <!-- MAIN APP -->
+  <!-- TOOL PERMISSION MODAL -->
+  <div id="permissionModal" class="permission-modal hidden">
+    <div class="permission-card">
+      <div class="permission-header">
+        <span class="permission-icon">🔒</span>
+        <span class="permission-title">Tool Permission Required</span>
+      </div>
+      <p class="permission-sub">The AI model requests permission to execute a modification in your workspace:</p>
+      
+      <div class="permission-details">
+        <div class="permission-field"><span class="field-label">Tool:</span> <span id="permToolName" class="field-val"></span></div>
+        <div class="permission-field"><span class="field-label">Target:</span> <span id="permTarget" class="field-val"></span></div>
+        <div id="permPreviewBlock" class="perm-preview-block hidden">
+          <span class="field-label">Details / Content:</span>
+          <pre id="permContent" class="perm-content-box"></pre>
+        </div>
+      </div>
+
+      <div class="permission-actions">
+        <button id="permDenyBtn" class="secondary-btn perm-btn deny-btn">❌ Deny</button>
+        <button id="permApproveBtn" class="primary-btn perm-btn approve-btn">✅ Approve</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS MODAL (PRIVATE WINDOW) -->
+  <div id="settingsModal" class="settings-modal hidden">
+    <div class="settings-backdrop"></div>
+    <div class="settings-card">
+      <div class="settings-header">
+        <div class="settings-title-group">
+          <span class="settings-icon">⚙️</span>
+          <h2>Settings</h2>
+        </div>
+        <button id="closeSettingsBtn" class="icon-btn close-btn" title="Close settings">✕</button>
+      </div>
+      
+      <div class="settings-body">
+        <!-- Workspace Folder Section -->
+        <div class="settings-section">
+          <div class="section-header">
+            <h3>Workspace Folder</h3>
+            <p class="settings-desc">Select a project folder for local file editing & Git integration tools.</p>
+          </div>
+          <div id="workspaceZone" class="workspace-zone" title="Select folder for File & Git tools">
+            <span id="workspaceText">📁 Select Workspace Folder</span>
+            <button id="clearWorkspaceBtn" class="clear-ws-btn hidden" title="Clear workspace">✕</button>
+          </div>
+        </div>
+
+        <!-- Model Switcher Section -->
+        <div class="settings-section">
+          <div class="section-header">
+            <h3>AI Model Selector</h3>
+            <p class="settings-desc">Choose or download an Ollama model to run locally for your chats.</p>
+          </div>
+          <div class="model-row">
+            <select id="modelSelect" class="model-select" title="Choose model"></select>
+            
+            <div id="sidebarCapCard" class="cap-card cap-card-sidebar hidden"></div>
+
+            <div id="modelAction" class="model-action hidden">
+              <button id="modelDownloadBtn" class="primary-btn model-download-btn">⬇ Download Model</button>
+              <button id="modelDeleteBtn" class="secondary-btn model-delete-btn hidden">🗑️ Uninstall Model</button>
+              <div id="modelDownloadProgress" class="model-dl-progress hidden">
+                <div class="progress-bar"><div class="progress-fill" id="modelDlFill"></div></div>
+                <span id="modelDlText" class="model-dl-text">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="appShell" class="app-shell hidden">
 
-    <aside class="sidebar">
+    <aside id="sidebar" class="sidebar">
       <div class="sidebar-top">
-        <span class="app-brand">Chat Memory</span>
+        <div class="brand-group">
+          <span class="app-brand">Chat Memory</span>
+        </div>
         <button id="newChatBtn" class="icon-btn" title="New chat">＋</button>
       </div>
 
@@ -54,34 +131,42 @@
       </div>
 
       <div class="sidebar-bottom">
-        <div class="model-row">
-          <span class="model-row-label">Model</span>
-          <select id="modelSelect" class="model-select" title="Choose model"></select>
-          
-          <div id="sidebarCapCard" class="cap-card cap-card-sidebar hidden"></div>
-
-          <div id="modelAction" class="model-action hidden">
-            <button id="modelDownloadBtn" class="model-download-btn">⬇ Download</button>
-            <button id="modelDeleteBtn" class="model-delete-btn hidden">🗑️ Uninstall Model</button>
-            <div id="modelDownloadProgress" class="model-dl-progress hidden">
-              <div class="progress-bar"><div class="progress-fill" id="modelDlFill"></div></div>
-              <span id="modelDlText" class="model-dl-text">0%</span>
-            </div>
-          </div>
-        </div>
         <div id="importZone" class="import-zone">
           <span id="importLabel">＋ Import chat history</span>
           <input type="file" id="fileInput" accept="application/json" class="hidden" />
         </div>
         <p id="importStatus" class="import-status hidden"></p>
+        <button id="sidebarSettingsBtn" class="sidebar-settings-link" title="Open Settings">
+          <span>⚙️ Settings & Models</span>
+        </button>
       </div>
     </aside>
 
     <main class="chat-area">
+      <!-- Topbar Header -->
+      <div class="chat-topbar">
+        <div class="topbar-left">
+          <button id="sidebarToggleBtn" class="icon-btn topbar-toggle" title="Toggle Sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <span id="headerChatTitle" class="header-title">Chat Memory</span>
+        </div>
+        <div class="topbar-right">
+          <button id="headerModelPill" class="header-pill" title="Click to change model or settings">
+            <span class="pill-dot"></span>
+            <span id="headerModelName">Model: Qwen 2.5 7B</span>
+          </button>
+          <button id="settingsBtn" class="icon-btn settings-trigger-btn" title="Open Settings">⚙️</button>
+        </div>
+      </div>
+
       <div id="emptyState" class="empty-state">
+        <div class="empty-icon-wrap">
+          <span class="empty-hero-icon">🌊</span>
+        </div>
         <p class="empty-title">Chat Memory</p>
         <p class="empty-sub">Start a new chat or select one from the sidebar.<br/>Import your ChatGPT or Claude history to give the AI context about your past work.</p>
-        <button id="emptyNewChatBtn" class="primary-btn">New chat</button>
+        <button id="emptyNewChatBtn" class="primary-btn empty-btn">＋ New chat</button>
       </div>
 
       <div id="chatView" class="chat-view hidden">
@@ -91,7 +176,7 @@
           <div class="input-bar">
             <button id="attachImgBtn" class="attach-btn hidden" title="Attach image for Vision AI model">🖼️</button>
             <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
-            <textarea id="messageInput" placeholder="Message…" rows="1"></textarea>
+            <textarea id="messageInput" placeholder="Message Chat Memory…" rows="1"></textarea>
             <button id="sendBtn" class="send-btn">Send</button>
           </div>
         </div>
