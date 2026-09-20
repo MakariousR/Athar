@@ -39,6 +39,7 @@
   "dependencies": {
     "ai": "^7.0.105",
     "ai-sdk-ollama": "^4.3.0",
+    "pdf-parse": "^1.1.4",
     "zod": "^4.6.5"
   }
 }

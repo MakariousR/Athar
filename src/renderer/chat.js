@@ -18,7 +18,13 @@ const messageInput     = document.getElementById('messageInput');
 const sendBtn          = document.getElementById('sendBtn');
 const attachImgBtn     = document.getElementById('attachImgBtn');
 const imageFileInput   = document.getElementById('imageFileInput');
-const imagePreviewBar = document.getElementById('imagePreviewBar');
+const imagePreviewBar  = document.getElementById('imagePreviewBar');
+const attachDocBtn     = document.getElementById('attachDocBtn');
+const documentFileInput = document.getElementById('documentFileInput');
+const docPreviewBar    = document.getElementById('docPreviewBar');
+const inputContainer   = document.getElementById('inputContainer');
+const sessionResourcesBar  = document.getElementById('sessionResourcesBar');
+const sessionResourcesList = document.getElementById('sessionResourcesList');
 const modelSelect           = document.getElementById('modelSelect');
 const modelAction           = document.getElementById('modelAction');
 const modelDownloadBtn      = document.getElementById('modelDownloadBtn');
@@ -68,6 +74,7 @@ let currentAssistantBubble = null;
 let currentStreamText    = '';
 let pendingSources       = null; // sources received before stream starts
 let attachedImages       = [];   // [{ name, dataUrl, base64 }]
+let attachedDocuments    = [];   // metadata only: [{ id, name, ext, size, pageCount, lineCount, charCount, noText, reused }] — text stays in the main process
 
 const CHAT_MODEL  = 'qwen2.5-coder:7b';
 const EMBED_MODEL = 'bge-m3';
@@ -588,17 +595,172 @@ if (attachImgBtn && imageFileInput) {
   });
 }
 
-if (messageInput) {
-  messageInput.addEventListener('paste', (e) => {
-    const items = e.clipboardData && e.clipboardData.items;
-    if (!items) return;
-    const info = getModelInfo(activeModel);
-    if (!info || !info.vision) return;
+function clearAttachedDocuments() {
+  attachedDocuments = [];
+  if (docPreviewBar) {
+    docPreviewBar.innerHTML = '';
+    docPreviewBar.classList.add('hidden');
+  }
+  if (documentFileInput) documentFileInput.value = '';
+}
 
-    for (const item of items) {
-      if (item.type.indexOf('image') !== -1) {
-        const file = item.getAsFile();
-        if (file) addImageFile(file);
+async function removeAttachedDocument(index) {
+  const [doc] = attachedDocuments.splice(index, 1);
+  renderDocumentPreviews();
+  // Un-attaching a file that was only just added (not pre-existing in this chat) also
+  // removes it from the session, so cancelled attachments don't linger as resources.
+  if (doc && doc.id && !doc.reused && activeSessionId) {
+    await window.api.removeResource(activeSessionId, doc.id);
+    renderSessionResourcesUI(activeSessionId);
+  }
+}
+
+function getDocumentIcon(ext) {
+  if (ext === '.pdf') return '📕';
+  if (['.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.c', '.cpp', '.h', '.java', '.rs', '.go', '.sh', '.sql'].includes(ext)) return '💻';
+  if (['.json', '.csv', '.yaml', '.yml', '.xml', '.toml'].includes(ext)) return '📊';
+  return '📄';
+}
+
+function renderDocumentPreviews() {
+  if (!docPreviewBar) return;
+  if (attachedDocuments.length === 0) {
+    docPreviewBar.innerHTML = '';
+    docPreviewBar.classList.add('hidden');
+    return;
+  }
+  docPreviewBar.innerHTML = '';
+  docPreviewBar.classList.remove('hidden');
+
+  attachedDocuments.forEach((doc, idx) => {
+    const chip = document.createElement('div');
+    chip.className = 'doc-preview-chip';
+    const icon = getDocumentIcon(doc.ext);
+    const sizeStr = doc.size ? `${(doc.size / 1024).toFixed(1)} KB` : '';
+    const details = [
+      doc.noText ? '⚠ no readable text (scanned?)' : null,
+      sizeStr,
+      doc.pageCount ? `${doc.pageCount} page${doc.pageCount > 1 ? 's' : ''}` : null,
+      doc.ext !== '.pdf' && doc.lineCount ? `${doc.lineCount} line${doc.lineCount > 1 ? 's' : ''}` : null
+    ].filter(Boolean).join(' · ');
+
+    chip.innerHTML = `
+      <span class="doc-preview-icon">${icon}</span>
+      <div class="doc-preview-info">
+        <span class="doc-preview-name">${escapeHtml(doc.name)}</span>
+        <span class="doc-preview-meta">${escapeHtml(details)}</span>
+      </div>
+      <button type="button" class="doc-preview-remove" title="Remove document">&times;</button>
+    `;
+    chip.querySelector('.doc-preview-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeAttachedDocument(idx);
+    });
+    docPreviewBar.appendChild(chip);
+  });
+}
+
+async function renderSessionResourcesUI(sessionId) {
+  if (!sessionId || !sessionResourcesBar || !sessionResourcesList) return;
+  const res = await window.api.listResources(sessionId);
+  const resources = (res && res.success && res.resources) ? res.resources : [];
+
+  if (resources.length === 0) {
+    sessionResourcesList.innerHTML = '';
+    sessionResourcesBar.classList.add('hidden');
+    return;
+  }
+
+  sessionResourcesList.innerHTML = '';
+  sessionResourcesBar.classList.remove('hidden');
+
+  resources.forEach((r) => {
+    const chip = document.createElement('div');
+    chip.className = 'resource-chip-item';
+    const icon = getDocumentIcon(r.ext);
+    const sizeStr = r.size ? `${(r.size / 1024).toFixed(1)} KB` : '';
+    const details = r.noText ? '⚠ no readable text' : (r.pageCount ? `${r.pageCount} page(s)` : sizeStr);
+
+    chip.innerHTML = `
+      <span class="resource-chip-icon">${icon}</span>
+      <span class="resource-chip-name">${escapeHtml(r.name)}</span>
+      <span class="resource-chip-meta">(${escapeHtml(details)})</span>
+      <button type="button" class="resource-chip-remove" title="Remove resource from session">&times;</button>
+    `;
+
+    chip.querySelector('.resource-chip-remove').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm(`Remove resource "${r.name}" from this chat session?`)) {
+        await window.api.removeResource(sessionId, r.id);
+        renderSessionResourcesUI(sessionId);
+      }
+    });
+
+    sessionResourcesList.appendChild(chip);
+  });
+}
+
+async function addDocumentFile(file) {
+  if (!file) return;
+  try {
+    const filePath = window.api.getFilePath(file);
+    if (!filePath) return;
+    if (!activeSessionId) return;
+    const result = await window.api.addResource(activeSessionId, filePath);
+    if (result.success) {
+      // Identical content already attached → don't show it twice
+      if (!attachedDocuments.some((d) => d.id === result.resource.id)) {
+        attachedDocuments.push({ ...result.resource, reused: result.reused });
+      }
+      renderSessionResourcesUI(activeSessionId);
+      renderDocumentPreviews();
+    } else {
+      alert(`Failed to read document: ${result.error}`);
+    }
+  } catch (err) {
+    alert(`Document processing error: ${err.message}`);
+  }
+}
+
+if (attachDocBtn && documentFileInput) {
+  attachDocBtn.addEventListener('click', () => documentFileInput.click());
+  documentFileInput.addEventListener('change', async (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      for (const file of e.target.files) {
+        await addDocumentFile(file);
+      }
+      documentFileInput.value = '';
+    }
+  });
+}
+
+// Drag & drop support for both documents and images on input container
+if (inputContainer) {
+  ['dragenter', 'dragover'].forEach((eventName) => {
+    inputContainer.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      inputContainer.classList.add('drag-over');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach((eventName) => {
+    inputContainer.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      inputContainer.classList.remove('drag-over');
+    });
+  });
+
+  inputContainer.addEventListener('drop', async (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    for (const file of files) {
+      if (file.type && file.type.startsWith('image/')) {
+        const info = getModelInfo(activeModel);
+        if (info && info.vision) addImageFile(file);
+      } else {
+        await addDocumentFile(file);
       }
     }
   });
@@ -761,6 +923,9 @@ async function openSession(id) {
     headerChatTitle.textContent = session.title || 'Chat Memory';
   }
   renderMessages(session ? session.messages || [] : []);
+  clearAttachedDocuments();
+  clearAttachedImages();
+  renderSessionResourcesUI(id);
   showChatView();
   scrollToBottom();
   messageInput.focus();
@@ -871,10 +1036,10 @@ function renderMarkdown(text) {
 
 function renderMessages(messages) {
   messageList.innerHTML = '';
-  for (const msg of messages) appendMessageBubble(msg.role, msg.text, msg.images || []);
+  for (const msg of messages) appendMessageBubble(msg.role, msg.text, msg.images || [], msg.documents || []);
 }
 
-function appendMessageBubble(role, text, images = []) {
+function appendMessageBubble(role, text, images = [], documents = []) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
 
@@ -896,6 +1061,27 @@ function appendMessageBubble(role, text, images = []) {
 
   body.appendChild(roleLabel);
   body.appendChild(textEl);
+
+  if (documents && documents.length > 0) {
+    const docWrap = document.createElement('div');
+    docWrap.className = 'msg-doc-badges';
+    for (const doc of documents) {
+      const chip = document.createElement('div');
+      chip.className = 'msg-doc-chip';
+      const icon = getDocumentIcon(doc.ext);
+      const sizeStr = doc.size ? `${(doc.size / 1024).toFixed(1)} KB` : '';
+      const meta = doc.ext === '.pdf' || (doc.pageCount > 1 && !doc.lineCount)
+        ? `${doc.pageCount} page${doc.pageCount > 1 ? 's' : ''}`
+        : (doc.lineCount ? `${doc.lineCount} lines` : sizeStr);
+      chip.innerHTML = `
+        <span class="msg-doc-icon">${icon}</span>
+        <span class="msg-doc-name">${escapeHtml(doc.name)}</span>
+        ${meta ? `<span class="msg-doc-meta">(${escapeHtml(meta)})</span>` : ''}
+      `;
+      docWrap.appendChild(chip);
+    }
+    body.appendChild(docWrap);
+  }
 
   if (images && images.length > 0) {
     for (const imgStr of images) {
@@ -954,20 +1140,22 @@ function scrollToBottom() { messageList.scrollTop = messageList.scrollHeight; }
 async function sendMessage() {
   if (isStreaming || !activeSessionId) return;
   const text = messageInput.value.trim();
-  if (!text && attachedImages.length === 0) return;
+  if (!text && attachedImages.length === 0 && attachedDocuments.length === 0) return;
 
   const currentImagesBase64 = attachedImages.map((i) => i.base64);
   const currentImagesDataUrl = attachedImages.map((i) => i.dataUrl);
+  const currentDocs = [...attachedDocuments];
 
   messageInput.value = '';
   messageInput.style.height = 'auto';
   clearAttachedImages();
+  clearAttachedDocuments();
 
   isStreaming = true;
   sendBtn.disabled = true;
   pendingSources = null;
 
-  appendMessageBubble('user', text, currentImagesDataUrl);
+  appendMessageBubble('user', text, currentImagesDataUrl, currentDocs);
 
   const assistantTextEl = appendMessageBubble('assistant', '');
   const assistantBubble = assistantTextEl.closest('.message');
@@ -979,7 +1167,7 @@ async function sendMessage() {
 
   scrollToBottom();
 
-  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64, activeWorkspaceDir);
+  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64, activeWorkspaceDir, currentDocs);
 
   // FIX: rendering is now throttled to one rAF per batch of tokens (see
   // onChatToken), so make sure the last batch is actually painted before we
@@ -1006,6 +1194,7 @@ async function sendMessage() {
   sendBtn.disabled = false;
   messageInput.focus();
   scrollToBottom();
+  renderSessionResourcesUI(activeSessionId);
 }
 
 newChatBtn.addEventListener('click', createNewChat);
@@ -1148,6 +1337,7 @@ function showChatView() {
 }
 
 function showEmptyState() {
+  if (sessionResourcesBar) sessionResourcesBar.classList.add('hidden');
   chatView.classList.add('hidden');
   emptyState.classList.remove('hidden');
   if (headerChatTitle) headerChatTitle.textContent = 'Chat Memory';

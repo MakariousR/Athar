@@ -60,6 +60,12 @@ const PERMISSION_REQUIRED_TOOLS = new Set([
   'git_add', 'git_commit', 'git_checkout', 'git_branch'
 ]);
 const SEARCH_TOOLS = new Set(['web_search', 'fetch_web_page']);
+const ALL_KNOWN_TOOLS = [
+  'web_search', 'fetch_web_page', 'get_current_time',
+  'list_chat_resources', 'read_chat_resource',
+  'read_file', 'list_directory', 'search_files', 'write_file', 'edit_file', 'delete_file',
+  'git_status', 'git_log', 'git_diff', 'git_add', 'git_commit', 'git_checkout', 'git_branch'
+];
 
 /**
  * Short, one-line "what actually happened" summary of a tool result, for
@@ -100,7 +106,27 @@ function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission
     fetch_web_page: def('fetch_web_page',
       'Fetch and read the full content of a specific web page URL.',
       { url: z.string().describe('Full https:// URL of the page to fetch') }),
-    get_current_time: def('get_current_time', 'Returns the current local date and time.', {})
+    get_current_time: def('get_current_time', 'Returns the current local date and time.', {}),
+    list_chat_resources: def('list_chat_resources',
+      'List the files attached to this chat (PDFs, text, code) with page counts and an outline of each.',
+      {}),
+    // z.coerce.number(): small models often send "2" instead of 2 — accept both instead of failing the call.
+    read_chat_resource: def('read_chat_resource',
+      'Read an attached file on demand. Give file_name plus ONE of: pages (e.g. "1-5" or "1-3,7,10-12" or "all" — read SEVERAL pages in one call) or page for documents/PDFs; ' +
+      'start_line+end_line for code/text; search_query to find the most relevant passages (searches all attached files if file_name is omitted). ' +
+      'With none of these you get the whole file if it is small, otherwise an outline and the first pages. ' +
+      'Each call returns a limited amount; the reply says how to continue.',
+      {
+        file_name: z.string().optional().describe('Attached file name, e.g. "report.pdf". Optional if only one file is attached.'),
+        pages: z.union([z.string(), z.number()]).optional().describe('Pages to read in ONE call: "1-5", "1-3,7,10-12", "all", or a single number. Prefer this for multi-page reading.'),
+        page: z.coerce.number().int().optional().describe('1-based single page to read'),
+        page_start: z.coerce.number().int().optional().describe('First page of a range'),
+        page_end: z.coerce.number().int().optional().describe('Last page of a range'),
+        start_line: z.coerce.number().int().optional().describe('First line to read (code/text files)'),
+        end_line: z.coerce.number().int().optional().describe('Last line to read (code/text files)'),
+        char_offset: z.coerce.number().int().optional().describe('Continue a long page from this character offset (given in the previous reply)'),
+        search_query: z.string().optional().describe('Words or a question describing what to find inside the file(s)')
+      })
   };
 
   // ── The ONLY restriction: workspace/git tools simply don't exist in the
@@ -177,9 +203,11 @@ const KNOWN_ARG_KEYS = [
   'url', 'content', 'body', 'code', 'file_content', 'data',
   'target_text', 'target', 'old_text', 'search_text', 'find', 'original',
   'replacement_text', 'replacement', 'new_text', 'replace_with', 'replace', 'with',
-  'replace_all', 'recursive', 'files', 'message', 'count', 'name'
+  'replace_all', 'recursive', 'files', 'message', 'count', 'name',
+  // read_chat_resource
+  'file_name', 'pages', 'page', 'page_start', 'page_end', 'start_line', 'end_line', 'char_offset', 'search_query'
 ];
-const KNOWN_ARG_KEY_PATTERN = new RegExp(`(?:^|[\\s{,])"(${KNOWN_ARG_KEYS.join('|')})"\s*:\s*`, 'g');
+const KNOWN_ARG_KEY_PATTERN = new RegExp(String.raw`(?:^|[\s{,])"(${KNOWN_ARG_KEYS.join('|')})"\s*:\s*`, 'g');
 
 /**
  * Splits a (possibly JSON-invalid) `{...}` arguments object into key/value
@@ -511,7 +539,7 @@ async function runAgentLoop({
   // Recover tool call(s) the model printed as plain JSON text instead of a
   // real structured call.
   const fakes = fallbackRetriesLeft > 0
-    ? tryParseFallbackToolCalls(finalText, Object.keys(tools))
+    ? tryParseFallbackToolCalls(finalText, ALL_KNOWN_TOOLS)
     : [];
 
   if (fakes.length > 0) {
@@ -680,7 +708,7 @@ async function runAgentLoop({
  *     honesty check in runAgentLoop appends the fuller warning on top of this.
  */
 async function finalizeStrandedToolCall(finalText, tools, researchLog, mutationConfirmedSoFar, lastMutationResultSoFar, ctx) {
-  const strandedList = tryParseFallbackToolCalls(finalText, Object.keys(tools));
+  const strandedList = tryParseFallbackToolCalls(finalText, ALL_KNOWN_TOOLS);
   if (strandedList.length === 0) return { text: finalText, mutationConfirmed: mutationConfirmedSoFar };
 
   let mutationConfirmed = mutationConfirmedSoFar;

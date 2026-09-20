@@ -170,10 +170,17 @@
       </div>
 
       <div id="chatView" class="chat-view hidden">
+        <div id="sessionResourcesBar" class="session-resources-bar hidden">
+          <span class="resources-label">📚 Session Resources:</span>
+          <div id="sessionResourcesList" class="session-resources-list"></div>
+        </div>
         <div id="messageList" class="message-list"></div>
-        <div class="input-container">
+        <div class="input-container" id="inputContainer">
           <div id="imagePreviewBar" class="image-preview-bar hidden"></div>
+          <div id="docPreviewBar" class="doc-preview-bar hidden"></div>
           <div class="input-bar">
+            <button id="attachDocBtn" class="attach-btn" title="Attach document or code file (.pdf, .txt, .py, .js, .html, etc.)">📄</button>
+            <input type="file" id="documentFileInput" accept=".pdf,.txt,.md,.py,.js,.ts,.html,.css,.json,.csv,.c,.cpp,.h,.java,.rs,.go,.sh,.yaml,.yml,.xml,.sql,.log,text/*,application/pdf" multiple class="hidden" />
             <button id="attachImgBtn" class="attach-btn hidden" title="Attach image for Vision AI model">🖼️</button>
             <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
             <textarea id="messageInput" placeholder="Message Chat Memory…" rows="1"></textarea>

@@ -1,5 +1,6 @@
 const { ipcMain, dialog } = require('electron');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
+const { parseDocumentFile, toMetadata } = require('./parser/document-parser');
 const { rankThreadsSemantic } = require('./search/semantic-ranker');
 const ollama = require('./ollama/ollama-client');
 const { WORKSPACE_KEYWORDS } = ollama;
@@ -10,6 +11,47 @@ let activeWorkspacePath = null;
 const pendingPermissions = new Map();
 
 function registerIpcHandlers() {
+
+  // Document parsing (metadata only — page text stays in the main process)
+  ipcMain.handle('document:parse', async (event, filePath) => {
+    try {
+      return toMetadata(await parseDocumentFile(filePath));
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Session Resource handlers
+  ipcMain.handle('resource:list', async (event, sessionId) => {
+    try {
+      return { success: true, resources: store.getSessionResources(sessionId) };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Parse + store entirely in the main process, from a file path. Only lightweight
+  // metadata goes back to the renderer (previously the whole extracted text made a
+  // round trip main → renderer → main).
+  ipcMain.handle('resource:add', async (event, sessionId, filePath) => {
+    try {
+      const parsed = await parseDocumentFile(filePath);
+      if (!parsed.success) return { success: false, error: parsed.error };
+      const { resource, reused } = store.addSessionResource(sessionId, parsed);
+      return { success: true, resource, reused, warning: parsed.warning || null };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('resource:remove', async (event, sessionId, resourceId) => {
+    try {
+      store.removeSessionResource(sessionId, resourceId);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 
   // Workspace handlers
   ipcMain.handle('workspace:select', async () => {
@@ -182,7 +224,7 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null, documents = []) => {
     try {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
@@ -191,6 +233,12 @@ function registerIpcHandlers() {
       const isContinuation = CONTINUE_TRIGGERS.test(userText.trim());
 
       let effectiveUserText = userText;
+
+      // Attachment-only message: give the model an actual request to act on
+      if (!userText.trim() && documents && documents.length > 0) {
+        effectiveUserText = `I attached: ${documents.map((d) => d.name).join(', ')}. ` +
+          `Read ${documents.length > 1 ? 'them' : 'it'} and give me a clear summary of what ${documents.length > 1 ? 'they contain' : 'it contains'}.`;
+      }
 
       if (isContinuation) {
         const lastAssistant = [...conversationHistory].reverse().find((m) => m.role === 'assistant');
@@ -202,7 +250,7 @@ function registerIpcHandlers() {
         }
       }
 
-      store.appendMessage(sessionId, 'user', userText, images);
+      store.appendMessage(sessionId, 'user', userText, images, documents);
 
       // Fetch full active chat history (prior turns + new user message)
       const currentSession = store.getSession(sessionId);
@@ -280,7 +328,9 @@ function registerIpcHandlers() {
         },
         images,
         effectiveWorkspace,
-        onRequestPermission
+        onRequestPermission,
+        documents,
+        sessionId
       );
 
       store.appendMessage(sessionId, 'assistant', fullReply || '(no response)');

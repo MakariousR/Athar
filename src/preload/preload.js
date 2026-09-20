@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   getFilePath: (file) => webUtils.getPathForFile(file),
   parseExport: (filePath) => ipcRenderer.invoke('file:parse', filePath),
+  parseDocument: (filePath) => ipcRenderer.invoke('document:parse', filePath),
+  listResources: (sessionId) => ipcRenderer.invoke('resource:list', sessionId),
+  addResource: (sessionId, filePath) => ipcRenderer.invoke('resource:add', sessionId, filePath),
+  removeResource: (sessionId, resourceId) => ipcRenderer.invoke('resource:remove', sessionId, resourceId),
   embedThreads: (threads, existing) => ipcRenderer.invoke('file:embed', threads, existing),
   loadSavedHistory: () => ipcRenderer.invoke('history:load'),
   getEmbeddingStats: () => ipcRenderer.invoke('embedding:stats'),
@@ -37,8 +41,8 @@ contextBridge.exposeInMainWorld('api', {
   chatGet: (id) => ipcRenderer.invoke('chat:get', id),
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
   chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
-  chatSend: (sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName, images, workspaceDir),
+  chatSend: (sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null, documents = []) =>
+    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName, images, workspaceDir, documents),
 
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');
