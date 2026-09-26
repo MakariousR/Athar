@@ -986,6 +986,7 @@ function renderSessionList(sessions) {
     li.dataset.id = s.id;
     const title = document.createElement('span');
     title.className = 'session-title';
+    title.dir = 'auto';
     title.textContent = s.title;
     const del = document.createElement('button');
     del.className = 'session-delete';
@@ -1109,7 +1110,7 @@ function renderMarkdown(text) {
   let cleaned = text
     .replace(/\n\s*\n+(\s*(\d+\.|\*\*|[\u2022\u25E6\u25CB\u2023\u2013\-\*]))/g, '\n$1')
     .replace(/(\n\s*){3,}/g, '\n\n'); // Never allow more than 2 consecutive newlines anywhere
-  if (window.marked) return sanitizeHtml(window.marked.parse(cleaned, { breaks: false, gfm: true }));
+  if (window.marked) return sanitizeHtml(window.marked.parse(cleaned, { breaks: true, gfm: true }));
   const d = document.createElement('div');
   d.textContent = cleaned;
   return d.innerHTML;

@@ -125,9 +125,20 @@ function parseChatGptData(data) {
  */
 function parseAnyExport(filePath) {
   const { parseClaudeData } = require('./claude-parser');
+  const { parseGeminiData, looksLikeGeminiActivity, isGeminiActivityHtml } = require('./gemini-parser');
 
   // Read and parse ONCE — exports can be hundreds of MB.
-  const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  if (isGeminiActivityHtml(raw)) {
+    throw new Error('This is the HTML version of Google Takeout\'s Gemini activity. In Google Takeout, choose ' +
+      '"My Activity", open its format options, pick JSON instead of HTML, and import the MyActivity.json file.');
+  }
+  let data;
+  try {
+    data = JSON.parse(raw.replace(/^﻿/, ''));
+  } catch {
+    throw new Error('This file is not a JSON export. Import conversations.json (ChatGPT or Claude) or MyActivity.json (Gemini, from Google Takeout).');
+  }
   const conversations = Array.isArray(data) ? data : [data];
 
   if (conversations.length === 0) return [];
@@ -144,8 +155,13 @@ function parseAnyExport(filePath) {
     return parseChatGptData(data);
   }
 
+  if (looksLikeGeminiActivity(data)) {
+    // Google Takeout → My Activity → Gemini Apps (JSON)
+    return parseGeminiData(data);
+  }
+
   throw new Error(
-    'Unrecognised export format. Please use a ChatGPT or Claude conversations.json export file.'
+    'Unrecognised export format. Supported: ChatGPT or Claude conversations.json, and Gemini MyActivity.json from Google Takeout.'
   );
 }
 

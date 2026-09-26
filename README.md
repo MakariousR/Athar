@@ -1,21 +1,38 @@
-# Chat Memory (MVP)
+# Chat Memory
 
-Offline desktop app that lets a local AI model "remember" your old ChatGPT
-conversation history, by retrieving the most relevant past threads via
-keyword matching and feeding them into a locally-running Ollama model.
+One private memory for all your AI chats. Import your ChatGPT, Claude and Gemini
+history; a local model (via [Ollama](https://ollama.com)) remembers it, cites it,
+and helps you search it — nothing leaves your computer except the web searches
+you ask for.
 
-This is the **Node-only MVP** (Phase 1) described in the project plan:
-Electron's main process acts as the entire backend. No Python, no
-subprocess, no HTTP server of your own — everything talks over Electron's
-built-in IPC. A future v2 can add an optional Python service for real
-embeddings-based semantic search without touching this codebase's structure.
+## What it does
 
-## Prerequisites
+- **Remembers across assistants.** Past conversations from ChatGPT, Claude,
+  Gemini and this app are split into passages and searched by meaning and by
+  keywords for every message. Relevant memories are given to the model, which
+  cites them like `[M1]`; unrelated questions get no memories at all.
+- **Understands how you ask.** "What did I ask Claude about salary last year?"
+  searches only Claude, only last year, for "salary". Works in English and
+  Arabic ("الشهر الماضي", "كلود").
+- **Search & browse your history** in one place, filter by source, open any
+  conversation at the matching passage, or start a new chat about it.
+- **Portable memory profile.** A short summary of you (work, projects, tools,
+  how you like answers) learned from your own messages. Review it, use it here,
+  or copy it into ChatGPT's custom instructions or another assistant.
+- **Web research** (DuckDuckGo, no API key) with trusted sources ranked first
+  and a per-source figures table, so numbers come with sources and dates.
+- **Attach files** (PDFs, text, code) and let the model read them on demand.
+- **Project folder (read-only)**: let the model read a folder and its git
+  history to answer questions about it. It can never change your files.
 
-1. **Node.js** 18+ installed.
-2. **[Ollama](https://ollama.com)** installed and running locally.
-3. A ChatGPT data export (`conversations.json`), from
-   Settings → Data Controls → Export Data in ChatGPT.
+## Requirements
+
+- [Ollama](https://ollama.com) running locally
+- A chat model — default `qwen2.5-coder:7b` (any installed chat model works;
+  pick one in Settings) — and the `bge-m3` embedding model. The app offers to
+  download both on first start.
+- 16 GB RAM recommended for a 7B model with a 16K context.
+  `OLLAMA_NUM_CTX` and `OLLAMA_KEEP_ALIVE` environment variables override the defaults.
 
 ## Setup
 
@@ -24,57 +41,25 @@ npm install
 npm start
 ```
 
-On first launch, the app checks whether Ollama is running and whether the
-`qwen3.5:0.8b` model (the smallest tier, chosen for fast MVP testing — see
-`src/main/ollama/ollama-client.js` to change it) is installed. If not, a
-one-click "Download AI model" button pulls it via Ollama's `/api/pull`
-endpoint with a live progress bar.
+## Importing your history
 
-## Using the app
+| Source  | Where to get it | File to import |
+|---------|-----------------|----------------|
+| ChatGPT | Settings → Data controls → Export data | `conversations.json` |
+| Claude  | Settings → Privacy → Export data | `conversations.json` |
+| Gemini  | Google Takeout → My Activity → Gemini Apps, **format: JSON** | `MyActivity.json` |
 
-1. Drag your `conversations.json` export onto the drop zone (or click to
-   choose the file).
-2. Once parsed, type a question in the box — e.g. *"What was I working on
-   with my React project last spring?"*
-3. The app keyword-ranks your threads against the question, bundles the
-   top ~12 matching threads into a single prompt, and sends it to your
-   local Ollama model. The answer streams in, with the source threads used
-   listed alongside it for transparency.
+Drop the file on "Import chat history". Re-importing a newer export only adds
+or updates what changed. Indexing runs in the background (newest conversations
+first); you can chat meanwhile. Gemini support is based on Takeout's documented
+activity format and hasn't been verified against every account/language.
 
-## Project structure
+## Tests
 
+```bash
+npm test            # offline (no Ollama or internet needed)
+npm run test:live   # also real-model memory relevance + live web checks
 ```
-src/
-  main/                   Electron main process = the "backend"
-    index.js              App entry, window lifecycle
-    ipc-handlers.js        IPC routes (the API layer between UI and logic)
-    parser/
-      chatgpt-parser.js    Walks the export's branching tree into linear threads
-    search/
-      keyword-ranker.js    Scores/ranks threads by keyword frequency
-    ollama/
-      ollama-client.js     fetch() wrapper for the local Ollama HTTP API
-  preload/
-    preload.js             contextBridge - safe API surface for the renderer
-  renderer/                 The UI (vanilla HTML/CSS/JS for the MVP)
-    index.html
-    app.js
-    styles.css
-```
-
-## Known MVP limitations (by design, not oversight)
-
-- **Keyword frequency, not semantic search.** A search for "database" won't
-  match a thread that only says "Postgres." Planned v2 upgrade: an optional
-  local Python service using `sentence-transformers` for real embeddings,
-  swapped in behind `keyword-ranker.js`'s interface.
-- **Small model (`qwen3.5:0.8b`, ~1GB).** Chosen to validate the retrieval
-  pipeline itself with a small download. Swap `DEFAULT_MODEL` in
-  `ollama-client.js` for a larger model (e.g. `gemma4:e2b`) once the core
-  UX is validated and you want better answer quality.
-- **Only the ChatGPT export format is parsed.** `chatgpt-parser.js` expects
-  the `mapping` tree structure from OpenAI's export. Other export formats
-  (Claude, etc.) would need their own parser module alongside it.
 
 ## Packaging
 
@@ -82,7 +67,30 @@ src/
 npm run dist
 ```
 
-Uses `electron-builder` (see the `build` key in `package.json`) to produce
-a Windows NSIS installer, macOS DMG, or Linux AppImage depending on your
-platform. Since this MVP has no Python subprocess to bundle, packaging is
-just standard Electron packaging — no PyInstaller step needed.
+Uses `electron-builder` (see `build` in `package.json`) to produce a Windows
+NSIS installer, macOS DMG or Linux AppImage.
+
+## Project structure
+
+```
+src/main/                  Electron main process (the backend)
+  index.js                 window + navigation lock
+  ipc-handlers.js          IPC routes (only the app's own page may call them)
+  memory/                  chunking, BM25 + vector search, query hints, profile
+  ollama/                  Ollama client, agent loop (read-only tools)
+  parser/                  ChatGPT / Claude / Gemini exports, PDF & text documents
+  store/chat-store.js      in-app chats (sessions.json + per-file images/resources)
+  tools/                   web research, project folder, git (read-only)
+src/preload/preload.js     the bridge exposed to the UI
+src/renderer/              UI (vanilla HTML/CSS/JS)
+tests/                     test suites (npm test)
+```
+
+## Known limitations
+
+- A 7B local model sometimes mis-states or over-generalises. Answers cite the
+  memories they used so you can check, and the memory profile is meant to be
+  reviewed before you use or share it.
+- DuckDuckGo may temporarily rate-limit heavy searching; the app tells you when.
+- The interface itself is English-only; Arabic text is fully supported in
+  chats, search and the profile.

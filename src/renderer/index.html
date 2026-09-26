@@ -134,8 +134,8 @@
 
       <div class="sidebar-bottom">
         <div id="importZone" class="import-zone">
-          <span id="importLabel">＋ Import chat history</span>
-          <input type="file" id="fileInput" accept="application/json" class="hidden" />
+          <span id="importLabel" title="ChatGPT or Claude: conversations.json · Gemini: MyActivity.json from Google Takeout (JSON format)">＋ Import chat history</span>
+          <input type="file" id="fileInput" accept=".json,application/json" class="hidden" />
         </div>
         <p id="importStatus" class="import-status hidden"></p>
         <button id="sidebarSettingsBtn" class="sidebar-settings-link" title="Open Settings">
@@ -151,7 +151,7 @@
           <button id="sidebarToggleBtn" class="icon-btn topbar-toggle" title="Toggle Sidebar">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          <span id="headerChatTitle" class="header-title">Chat Memory</span>
+          <span id="headerChatTitle" class="header-title" dir="auto">Chat Memory</span>
         </div>
         <div class="topbar-right">
           <button id="headerModelPill" class="header-pill" title="Click to change model or settings">
@@ -274,7 +274,7 @@
             <input type="file" id="documentFileInput" accept=".pdf,.txt,.md,.py,.js,.ts,.html,.css,.json,.csv,.c,.cpp,.h,.java,.rs,.go,.sh,.yaml,.yml,.xml,.sql,.log,text/*,application/pdf" multiple class="hidden" />
             <button id="attachImgBtn" class="attach-btn hidden" title="Attach image for Vision AI model">🖼️</button>
             <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
-            <textarea id="messageInput" placeholder="Message Chat Memory…" rows="1"></textarea>
+            <textarea id="messageInput" placeholder="Message Chat Memory…" rows="1" dir="auto"></textarea>
             <button id="sendBtn" class="send-btn">Send</button>
           </div>
         </div>

@@ -1634,3 +1634,20 @@ body {
 .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .profile-actions button { padding: 7px 14px; font-size: 13px; }
 .profile-hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* ── RIGHT-TO-LEFT TEXT (Arabic) ── */
+/* dir="auto" lets each message/title/input follow its own language; keep list
+   bullets and code sensible inside right-to-left text. */
+.message-text[dir="auto"] { text-align: start; unicode-bidi: plaintext; }
+/* Each paragraph/list item picks its OWN direction, so an English line inside an Arabic answer (or vice versa) reads correctly */
+.message-text p, .message-text li, .message-text h1, .message-text h2, .message-text h3, .message-text h4,
+.message-text blockquote, .message-text td, .message-text th { unicode-bidi: plaintext; text-align: start; }
+/* Rendered markdown: normal whitespace (line breaks come from <br>/<p>), otherwise
+   the newlines between list tags show up as big blank gaps. User text keeps pre-wrap. */
+.message.assistant .message-text { white-space: normal; }
+.message.assistant .message-text pre { white-space: pre; }
+.message-text ul, .message-text ol { margin: 6px 0; margin-inline-start: 20px; }  /* indent on the text's own start side */
+.message-text li > ul, .message-text li > ol { margin: 2px 0 4px; margin-inline-start: 14px; }
+.message-text pre, .message-text code { direction: ltr; unicode-bidi: isolate; text-align: left; }
+#messageInput, .memory-search-input, .profile-editor { unicode-bidi: plaintext; text-align: start; }
+.session-title, .history-thread-title, .memory-result-title, .memory-thread-title { unicode-bidi: plaintext; }

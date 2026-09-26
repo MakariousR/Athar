@@ -2,7 +2,7 @@
   "name": "chat-memory-app",
   "productName": "Chat Memory",
   "version": "0.1.0",
-  "description": "Offline AI assistant that remembers your old ChatGPT/Claude conversations by retrieving relevant threads and feeding them to a local Ollama model.",
+  "description": "One private memory for all your AI chats: import ChatGPT, Claude and Gemini history, search it, and let a local Ollama model remember and cite it.",
   "main": "src/main/index.js",
   "author": "",
   "license": "UNLICENSED",
