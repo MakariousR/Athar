@@ -116,7 +116,8 @@ async function embedText(text) {
 }
 
 // ─── Web tools ───────────────────────────────────────────────────────────────
-const { searchWebTool, fetchPageTool } = require('../tools/web-search');
+const { searchWebTool, fetchPageTool, isOnline } = require('../tools/web-search');
+const freshness = require('./freshness');
 
 // ─── Project folder tools (read-only) ────────────────────────────────────────
 const {
@@ -152,8 +153,18 @@ resourceTools.setOutputBudget(TOOL_OUTPUT_CHARS);
 resourceTools.setRangeBudget(RANGE_READ_CHARS);
 setReadBudget(TOOL_OUTPUT_CHARS);
 
+// Temperature stays at Ollama's default unless OLLAMA_TEMPERATURE is set.
+// Measured on qwen2.5-coder:7b: 0.3 made arithmetic slightly more reliable
+// (8/8 vs 7/8) but made it use retrieved memories noticeably less often
+// (Arabic memory question 2–3/5 vs 4/5) — memory recall matters more here.
+const CHAT_TEMPERATURE = process.env.OLLAMA_TEMPERATURE && Number.isFinite(Number(process.env.OLLAMA_TEMPERATURE))
+  ? Number(process.env.OLLAMA_TEMPERATURE)
+  : undefined;
+
 function createChatModel(modelName) {
-  return ollama(modelName, { options: { num_ctx: NUM_CTX }, keep_alive: KEEP_ALIVE });
+  const options = { num_ctx: NUM_CTX };
+  if (CHAT_TEMPERATURE !== undefined) options.temperature = CHAT_TEMPERATURE;
+  return ollama(modelName, { options, keep_alive: KEEP_ALIVE });
 }
 
 /**
@@ -559,6 +570,7 @@ function buildMessages(userText, memory, conversationHistory, images = [], works
   let systemContent = `You are Chat Memory, the user's personal AI assistant. You remember their past conversations — imported from ChatGPT, Claude and Gemini, plus earlier chats in this app — and can search the web and read files they attach.
 
 Today's real-world date is ${now.toDateString()} (${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}).
+Your own knowledge comes from training data that ends ${memory && memory.cutoffLabel ? `around ${memory.cutoffLabel}` : 'some time before today'}. Anything that may have changed since then (prices, news, versions, who holds a role…) you only know from web results in this conversation — otherwise say your information is as of your training data.
 
 CRITICAL RULES:
 1. MEMORY: <memory_from_past_conversations> holds excerpts from the user's own earlier conversations. Use them for continuity ("last time you decided…"), cite them like [M1], and never confuse them with the current conversation. If the user asks about their past and nothing relevant is shown, call search_memory with a focused query before saying you don't remember.
@@ -598,11 +610,18 @@ CRITICAL RULES:
   const memoryBlock = memory && memory.passages
     ? formatMemoryContext(memory.passages, { maxChars: MEMORY_CONTEXT_CHARS, note: memory.note })
     : '';
-  const turnContext = [memory && memory.profile, memoryBlock].filter(Boolean);
+  // Current information for time-sensitive questions (searched before answering), or — when
+  // that wasn't possible — an instruction to answer as of the training data.
+  const webBlock = memory && memory.webResearch
+    ? `<web_research_for_this_question>\n${memory.webResearch}\n</web_research_for_this_question>`
+    : '';
+  const turnContext = [memory && memory.profile, memoryBlock, webBlock, memory && memory.offlineInstruction].filter(Boolean);
   if (turnContext.length) {
     const how = [
       memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
-      memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null
+      memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
+      webBlock ? 'the web research is newer than your training data: base current facts on it (not on what you remember) and mention the source and date' : null,
+      memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
     const block = `[Context for this reply, provided by the Chat Memory app — not written by the user. ` +
       `Use it to personalise: ${how}. Don't mention this context block itself.]\n${turnContext.join('\n\n')}`;
@@ -685,6 +704,20 @@ async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0
   return (data.message && data.message.content ? data.message.content : '').trim();
 }
 
+/** Web research that actually contains results (not an error / "no results" / timeout message). */
+function isUsableResearch(result) {
+  const text = typeof result === 'string' ? result : '';
+  return text.length > 200 && !/^ERROR:/.test(text) && !/returned no results|found no readable content|timed out/i.test(text.slice(0, 300));
+}
+
+/** What to search the web for: the user's message; very short follow-ups ("and in 2026?") get the previous question too. */
+function buildWebQuery(userText, history) {
+  const text = String(userText || '').trim();
+  if (text.split(/\s+/).length >= 5) return text.slice(0, 300);
+  const prev = [...(history || [])].reverse().find((m) => m.role === 'user' && m.text && m.text.trim() && m.text.trim() !== text);
+  return (prev ? `${prev.text.trim().slice(0, 200)} ${text}` : text).slice(0, 300);
+}
+
 // ─── Main generate function ───────────────────────────────────────────────────
 /**
  * @param {string} userText
@@ -705,54 +738,122 @@ async function generate(
 ) {
   onStatus({ icon: '🧠', text: 'Analyzing request…' });
 
-  // Build system prompt and conversation messages
-  const preRead      = buildResourcePreRead(sessionId, userText, documents);
-  const allMessages  = buildMessages(userText, memory, conversationHistory, images, workspaceDir, documents, sessionId, preRead);
-  const systemMsg     = allMessages.find((m) => m.role === 'system');
-  const chatMessages  = toModelMessages(allMessages.filter((m) => m.role !== 'system'));
-
-  const maxSteps    = 40;
-  const maxTotalMs  = 600000; // 10 minutes max for whole agent loop
+  const preRead     = buildResourcePreRead(sessionId, userText, documents);
   const turn        = createTurnState(userText);
+  const cutoff      = freshness.modelKnowledgeCutoff(modelName);
+  const isProjectQuestion = Boolean(workspaceDir) && PROJECT_QUESTION.test(userText);
+  const searchQuery = buildWebQuery(userText, conversationHistory);
 
-  onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
+  let online = null; // checked at most once per turn, only when needed
+  const checkOnline = async () => {
+    if (online === null) online = await isOnline();
+    return online;
+  };
+  const webSearch = async () => {
+    const result = await executeTool('web_search', { query: searchQuery }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
+    return isUsableResearch(result) ? result : null;
+  };
 
-  let loopResult;
-  try {
-    loopResult = await runAgentLoop({
-      modelName,
-      model: createChatModel(modelName),
-      systemContent: systemMsg ? systemMsg.content : '',
-      messages: chatMessages,
-      userText,
-      workspaceDir,
-      executeTool: (tName, rArgs, oStatus, wsDir, reqPerm, model, uText) =>
-        executeTool(tName, rArgs, oStatus, wsDir, reqPerm, model, uText, sessionId, turn),
-      onToken,
-      onStatus,
-      onRequestPermission,
-      maxSteps,
-      maxTotalMs,
-      needsWorkspaceRead: Boolean(workspaceDir) && PROJECT_QUESTION.test(userText)
-    });
-  } catch (err) {
-    onStatus({ icon: '⚠️', text: `Model call failed (${err.message}) — retrying once without tools…` });
-    try {
-      const fallback = await generateText({
-        model: createChatModel(modelName),
-        system: systemMsg ? systemMsg.content : '',
-        messages: chatMessages
-      });
-      loopResult = { text: fallback.text, researchLog: [] };
-    } catch (err2) {
-      onStatus({ icon: '⚠️', text: `Model error: ${err2.message}` });
-      return `Sorry — the model backend reported an error: ${err2.message}`;
+  // 1. Time-sensitive question ("latest…", prices, who is the CEO, a year after
+  //    the model's training data…): get current information BEFORE answering,
+  //    instead of hoping a 7B model notices its knowledge is out of date.
+  let webResearch = null;
+  let offlineWhy = null; // 'offline' | 'search-failed' → answer must say it's as of the training data
+  const fresh = freshness.needsFreshInfo(userText, {
+    cutoffYear: cutoff.year,
+    hasDocuments: Boolean(preRead) || (documents && documents.length > 0),
+    isProjectQuestion
+  });
+  if (fresh.needed) {
+    if (await checkOnline()) {
+      onStatus({ icon: '🌐', text: `This may have changed since my training data${cutoff.label ? ` (around ${cutoff.label})` : ''} — searching the web first…` });
+      webResearch = await webSearch();
+      if (!webResearch) offlineWhy = 'search-failed';
+    } else {
+      offlineWhy = 'offline';
+      onStatus({ icon: '📴', text: `No internet connection — answering from my training data${cutoff.label ? ` (around ${cutoff.label})` : ''}.` });
     }
   }
 
-  const researchLog = loopResult.researchLog || [];
+  let loopResult = await answerOnce({ webResearch, offlineWhy });
+  if (typeof loopResult === 'string') return loopResult; // backend error message
 
-  return await finalizeAnswer(loopResult.text);
+  // 2. The model says it doesn't know, or hedges with "as of my last update":
+  //    look it up and answer again (not for questions about the user's own history).
+  const researched = Boolean(webResearch) || (loopResult.researchLog || []).length > 0;
+  if (!researched && !offlineWhy && !freshness.isPersonalMemoryQuestion(userText) &&
+      freshness.looksUncertainOrDated(loopResult.text)) {
+    if (await checkOnline()) {
+      onStatus({ icon: '🌐', text: 'My training data doesn\'t cover this — searching the web…' });
+      webResearch = await webSearch();
+      if (webResearch) {
+        const retry = await answerOnce({ webResearch, offlineWhy: null });
+        if (typeof retry !== 'string') loopResult = retry;
+      } else {
+        offlineWhy = 'search-failed';
+      }
+    } else {
+      offlineWhy = 'offline';
+    }
+  }
+
+  const researchLog = [webResearch, ...(loopResult.researchLog || [])].filter(Boolean);
+  let text = await finalizeAnswer(loopResult.text);
+
+  // 3. Current information couldn't be fetched: make sure the answer says so,
+  //    even if the model forgot to.
+  if (offlineWhy && !webResearch && text && text.trim() && !freshness.hasTrainingDisclaimer(text)) {
+    const note = `\n\n_${freshness.offlineNote({ why: offlineWhy, cutoffLabel: cutoff.label, cutoffLabelAr: cutoff.labelAr, arabic: freshness.isArabic(userText) })}_`;
+    text += note;
+    onToken(note);
+  }
+  return text;
+
+  /** One full answer attempt (agent loop, or a plain completion if tools fail). Returns a string on backend error. */
+  async function answerOnce({ webResearch: research, offlineWhy: why }) {
+    const context = {
+      ...(memory || {}),
+      cutoffLabel: cutoff.label,
+      webResearch: research,
+      offlineInstruction: why ? freshness.offlineInstruction({ why, cutoffLabel: cutoff.label }) : null
+    };
+    const allMessages  = buildMessages(userText, context, conversationHistory, images, workspaceDir, documents, sessionId, preRead);
+    const systemMsg    = allMessages.find((m) => m.role === 'system');
+    const chatMessages = toModelMessages(allMessages.filter((m) => m.role !== 'system'));
+
+    onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
+    try {
+      return await runAgentLoop({
+        modelName,
+        model: createChatModel(modelName),
+        systemContent: systemMsg ? systemMsg.content : '',
+        messages: chatMessages,
+        userText,
+        workspaceDir,
+        executeTool: (tName, rArgs, oStatus, wsDir, reqPerm, model, uText) =>
+          executeTool(tName, rArgs, oStatus, wsDir, reqPerm, model, uText, sessionId, turn),
+        onToken,
+        onStatus,
+        onRequestPermission,
+        maxSteps: 40,
+        maxTotalMs: 600000, // 10 minutes max for the whole agent loop
+        needsWorkspaceRead: isProjectQuestion
+      });
+    } catch (err) {
+      onStatus({ icon: '⚠️', text: `Model call failed (${err.message}) — retrying once without tools…` });
+      try {
+        const fallback = await generateText({
+          model: createChatModel(modelName),
+          system: systemMsg ? systemMsg.content : '',
+          messages: chatMessages
+        });
+        return { text: fallback.text, researchLog: [] };
+      } catch (err2) {
+        onStatus({ icon: '⚠️', text: `Model error: ${err2.message}` });
+        return `Sorry — the model backend reported an error: ${err2.message}`;
+      }
+    }
+  }
 
   async function finalizeAnswer(text) {
     if (researchLog.length > 0 && text) {
