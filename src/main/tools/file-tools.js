@@ -67,25 +67,103 @@ function isPathInWorkspace(targetPath, workspaceDir) {
 }
 
 
+// Max characters ONE read_file call may return. Ollama silently truncates
+// anything past num_ctx, and a model that only saw half a file will happily
+// "rewrite" it and drop the other half — so large files come back in parts,
+// with an explicit hint on how to read the next part. Set from ollama-client
+// (derived from num_ctx) via setReadBudget.
+let readBudget = 16000;
+const MAX_LINE_CHARS = 4000;
+
+function setReadBudget(chars) {
+  if (Number.isFinite(chars) && chars >= 2000) readBudget = Math.floor(chars);
+}
+
+function toLineNumber(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
 /**
- * Reads text content of a file within the workspace.
+ * Reads part of a text file inside the workspace, never more than the read
+ * budget. Returns structured data so callers can track which lines the model
+ * has actually seen:
+ *   { error } | { fullPath, text, startLine, endLine, totalLines, complete }
+ * `complete` is true only when every character of lines startLine..endLine
+ * was returned (no line had to be clipped).
  */
-async function readFileTool(workspaceDir, relPath) {
-  if (!workspaceDir) return 'ERROR: No workspace folder selected. Please select a workspace directory first.';
+function readFileSlice(workspaceDir, relPath, { startLine = null, endLine = null } = {}) {
+  if (!workspaceDir) return { error: 'ERROR: No workspace folder selected. Please select a workspace directory first.' };
   const fullPath = isPathInWorkspace(relPath, workspaceDir);
-  if (!fullPath) return `ERROR: Access denied. Path "${relPath}" is outside the active workspace directory.`;
+  if (!fullPath) return { error: `ERROR: Access denied. Path "${relPath}" is outside the active workspace directory.` };
 
   try {
-    if (!fs.existsSync(fullPath)) return `ERROR: File not found: "${relPath}"`;
+    if (!fs.existsSync(fullPath)) return { error: `ERROR: File not found: "${relPath}"` };
     const stat = fs.statSync(fullPath);
-    if (stat.isDirectory()) return `ERROR: "${relPath}" is a directory, not a file. Use list_directory to view folders.`;
-    if (stat.size > 2 * 1024 * 1024) return `ERROR: File "${relPath}" is too large (${(stat.size / 1024 / 1024).toFixed(2)} MB). Max supported text read size is 2 MB.`;
+    if (stat.isDirectory()) return { error: `ERROR: "${relPath}" is a directory, not a file. Use list_directory to view folders.` };
+    if (stat.size > 20 * 1024 * 1024) return { error: `ERROR: File "${relPath}" is too large (${(stat.size / 1024 / 1024).toFixed(1)} MB) to read.` };
 
-    const content = fs.readFileSync(fullPath, 'utf8');
-    return `File content of "${relPath}":\n\n${content}`;
+    const buf = fs.readFileSync(fullPath);
+    if (buf.subarray(0, 8000).includes(0)) return { error: `ERROR: "${relPath}" is a binary file, not text.` };
+
+    const lines = buf.toString('utf8').split(/\r?\n/);
+    const totalLines = lines.length;
+
+    let start = toLineNumber(startLine) ?? 1;
+    let end = toLineNumber(endLine) ?? totalLines;
+    if (end < start) [start, end] = [end, start];
+    start = Math.max(1, start);
+    if (start > totalLines) {
+      return { error: `ERROR: start_line ${start} is past the end of "${relPath}" (${totalLines} lines).` };
+    }
+    end = Math.min(end, totalLines);
+
+    const out = [];
+    let room = readBudget;
+    let last = start - 1;
+    let clipped = false;
+    for (let n = start; n <= end; n++) {
+      let line = lines[n - 1];
+      if (line.length > MAX_LINE_CHARS) {
+        line = `${line.slice(0, MAX_LINE_CHARS)} …[line ${n} truncated, ${line.length} chars total]`;
+        clipped = true;
+      }
+      if (line.length + 1 > room && out.length > 0) break;
+      out.push(line);
+      room -= line.length + 1;
+      last = n;
+    }
+
+    return { fullPath, text: out.join('\n'), startLine: start, endLine: last, totalLines, complete: !clipped };
   } catch (err) {
-    return `ERROR: Failed to read file "${relPath}": ${err.message}`;
+    return { error: `ERROR: Failed to read file "${relPath}": ${err.message}` };
   }
+}
+
+/** Formats a readFileSlice result for the model, including how to continue. */
+function formatFileSlice(relPath, slice) {
+  if (slice.error) return slice.error;
+  const whole = slice.startLine === 1 && slice.endLine === slice.totalLines;
+  const header = whole
+    ? `File content of "${relPath}" (all ${slice.totalLines} lines):`
+    : `File content of "${relPath}", lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}:`;
+
+  let footer = '';
+  if (slice.endLine < slice.totalLines) {
+    footer = `\n\n[File continues. To read more call read_file with rel_path="${relPath}", start_line=${slice.endLine + 1}. ` +
+      `To change this file use edit_file on the part you need; do not rewrite it with write_file unless you have read all of it.]`;
+  } else if (!whole) {
+    footer = `\n\n[End of file.]`;
+  }
+  return `${header}\n\n${slice.text}${footer}`;
+}
+
+/**
+ * Reads text content of a file within the workspace (capped; see readFileSlice).
+ */
+async function readFileTool(workspaceDir, relPath, options = {}) {
+  return formatFileSlice(relPath, readFileSlice(workspaceDir, relPath, options));
 }
 
 /**
@@ -211,6 +289,14 @@ async function editFileTool(workspaceDir, relPath, targetText, replacementText, 
     if (!fs.existsSync(fullPath)) return `ERROR: File not found: "${relPath}"`;
     const existing = fs.readFileSync(fullPath, 'utf8');
 
+    // read_file shows lines joined with "\n", so on a CRLF (Windows) file a
+    // target copied from it never matches. Retry with CRLF line endings, and
+    // write the replacement with the file's own line endings too.
+    if (!existing.includes(targetText) && existing.includes('\r\n') && !targetText.includes('\r')) {
+      targetText = targetText.replace(/\n/g, '\r\n');
+      if (typeof replacementText === 'string') replacementText = replacementText.replace(/\r?\n/g, '\r\n');
+    }
+
     const occurrences = existing.split(targetText).length - 1;
     if (occurrences === 0) {
       return `ERROR: Could not find target text in file "${relPath}". Ensure exact string match including indentation and whitespace.`;
@@ -223,7 +309,7 @@ async function editFileTool(workspaceDir, relPath, targetText, replacementText, 
 
     const updated = replaceAll
       ? existing.split(targetText).join(replacementText || '')
-      : existing.replace(targetText, replacementText || '');
+      : existing.replace(targetText, () => replacementText || ''); // function form: no "$&"/"$$" pattern expansion
 
     fs.writeFileSync(fullPath, updated, 'utf8');
     return occurrences > 1
@@ -273,6 +359,9 @@ async function deleteFileTool(workspaceDir, relPath, recursive = false) {
 
 module.exports = {
   isPathInWorkspace,
+  setReadBudget,
+  readFileSlice,
+  formatFileSlice,
   readFileTool,
   listDirectoryTool,
   searchFilesTool,

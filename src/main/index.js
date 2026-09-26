@@ -1,8 +1,17 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('path');
 const { registerIpcHandlers } = require('./ipc-handlers');
 
 let mainWindow;
+
+function isExternalWebUrl(url) {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -18,6 +27,23 @@ function createWindow() {
       sandbox: false // needed so preload can use webUtils.getPathForFile
     }
   });
+
+  // The preload bridge (window.api) is attached to whatever page this window
+  // shows, so it must only ever show our own UI. Model output is rendered as
+  // markdown and can contain links (possibly planted by a prompt-injected web
+  // page or document) — never let those replace the app. Web links open in
+  // the system browser instead; everything else is simply dropped.
+  const { webContents } = mainWindow;
+  webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    if (isExternalWebUrl(url)) shell.openExternal(url);
+  });
+  webContents.on('will-redirect', (event) => event.preventDefault());
+  webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternalWebUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  webContents.on('will-attach-webview', (event) => event.preventDefault());
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 

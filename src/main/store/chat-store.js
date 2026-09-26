@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
+const { atomicWrite } = require('../utils/fs-utils');
 
 /**
  * Storage layout
@@ -9,10 +10,12 @@ const { app } = require('electron');
  *   <userData>/chats/sessions.json                      sessions + messages + resource METADATA only
  *   <userData>/chats/resources/<sessionId>/<resId>.json { pages: [...] }            (heavy content)
  *   <userData>/chats/resources/<sessionId>/<resId>.emb.json  chunk embeddings cache (optional)
+ *   <userData>/chats/images/<sessionId>/<sha1>.img      attached image bytes; messages hold "ref:<sha1>"
  *
- * Keeping page text out of sessions.json means every message append no longer
- * re-serialises every attached document, and anything that scans sessions
- * (e.g. the embedding pipeline) sees small metadata objects instead of whole PDFs.
+ * Keeping page text and image data out of sessions.json means every message
+ * append no longer re-serialises every attached document and image, and
+ * anything that scans sessions (e.g. the embedding pipeline) sees small
+ * metadata objects instead of whole PDFs and megabytes of base64.
  */
 
 function getChatsDir() {
@@ -43,16 +46,62 @@ function resourceEmbeddingPath(sessionId, resId, create = false) {
   return path.join(getResourceDir(sessionId, create), `${safeId(resId)}.emb.json`);
 }
 
-/** Write via temp file + rename so a crash mid-write can't corrupt the store. */
-function atomicWrite(filePath, data) {
-  const tmp = `${filePath}.${process.pid}.tmp`;
+// ─── Message images (per-file) ───────────────────────────────────────────────
+
+const IMAGE_REF_PREFIX = 'ref:';
+
+function getImageDir(sessionId, create = false) {
+  const dir = path.join(getChatsDir(), 'images', safeId(sessionId));
+  if (create && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Accepts raw base64 or a data: URL; returns just the base64 payload. */
+function toBase64Payload(image) {
+  const s = String(image || '');
+  const comma = s.startsWith('data:') ? s.indexOf(',') : -1;
+  return (comma >= 0 ? s.slice(comma + 1) : s).trim();
+}
+
+/** Saves one image to disk (deduplicated by content) and returns its "ref:<sha1>" reference. */
+function storeImage(sessionId, image) {
+  if (typeof image === 'string' && image.startsWith(IMAGE_REF_PREFIX)) return image;
+  const b64 = toBase64Payload(image);
+  if (!b64) return null;
+  const id = crypto.createHash('sha1').update(b64).digest('hex');
+  const file = path.join(getImageDir(sessionId, true), `${id}.img`);
+  if (!fs.existsSync(file)) atomicWrite(file, Buffer.from(b64, 'base64'));
+  return `${IMAGE_REF_PREFIX}${id}`;
+}
+
+/** "ref:<sha1>" → base64 string (the format the renderer and Ollama expect), or null if missing. */
+function loadImage(sessionId, ref) {
+  if (typeof ref !== 'string') return null;
+  if (!ref.startsWith(IMAGE_REF_PREFIX)) return ref; // not migrated yet: already base64
+  const id = ref.slice(IMAGE_REF_PREFIX.length).replace(/[^a-f0-9]/gi, '');
   try {
-    fs.writeFileSync(tmp, data, 'utf-8');
-    fs.renameSync(tmp, filePath);
-  } catch (err) {
-    try { fs.unlinkSync(tmp); } catch {}
-    fs.writeFileSync(filePath, data, 'utf-8'); // last resort
+    return fs.readFileSync(path.join(getImageDir(sessionId), `${id}.img`)).toString('base64');
+  } catch {
+    return null;
   }
+}
+
+/**
+ * Returns a copy of the session whose message images are real base64 data
+ * instead of "ref:" references. Only needed where images are actually used
+ * (showing the chat, sending history to the model) — everything else works
+ * with the lightweight references.
+ */
+function withImageData(session) {
+  if (!session) return session;
+  return {
+    ...session,
+    messages: (session.messages || []).map((m) => (
+      m.images && m.images.length > 0
+        ? { ...m, images: m.images.map((ref) => loadImage(session.id, ref)).filter(Boolean) }
+        : m
+    ))
+  };
 }
 
 // ─── Resource content (per-file) ─────────────────────────────────────────────
@@ -118,6 +167,24 @@ function migrateLegacyResources(sessions) {
   return changed;
 }
 
+/**
+ * One-time migration: older versions stored every attached image as base64
+ * inside sessions.json. Move each into its own file and keep a reference.
+ */
+function migrateLegacyImages(sessions) {
+  let changed = false;
+  for (const s of sessions) {
+    for (const m of s.messages || []) {
+      if (!Array.isArray(m.images) || m.images.every((img) => typeof img === 'string' && img.startsWith(IMAGE_REF_PREFIX))) continue;
+      try {
+        m.images = m.images.map((img) => storeImage(s.id, img)).filter(Boolean);
+        changed = true;
+      } catch { /* keep inline data if it couldn't be written out */ }
+    }
+  }
+  return changed;
+}
+
 function loadSessions() {
   const p = getStorePath();
   if (!fs.existsSync(p)) return [];
@@ -128,7 +195,9 @@ function loadSessions() {
     return [];
   }
   if (!Array.isArray(sessions)) return [];
-  if (migrateLegacyResources(sessions)) saveSessions(sessions);
+  const migratedResources = migrateLegacyResources(sessions);
+  const migratedImages = migrateLegacyImages(sessions);
+  if (migratedResources || migratedImages) saveSessions(sessions);
   return sessions;
 }
 
@@ -151,10 +220,16 @@ function createSession(title = 'New chat') {
   return session;
 }
 
-function getSession(id) {
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.withImages=false] resolve image references into
+ *   base64 data (for display and for the model). Off by default: most callers
+ *   only need text/metadata, and loading images costs a disk read each.
+ */
+function getSession(id, { withImages = false } = {}) {
   const s = loadSessions().find((session) => session.id === id) || null;
   if (s && !s.resources) s.resources = [];
-  return s;
+  return withImages ? withImageData(s) : s;
 }
 
 // ─── Session resources ───────────────────────────────────────────────────────
@@ -261,7 +336,7 @@ function appendMessage(sessionId, role, text, images = [], documents = []) {
 
   const message = { role, text, timestamp: Date.now() };
   if (images && images.length > 0) {
-    message.images = images;
+    message.images = images.map((img) => storeImage(sessionId, img)).filter(Boolean);
   }
   if (documents && documents.length > 0) {
     message.documents = documents.map((d) => {
@@ -300,6 +375,7 @@ function deleteSession(id) {
   const sessions = loadSessions().filter((s) => s.id !== id);
   saveSessions(sessions);
   try { fs.rmSync(getResourceDir(id), { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(getImageDir(id), { recursive: true, force: true }); } catch {}
 }
 
 function renameSession(id, title) {

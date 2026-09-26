@@ -5,6 +5,10 @@ const OLLAMA_BASE  = 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'qwen2.5-coder:7b';
 const EMBED_MODEL   = 'bge-m3';
 
+// Keep models resident between messages instead of Ollama's 5-minute default,
+// so a pause while reading an answer doesn't cost a full reload next turn.
+const KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '30m';
+
 // FIX: small local timeout helper (web-search.js has its own copy, not
 // exported) — used below so the new "does this need a search?" self-check
 // call can never hang the whole response if the local model stalls.
@@ -36,12 +40,19 @@ async function isModelInstalled(modelName) {
   return models.some((m) => m.name === modelName || m.name.startsWith(`${modelName}:`));
 }
 
+const EMBED_MODEL_PATTERN = /bge-m3|embed/i;
+
 async function checkAllModels() {
   const models = await listModels();
   const has = (name) => models.some((m) => m.name === name || m.name.startsWith(`${name}:`));
-  const chatInstalled  = has(DEFAULT_MODEL);
+  // Any installed chat model is enough — the user may have picked a model
+  // other than the default during setup, and must not be sent back to the
+  // setup screen on every launch because the default isn't there.
+  const chatModels = models.filter((m) => !EMBED_MODEL_PATTERN.test(m.name));
+  const chatInstalled  = chatModels.length > 0;
+  const defaultInstalled = has(DEFAULT_MODEL);
   const embedInstalled = has(EMBED_MODEL);
-  return { chatInstalled, embedInstalled, allInstalled: chatInstalled && embedInstalled };
+  return { chatInstalled, defaultInstalled, embedInstalled, allInstalled: chatInstalled && embedInstalled };
 }
 
 async function pullModel(modelName, onProgress = () => {}) {
@@ -83,7 +94,7 @@ async function embedText(text) {
   const res = await fetch(`${OLLAMA_BASE}/api/embeddings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: EMBED_MODEL, prompt: text })
+    body: JSON.stringify({ model: EMBED_MODEL, prompt: text, keep_alive: KEEP_ALIVE })
   });
   if (!res.ok) throw new Error(`Embed failed: ${res.status}`);
   const data = await res.json();
@@ -106,18 +117,14 @@ async function embedThreads(threads, onProgress = () => {}) {
 }
 
 // ─── Web tools ───────────────────────────────────────────────────────────────
-const {
-  searchWebTool,
-  fetchPageTool,
-  crawlUrlTree,
-  formatKnowledgeBase,
-  fetchWebPageContent
-} = require('../tools/web-search');
+const { searchWebTool, fetchPageTool } = require('../tools/web-search');
 
 // ─── File & Git tools ────────────────────────────────────────────────────────
 const {
   isPathInWorkspace,
-  readFileTool,
+  setReadBudget,
+  readFileSlice,
+  formatFileSlice,
   listDirectoryTool,
   searchFilesTool,
   writeFileTool,
@@ -148,15 +155,19 @@ const resourceTools = require('../tools/resource-tools');
 // Ollama's default num_ctx is small (2k–4k tokens) and it silently truncates
 // anything beyond it — including tool results. Set it explicitly and derive
 // every content budget below from it (≈4 chars per token).
-const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || 8192;
+// 16K fits a 7B Q4 model plus bge-m3 comfortably in 16 GB of RAM (~0.9 GB of
+// KV cache for qwen2.5-7B). Every request to the chat model MUST use this
+// same value: Ollama reloads the model whenever num_ctx changes.
+const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || 16384;
 const TOOL_OUTPUT_CHARS = Math.floor(NUM_CTX * 4 * 0.25);   // max size of ONE tool result
 const PRE_READ_CHARS    = Math.floor(NUM_CTX * 4 * 0.30);   // max auto-read resource text per turn
 const RANGE_READ_CHARS  = Math.floor(NUM_CTX * 4 * 0.50);   // explicit multi-page reads ("pages 1-6") may use up to half the window
 resourceTools.setOutputBudget(TOOL_OUTPUT_CHARS);
 resourceTools.setRangeBudget(RANGE_READ_CHARS);
+setReadBudget(TOOL_OUTPUT_CHARS);
 
 function createChatModel(modelName) {
-  return ollama(modelName, { options: { num_ctx: NUM_CTX } });
+  return ollama(modelName, { options: { num_ctx: NUM_CTX }, keep_alive: KEEP_ALIVE });
 }
 // Single source of truth for "does this message plausibly concern the local
 // workspace" — used both for pre-research routing (below) and, via the
@@ -185,6 +196,16 @@ function normalizeToolArgs(toolName, rawArgs) {
   // Path normalization (rel_path)
   const pathVal = args.rel_path || args.path || args.filepath || args.file || args.filename || args.dir || args.directory || args.folder || args.target_file || args.targetFile;
   if (pathVal && typeof pathVal === 'string') args.rel_path = pathVal;
+
+  // read_file line range normalization
+  const startLineVal = args.start_line ?? args.startLine ?? args.line_start ?? args.from_line;
+  if (startLineVal !== undefined) args.start_line = startLineVal;
+  const endLineVal = args.end_line ?? args.endLine ?? args.line_end ?? args.to_line;
+  if (endLineVal !== undefined) args.end_line = endLineVal;
+
+  // fetch_web_page URL normalization
+  const urlVal = args.url || args.link || args.href || args.page_url;
+  if (urlVal && typeof urlVal === 'string') args.url = urlVal;
 
   // Search query normalization
   const queryVal = args.query || args.search || args.pattern || args.term || args.q || args.text || args.keyword;
@@ -251,18 +272,135 @@ const { listChatResourcesTool, readChatResourceTool } = resourceTools;
 // Semantic search over attached documents reuses the same embedding model as chat-history search.
 resourceTools.setEmbedder((text) => embedText(text), EMBED_MODEL);
 
-async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir = null, onRequestPermission = null, modelName = null, userText = null, sessionId = null) {
+// ─── Per-turn tool state ─────────────────────────────────────────────────────
+/**
+ * State shared by every tool call within ONE user turn (all agent steps and
+ * retries of a single generate() call):
+ *  - readCoverage: which lines of which workspace files the model has actually
+ *    been shown, so write_file can refuse to overwrite a file the model has
+ *    only partly seen (the classic "rewrote the file from half of it" loss).
+ *  - knownUrls: URLs that came from the user's message or from this turn's
+ *    web_search results. fetch_web_page on anything else needs approval,
+ *    since a model steered by injected text could otherwise smuggle file or
+ *    chat contents out inside a URL.
+ */
+function normalizeUrlKey(url) {
+  return String(url || '').trim().replace(/[.,;:!?]+$/, '').replace(/\/+$/, '');
+}
+
+function extractUrls(text) {
+  return (String(text || '').match(/https?:\/\/[^\s"'<>)\]]+/gi) || []).map(normalizeUrlKey);
+}
+
+function createTurnState(userText) {
+  return { readCoverage: new Map(), knownUrls: new Set(extractUrls(userText)) };
+}
+
+function coverageKey(fullPath) {
+  return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
+}
+
+function countLines(text) {
+  return String(text).split(/\r?\n/).length;
+}
+
+function recordRead(turn, fullPath, start, end, total) {
+  const key = coverageKey(fullPath);
+  const prev = turn.readCoverage.get(key);
+  const ranges = prev && prev.total === total ? [...prev.ranges, [start, end]] : [[start, end]];
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [s, e] of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && s <= last[1] + 1) last[1] = Math.max(last[1], e);
+    else merged.push([s, e]);
+  }
+  turn.readCoverage.set(key, { total, ranges: merged });
+}
+
+function markFullyKnown(turn, fullPath, total) {
+  turn.readCoverage.set(coverageKey(fullPath), { total, ranges: [[1, total]] });
+}
+
+function isFullyKnown(turn, fullPath, currentTotal) {
+  const entry = turn.readCoverage.get(coverageKey(fullPath));
+  if (!entry || entry.total !== currentTotal) return false;
+  return entry.ranges.length === 1 && entry.ranges[0][0] <= 1 && entry.ranges[0][1] >= currentTotal;
+}
+
+/**
+ * Pre-permission check for write_file. Returns { error } when the overwrite
+ * must be refused, otherwise { preview } describing what the write will do
+ * (shown in the approval dialog).
+ */
+function checkOverwrite(turn, workspaceDir, relPath, newContent) {
+  const fullPath = isPathInWorkspace(relPath, workspaceDir);
+  if (!fullPath || !fs.existsSync(fullPath)) {
+    return { preview: `Creates a new file (${countLines(newContent || '')} lines).` };
+  }
+  let stat;
+  try { stat = fs.statSync(fullPath); } catch { return { preview: null }; }
+  if (!stat.isFile()) return { preview: null }; // writeFileTool reports the real error
+  if (stat.size === 0) return { preview: 'Overwrites an existing EMPTY file.' };
+
+  const current = readRawFileBestEffort(fullPath);
+  const currentLines = current === null ? null : countLines(current);
+  const newLines = countLines(newContent || '');
+
+  if (current === null || !turn || !isFullyKnown(turn, fullPath, currentLines)) {
+    return {
+      error: `ERROR: "${relPath}" already exists${currentLines ? ` (${currentLines} lines)` : ''} and you have not read ALL of it ` +
+        `in this turn, so rewriting it with write_file could silently delete content you never saw. Nothing was written. ` +
+        `Use edit_file to change only the part that needs changing (copy target_text exactly from read_file output). ` +
+        `Only if the whole file really must be replaced: read it completely with read_file first ` +
+        `(follow its "start_line=" hint until it reaches the end), then call write_file again.`
+    };
+  }
+
+  const diff = newLines - currentLines;
+  return {
+    preview: `Overwrites the WHOLE existing file: ${currentLines} lines → ${newLines} lines ` +
+      `(${diff >= 0 ? '+' : ''}${diff}). The content below replaces everything in it.`
+  };
+}
+
+async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir = null, onRequestPermission = null, modelName = null, userText = null, sessionId = null, turn = null) {
   const args = normalizeToolArgs(toolName, rawArgs);
 
   // Web & System Tools
   if (toolName === 'web_search') {
     onStatus({ icon: '🌐', text: `Searching web for: "${args.query}"` });
     const result = await searchWebTool(args.query, onStatus);
-    return typeof result === 'string' ? result : JSON.stringify(result);
+    const text = typeof result === 'string' ? result : JSON.stringify(result);
+    if (turn) {
+      for (const m of text.matchAll(/^URL: (\S+)$/gm)) turn.knownUrls.add(normalizeUrlKey(m[1]));
+    }
+    return text;
   }
   if (toolName === 'fetch_web_page') {
-    onStatus({ icon: '📄', text: `Fetching page: ${String(args.url).slice(0, 60)}…` });
-    const result = await fetchPageTool(args.url, onStatus);
+    const url = String(args.url || '').trim();
+    if (!(turn && turn.knownUrls.has(normalizeUrlKey(url)))) {
+      if (typeof onRequestPermission !== 'function') {
+        return `ERROR: fetch_web_page for an address that did not come from the user or a web_search result requires user approval, and no approval channel is available.`;
+      }
+      onStatus({ icon: '🔒', text: `Requesting permission to open: ${url.slice(0, 80)}` });
+      const approved = await onRequestPermission({
+        toolName,
+        args: {
+          url,
+          preview: 'This address did not come from your message or from a web search result in this turn. ' +
+            'A page opened this way can be used to send data from your files or chats to another site ' +
+            '(inside the address itself), so only allow it if you recognise the address.'
+        },
+        workspaceDir
+      });
+      if (!approved) {
+        return `ERROR: User DENIED permission to open ${url}. Use web_search to find pages instead, or ask the user for the link.`;
+      }
+      if (turn) turn.knownUrls.add(normalizeUrlKey(url));
+    }
+    onStatus({ icon: '📄', text: `Fetching page: ${url.slice(0, 60)}…` });
+    const result = await fetchPageTool(url, onStatus);
     return typeof result === 'string' ? result : JSON.stringify(result);
   }
   if (toolName === 'get_current_time') {
@@ -314,10 +452,19 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
       return `ERROR: ${toolName} requires user approval, but no approval channel is available in this context. Refusing to execute.`;
     }
 
+    let permissionArgs = args;
+
+    // Refuse an overwrite of a partly-read file BEFORE asking the user, so
+    // they're never asked to approve something that will be rejected anyway.
+    if (toolName === 'write_file') {
+      const check = checkOverwrite(turn, workspaceDir, args.rel_path, args.content);
+      if (check.error) return check.error;
+      if (check.preview) permissionArgs = { ...args, preview: check.preview };
+    }
+
     // For a destructive delete on a directory, surface how much is actually
     // at stake to whatever UI renders this permission request, instead of
     // just the bare rel_path.
-    let permissionArgs = args;
     if (toolName === 'delete_file' && args.recursive) {
       try {
         const fullPath = isPathInWorkspace(args.rel_path, workspaceDir);
@@ -351,8 +498,18 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
       onStatus({ icon: '📁', text: 'No file specified for reading — listing workspace directory instead…' });
       return await listDirectoryTool(workspaceDir, '.');
     }
-    onStatus({ icon: '📖', text: `Reading file: ${args.rel_path}` });
-    return await readFileTool(workspaceDir, args.rel_path);
+    const hasRange = args.start_line !== undefined || args.end_line !== undefined;
+    onStatus({
+      icon: '📖',
+      text: hasRange
+        ? `Reading file: ${args.rel_path} (from line ${args.start_line || 1})`
+        : `Reading file: ${args.rel_path}`
+    });
+    const slice = readFileSlice(workspaceDir, args.rel_path, { startLine: args.start_line, endLine: args.end_line });
+    if (turn && !slice.error && slice.complete) {
+      recordRead(turn, slice.fullPath, slice.startLine, slice.endLine, slice.totalLines);
+    }
+    return formatFileSlice(args.rel_path, slice);
   }
   if (toolName === 'list_directory') {
     onStatus({ icon: '📁', text: `Listing directory: ${args.rel_path || '.'}` });
@@ -374,6 +531,11 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
     const beforeContent = existedBefore ? readRawFileBestEffort(existingPath) : null;
 
     const result = await writeFileTool(workspaceDir, args.rel_path, args.content);
+
+    // The model wrote every line itself, so it now knows the whole file.
+    if (turn && existingPath && result.startsWith('SUCCESS')) {
+      markFullyKnown(turn, existingPath, countLines(args.content || ''));
+    }
 
     if (result.startsWith('SUCCESS') && beforeContent !== null && modelName && userText) {
       onStatus({ icon: '🔎', text: 'Reviewing overwrite for accidental content loss…' });
@@ -407,7 +569,19 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
       }
     }
 
+    const knewWholeFile = Boolean(turn && editPath && beforeContent !== null &&
+      isFullyKnown(turn, editPath, countLines(beforeContent)));
+
     const result = await editFileTool(workspaceDir, args.rel_path, args.target_text, args.replacement_text, Boolean(args.replace_all));
+
+    // Line numbers shift after an edit: keep "fully known" only if it was
+    // fully known before (the model saw everything and chose the change);
+    // otherwise drop the now-stale partial coverage.
+    if (turn && editPath && result.startsWith('SUCCESS')) {
+      const after = readRawFileBestEffort(editPath);
+      if (knewWholeFile && after !== null) markFullyKnown(turn, editPath, countLines(after));
+      else turn.readCoverage.delete(coverageKey(editPath));
+    }
 
     let warnings = '';
     if (relevanceWarning) {
@@ -851,12 +1025,15 @@ CRITICAL RULES:
    - If the task requires inspecting local project files, code, structure, or git state, call workspace tools (list_directory, read_file, search_files, git_status, etc.) directly.
    - If the user asks about the project, structure, or files (e.g. "what is the purpose of this project", "explain this app"), NEVER guess or speculate like "if README.md exists". ALWAYS call list_directory(".") or read_file("README.md") FIRST before answering.
    - If the task requires live real-world information, current events, software release info, or web pages, call web_search or fetch_web_page.
+   - Answering from web results: numbers that change over time (net worth, prices, rankings, statistics) must be given WITH their source and the date that source gives — never relabel a figure with today's date. If the results contain a KEY FIGURES list that says the sources disagree, answer with the range and say which source says what, preferring [trusted source] entries and newer dates.
    - You can call any combination of tools in whatever order the task requires. Always gather real information first before reporting or modifying state.`;
 
   if (workspaceDir) {
     systemContent += `\n\nACTIVE WORKSPACE FOLDER: "${workspaceDir}"
 - Relative paths only (rel_path="." for root).
-- For modifying existing files, prefer write_file with complete regenerated content over edit_file patches unless the file is very large.`;
+- read_file returns big files in parts. If it says the file continues, call read_file again with the start_line it gives before answering about the rest.
+- To CHANGE an existing file, use edit_file: target_text must be copied exactly from read_file output (a few complete lines, enough to be unique), and replacement_text is the new version of just those lines.
+- Use write_file only to CREATE a new file. It can replace an existing file only if you have read all of it in this turn; otherwise it is refused.`;
   } else {
     systemContent += `\n\nNO WORKSPACE FOLDER SELECTED: Workspace file and git tools are disabled. If the user asks to read, write, or edit local files, explain that they must click "Select Workspace" in the sidebar first.`;
   }
@@ -928,10 +1105,17 @@ CRITICAL RULES:
 
 // ─── Single Ollama generation step ───────────────────────────────────────────
 async function ollamaChat(reqBody) {
+  // Same num_ctx / keep_alive as the agent loop, so these side calls reuse
+  // the already-loaded model instead of forcing Ollama to reload it.
+  const body = {
+    ...reqBody,
+    keep_alive: KEEP_ALIVE,
+    options: { ...(reqBody.options || {}), num_ctx: NUM_CTX }
+  };
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(reqBody)
+    body: JSON.stringify(body)
   });
   if (!res.ok || !res.body) {
     const err = await res.text().catch(() => String(res.status));
@@ -963,6 +1147,7 @@ async function generate(
 
   const maxSteps    = 40;
   const maxTotalMs  = 600000; // 10 minutes max for whole agent loop
+  const turn        = createTurnState(userText);
 
   onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
 
@@ -976,7 +1161,7 @@ async function generate(
       userText,
       workspaceDir,
       executeTool: (tName, rArgs, oStatus, wsDir, reqPerm, model, uText) =>
-        executeTool(tName, rArgs, oStatus, wsDir, reqPerm, model, uText, sessionId),
+        executeTool(tName, rArgs, oStatus, wsDir, reqPerm, model, uText, sessionId, turn),
       onToken,
       onStatus,
       onRequestPermission,
@@ -1067,5 +1252,7 @@ module.exports = {
   deleteModel,
   embedText,
   embedThreads,
-  generate
+  generate,
+  // exported for tests
+  _internals: { executeTool, createTurnState, normalizeToolArgs }
 };

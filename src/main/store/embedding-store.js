@@ -2,6 +2,7 @@ const fs   = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
+const { atomicWrite } = require('../utils/fs-utils');
 
 function getCachePath() {
   const dir = path.join(app.getPath('userData'), 'embeddings');
@@ -32,8 +33,7 @@ function loadPersistedThreads() {
  * Saves the full active array of embedded threads to disk.
  */
 function savePersistedThreads(threads) {
-  const p = getThreadsStorePath();
-  fs.writeFileSync(p, JSON.stringify(threads), 'utf-8');
+  atomicWrite(getThreadsStorePath(), JSON.stringify(threads));
 }
 
 /**
@@ -105,7 +105,7 @@ function saveCache(entries) {
     if (fs.existsSync(p)) existing = JSON.parse(fs.readFileSync(p, 'utf-8'));
   } catch {}
   const merged = { ...existing, ...Object.fromEntries(entries) };
-  fs.writeFileSync(p, JSON.stringify(merged), 'utf-8');
+  atomicWrite(p, JSON.stringify(merged));
 }
 
 /**

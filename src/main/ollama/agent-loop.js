@@ -134,15 +134,23 @@ function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission
   // nothing further narrows which of them the model may call, or when.
   if (workspaceDir) {
     Object.assign(tools, {
-      read_file: def('read_file', 'Read the contents of a file inside the selected workspace folder.',
-        { rel_path: z.string().describe('Relative path of file within workspace folder') }),
+      read_file: def('read_file',
+        'Read a text file inside the selected workspace folder. Big files are returned in parts; ' +
+        'the reply tells you the start_line to use for the next part.',
+        {
+          rel_path: z.string().describe('Relative path of file within workspace folder'),
+          start_line: z.coerce.number().int().optional().describe('First line to read (default 1)'),
+          end_line: z.coerce.number().int().optional().describe('Last line to read (default: as much as fits)')
+        }),
       list_directory: def('list_directory', 'List contents of a directory inside the selected workspace folder.',
         { rel_path: z.string().optional().describe('Relative directory path inside workspace (default ".")') }),
       search_files: def('search_files', 'Search for files by filename or text content within the workspace.',
         { query: z.string().describe('Text or filename pattern to search for') }),
-      write_file: def('write_file', 'Create or overwrite a file inside the selected workspace folder.',
+      write_file: def('write_file',
+        'Create a NEW file inside the selected workspace folder. Replacing an existing file is only allowed ' +
+        'after reading all of it with read_file; to change part of an existing file use edit_file instead.',
         { rel_path: z.string(), content: z.string() }),
-      edit_file: def('edit_file', 'Replace target text with replacement text in a file. target_text must match exactly once unless replace_all is set.',
+      edit_file: def('edit_file', 'Change part of an existing file: replace target_text (copied exactly from read_file output) with replacement_text. target_text must match exactly once unless replace_all is set.',
         { rel_path: z.string(), target_text: z.string(), replacement_text: z.string(), replace_all: z.boolean().optional() }),
       delete_file: def('delete_file', 'Delete a file, or a folder, inside the workspace. Non-empty folders require recursive=true.',
         { rel_path: z.string(), recursive: z.boolean().optional() }),
@@ -473,14 +481,17 @@ async function runAgentLoop({
   // wait with nothing telling the user that. This heartbeat doesn't change
   // timing or behavior at all — it just proves the process is still alive
   // while a single (possibly slow) generation is in flight.
+  // `type: 'progress'` tells the UI to update ONE live row in place rather
+  // than appending a new step every 6 seconds (which used to fill the
+  // Thought Process box with dozens of identical lines on long generations).
   let heartbeatSeconds = 0;
   const heartbeat = setInterval(() => {
     heartbeatSeconds += 6;
     onStatus({
+      type: 'progress',
       icon: '⏳',
-      text: `Still working — the model is still generating (${heartbeatSeconds}s on this step). Larger files or ` +
-        `longer conversations take longer on a local model; this will time out on its own after ` +
-        `${Math.round(maxTotalMs / 60000)} min if it's genuinely stuck.`
+      text: `Still generating… ${heartbeatSeconds}s on this step (local models are slower on long inputs; ` +
+        `stops automatically after ${Math.round(maxTotalMs / 60000)} min if stuck)`
     });
   }, 6000);
 

@@ -1,4 +1,21 @@
 const fs = require('fs');
+const crypto = require('crypto');
+
+/**
+ * Fallback ID for a conversation whose export entry has no ID of its own.
+ * Built from its content, not just its title: many different chats share
+ * titles like "New chat", and threads are merged by ID, so a title-based ID
+ * silently merged unrelated conversations into one. Stable across re-imports
+ * of the same export.
+ */
+function contentId(source, title, createTime, messages) {
+  const first = messages[0] ? `${messages[0].role}:${String(messages[0].text).slice(0, 500)}` : '';
+  const hash = crypto.createHash('sha1')
+    .update(`${source}|${title || ''}|${createTime || ''}|${messages.length}|${first}`)
+    .digest('hex')
+    .slice(0, 20);
+  return `${source}_${hash}`;
+}
 
 /**
  * Extracts plain text from a ChatGPT export message node.
@@ -57,11 +74,13 @@ function reconstructThread(conversation) {
 
   if (messages.length === 0) return null;
 
+  const createTime = create_time || (messages[0] && messages[0].createTime) || null;
+
   return {
-    id: conversation.conversation_id || conversation.id || title,
+    id: conversation.conversation_id || conversation.id || contentId('chatgpt', title, createTime, messages),
     title: title || 'Untitled conversation',
     source: 'chatgpt',
-    createTime: create_time || (messages[0] && messages[0].createTime) || null,
+    createTime,
     messages,
     // Precomputed flat text used by the keyword ranker so it doesn't have
     // to re-join messages on every search.
@@ -78,9 +97,11 @@ function reconstructThread(conversation) {
  * gracefully instead of throwing.
  */
 function parseExportFile(filePath) {
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  const data = JSON.parse(raw);
+  return parseChatGptData(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
+}
 
+/** Same as parseExportFile, for already-parsed JSON. */
+function parseChatGptData(data) {
   const conversations = Array.isArray(data) ? data : [data];
 
   const threads = conversations
@@ -103,24 +124,24 @@ function parseExportFile(filePath) {
  * - ChatGPT exports have a `mapping` object on each conversation
  */
 function parseAnyExport(filePath) {
-  const { parseClaudeExport } = require('./claude-parser');
+  const { parseClaudeData } = require('./claude-parser');
 
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  const data = JSON.parse(raw);
+  // Read and parse ONCE — exports can be hundreds of MB.
+  const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   const conversations = Array.isArray(data) ? data : [data];
 
   if (conversations.length === 0) return [];
 
-  const first = conversations[0];
+  const first = conversations[0] || {};
 
   if (first.chat_messages) {
     // Claude format
-    return parseClaudeExport(filePath);
+    return parseClaudeData(data);
   }
 
   if (first.mapping) {
     // ChatGPT format
-    return parseExportFile(filePath);
+    return parseChatGptData(data);
   }
 
   throw new Error(
@@ -128,4 +149,4 @@ function parseAnyExport(filePath) {
   );
 }
 
-module.exports = { parseExportFile, parseAnyExport, reconstructThread, extractText };
+module.exports = { parseExportFile, parseChatGptData, parseAnyExport, reconstructThread, extractText, contentId };

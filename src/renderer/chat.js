@@ -36,6 +36,7 @@ const sidebarCapCard        = document.getElementById('sidebarCapCard');
 
 const setupChoices          = document.getElementById('setupChoices');
 const setupDefaultBtn       = document.getElementById('setupDefaultBtn');
+const setupSelectedBtn      = document.getElementById('setupSelectedBtn');
 const setupModelSelect      = document.getElementById('setupModelSelect');
 const setupCapCard          = document.getElementById('setupCapCard');
 
@@ -44,6 +45,7 @@ const workspaceText         = document.getElementById('workspaceText');
 const clearWorkspaceBtn     = document.getElementById('clearWorkspaceBtn');
 
 const permissionModal       = document.getElementById('permissionModal');
+const permSub               = document.getElementById('permSub');
 const permToolName          = document.getElementById('permToolName');
 const permTarget            = document.getElementById('permTarget');
 const permPreviewBlock      = document.getElementById('permPreviewBlock');
@@ -66,6 +68,7 @@ const headerModelName       = document.getElementById('headerModelName');
 let activeSessionId      = null;
 let activeWorkspaceDir   = null;
 let currentPermissionReqId = null;
+const permissionQueue    = [];   // requests waiting behind the one on screen (tools can run in parallel)
 let embeddedThreads      = [];   // all threads from ALL imports merged, with embeddings
 let importedSources      = [];   // [{ source, label, count, importedAt }] for history tab
 let isStreaming          = false;
@@ -78,8 +81,22 @@ let attachedDocuments    = [];   // metadata only: [{ id, name, ext, size, pageC
 
 const CHAT_MODEL  = 'qwen2.5-coder:7b';
 const EMBED_MODEL = 'bge-m3';
+const CHAT_MODEL_LABEL  = 'Qwen 2.5 Coder 7B';
+const CHAT_MODEL_SIZE   = '~4.7 GB';
+const EMBED_MODEL_SIZE  = '~1.2 GB';
+const ACTIVE_MODEL_KEY  = 'activeModel';
 
-let activeModel = CHAT_MODEL; // the model currently used for generation
+function loadSavedModel() {
+  try { return localStorage.getItem(ACTIVE_MODEL_KEY); } catch { return null; }
+}
+function saveActiveModel(name) {
+  try { localStorage.setItem(ACTIVE_MODEL_KEY, name); } catch { /* storage unavailable */ }
+}
+
+// The model currently used for generation — remembered across launches, so a
+// model picked during setup (or later) stays selected.
+let activeModel = loadSavedModel() || CHAT_MODEL;
+let setupNeedsEmbed = false;
 
 // Curated catalog of popular Ollama chat models with rich capability metadata.
 const MODEL_CATALOG = [
@@ -87,7 +104,7 @@ const MODEL_CATALOG = [
   { name: 'gemma3:1b',         label: 'Gemma 3 · 1B',           sizeBytes:   815_000_000, ram: '~2.0 GB', vision: false, desc: 'Google lightweight model. Fast response, low resource footprint.' },
   { name: 'qwen2.5:1.5b',      label: 'Qwen 2.5 · 1.5B',       sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
   { name: 'llama3.2:1b',       label: 'Llama 3.2 · 1B',         sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
-  { name: 'qwen2.5:3b',        label: 'Qwen 2.5 · 3B',          sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: '⭐ Default Recommended. Strong multilingual reasoning, tool calling & history search.' },
+  { name: 'qwen2.5:3b',        label: 'Qwen 2.5 · 3B',          sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: 'Strong multilingual reasoning, tool calling & history search on modest hardware.' },
   { name: 'qwen2.5-vl:3b',     label: 'Qwen 2.5 VL · 3B',       sizeBytes: 1_950_000_000, ram: '~3.5 GB', vision: true,  desc: '🖼️ Fast Vision + Tools. Compact multimodal model for visual analysis & reasoning.' },
   { name: 'llama3.2:3b',       label: 'Llama 3.2 · 3B',         sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
   { name: 'phi4-mini',         label: 'Phi 4 Mini · 3.8B',      sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
@@ -95,6 +112,7 @@ const MODEL_CATALOG = [
   { name: 'mistral',           label: 'Mistral · 7B',            sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
   { name: 'llama3.1:8b',       label: 'Llama 3.1 · 8B',         sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
   { name: 'qwen2.5:7b',        label: 'Qwen 2.5 · 7B',          sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
+  { name: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder · 7B',    sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: '⭐ Default Recommended. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
   { name: 'qwen2.5-vl:7b',     label: 'Qwen 2.5 VL · 7B',       sizeBytes: 4_750_000_000, ram: '~8.0 GB', vision: true,  desc: '🖼️🔥 Top Recommended All-Rounder! Vision + Native Tools + Top-Tier Coding & Reasoning.' },
   { name: 'llama3.2-vision:11b', label: 'Llama 3.2 Vision · 11B', sizeBytes: 7_900_000_000, ram: '~11 GB',  vision: true,  desc: '🖼️ Meta flagship vision model. High-res image understanding, document OCR & tools.' },
   { name: 'gemma3:12b',        label: 'Gemma 3 · 12B',          sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
@@ -221,13 +239,29 @@ window.api.onChatStatus((statusData) => {
   }
 
   const stepsList = box.querySelector('.thought-steps');
+  const progressItem = stepsList.querySelector('.thought-step-item.progress');
+
+  // Live progress (e.g. the "still generating… 42s" heartbeat): one row, updated in place.
+  if (info.type === 'progress') {
+    const item = progressItem || document.createElement('li');
+    item.className = 'thought-step-item progress';
+    item.innerHTML = `<span class="thought-step-icon">${escapeHtml(info.icon || '⏳')}</span> <span class="thought-step-text">${escapeHtml(info.text)}</span>`;
+    stepsList.appendChild(item); // (re)attach at the end
+    const steps = stepsList.querySelectorAll('li:not(.progress)').length;
+    box.querySelector('.thought-count').textContent = `${steps} step${steps === 1 ? '' : 's'}`;
+    scrollToBottom();
+    return;
+  }
+  // A real step happened, so the live progress row is stale.
+  if (progressItem) progressItem.remove();
+
   const stepItem  = document.createElement('li');
   stepItem.className = 'thought-step-item';
-  stepItem.innerHTML = `<span class="thought-step-icon">${info.icon || '⚡'}</span> <span class="thought-step-text">${escapeHtml(info.text)}</span>`;
+  stepItem.innerHTML = `<span class="thought-step-icon">${escapeHtml(info.icon || '⚡')}</span> <span class="thought-step-text">${escapeHtml(info.text)}</span>`;
   stepsList.appendChild(stepItem);
 
   const countEl = box.querySelector('.thought-count');
-  const total = stepsList.querySelectorAll('li').length;
+  const total = stepsList.querySelectorAll('li:not(.progress)').length;
   countEl.textContent = `${total} step${total > 1 ? 's' : ''}`;
 
   scrollToBottom();
@@ -240,22 +274,43 @@ async function checkSetup() {
     setupStatus.innerHTML = `Ollama isn't running. Install it from <strong>ollama.com</strong>, start it, then relaunch this app.`;
     return;
   }
-  const missing = [];
-  if (!result.chatInstalled)  missing.push({ model: CHAT_MODEL,  label: 'Default Chat model (Qwen 2.5 3B)', size: '~1.9 GB' });
-  if (!result.embedInstalled) missing.push({ model: EMBED_MODEL, label: 'Multilingual Embedding Model (bge-m3)', size: '~560 MB' });
+  // chatInstalled is true when ANY chat model is installed (not only the default)
+  if (result.chatInstalled && result.embedInstalled) { enterApp(); return; }
 
-  if (missing.length === 0) { enterApp(); return; }
+  setupNeedsEmbed = !result.embedInstalled;
 
-  // If chat model is missing, allow user to choose default or custom model
+  // If no chat model is installed, let the user choose default or another model
   if (!result.chatInstalled) {
-    setupStatus.textContent = `No chat AI model found. Install the recommended default or pick a model from the list.`;
+    setupStatus.textContent = `No chat AI model found. Install the recommended default or pick a model from the list.` +
+      (setupNeedsEmbed ? ` The search/embedding model (bge-m3, ${EMBED_MODEL_SIZE}) will be downloaded too.` : '');
     setupChoices.classList.remove('hidden');
     populateSetupModelSelect();
   } else {
     // Only embed model is missing — auto download
     setupStatus.textContent = `1 system embedding model needs to be downloaded.`;
-    renderSetupSteps(missing);
+    renderSetupSteps([embedSetupStep()]);
   }
+}
+
+function embedSetupStep() {
+  return { model: EMBED_MODEL, label: 'Multilingual Embedding Model (bge-m3)', size: EMBED_MODEL_SIZE };
+}
+
+function startSetupInstall(modelName) {
+  const info = getModelInfo(modelName);
+  const steps = [{
+    model: modelName,
+    label: modelName === CHAT_MODEL ? `Default Chat model (${CHAT_MODEL_LABEL})` : `Chat model (${info.label})`,
+    size: modelName === CHAT_MODEL ? CHAT_MODEL_SIZE : `~${formatBytes(info.sizeBytes)}`
+  }];
+  if (setupNeedsEmbed) steps.push(embedSetupStep());
+
+  activeModel = modelName;
+  saveActiveModel(modelName);
+  setupChoices.classList.add('hidden');
+  setupCapCard.classList.add('hidden');
+  setupStatus.textContent = `Downloading ${info.label || modelName}…`;
+  renderSetupSteps(steps);
 }
 
 function populateSetupModelSelect() {
@@ -274,12 +329,10 @@ function populateSetupModelSelect() {
   });
 }
 
-setupDefaultBtn.addEventListener('click', () => {
-  setupChoices.classList.add('hidden');
-  setupCapCard.classList.add('hidden');
-  setupStatus.textContent = `Downloading default model (Qwen 2.5 3B)…`;
-  renderSetupSteps([{ model: CHAT_MODEL, label: 'Default Chat model (Qwen 2.5 3B)', size: '~1.9 GB' }]);
-});
+setupDefaultBtn.addEventListener('click', () => startSetupInstall(CHAT_MODEL));
+if (setupSelectedBtn) {
+  setupSelectedBtn.addEventListener('click', () => startSetupInstall(setupModelSelect.value || CHAT_MODEL));
+}
 
 function renderSetupSteps(missing) {
   setupSteps.innerHTML = '';
@@ -395,49 +448,77 @@ if (clearWorkspaceBtn) {
   });
 }
 
+function buildPermissionPreview(toolName, args) {
+  const parts = [];
+  // Summary computed by the main process (e.g. "Overwrites the WHOLE existing
+  // file: 120 lines → 45 lines", "will permanently delete 37 items").
+  if (args.preview) parts.push(args.preview);
+
+  if (toolName === 'edit_file' && typeof args.target_text === 'string') {
+    const replacement = typeof args.replacement_text === 'string' ? args.replacement_text : '';
+    parts.push(`Replace:\n${args.target_text}\n\nWith:\n${replacement === '' ? '(nothing — this text will be deleted)' : replacement}`);
+    if (args.replace_all) parts.push('(Every occurrence in the file will be replaced.)');
+  } else if (typeof args.content === 'string') {
+    parts.push(args.content === '' ? '(empty file)' : args.content);
+  } else if (toolName === 'delete_file') {
+    parts.push(args.recursive ? 'Deletes this folder and EVERYTHING inside it.' : 'Deletes this file (or empty folder).');
+  } else if (toolName === 'git_checkout') {
+    parts.push('If this is a file path, any uncommitted changes to it are discarded permanently.');
+  } else if (args.message) {
+    parts.push(`Commit message: "${args.message}"`);
+  }
+  return parts.join('\n\n');
+}
+
+function showPermissionRequest(data) {
+  const { requestId, toolName, args = {} } = data;
+  currentPermissionReqId = requestId;
+
+  const waiting = permissionQueue.length;
+  const baseSub = toolName === 'fetch_web_page'
+    ? 'The AI model wants to open a web address:'
+    : 'The AI model requests permission to execute a modification in your workspace:';
+  permSub.textContent = waiting > 0 ? `${baseSub} (${waiting} more request${waiting > 1 ? 's' : ''} waiting)` : baseSub;
+
+  permToolName.textContent = toolName;
+  permTarget.textContent = args.url || args.rel_path || args.files || args.target || args.name || args.message || 'Workspace Repository';
+
+  const previewContent = buildPermissionPreview(toolName, args);
+  if (previewContent) {
+    permContent.textContent = previewContent;
+    permPreviewBlock.classList.remove('hidden');
+  } else {
+    permPreviewBlock.classList.add('hidden');
+  }
+
+  permissionModal.classList.remove('hidden');
+}
+
+function answerPermission(approved) {
+  if (currentPermissionReqId) {
+    window.api.respondToolPermission(currentPermissionReqId, approved);
+    currentPermissionReqId = null;
+  }
+  // Tools can run in parallel, so several requests may be waiting: show the next one.
+  const next = permissionQueue.shift();
+  if (next) showPermissionRequest(next);
+  else permissionModal.classList.add('hidden');
+}
+
 function setupPermissionModal() {
   window.api.onToolPermissionRequest((data) => {
-    const { requestId, toolName, args } = data;
-    currentPermissionReqId = requestId;
-
-    permToolName.textContent = toolName;
-
-    const targetStr = args.rel_path || args.files || args.target || args.name || args.message || 'Workspace Repository';
-    permTarget.textContent = targetStr;
-
-    let previewContent = '';
-    if (args.content) previewContent = args.content;
-    else if (args.target_text && args.replacement_text) {
-      previewContent = `Replace:\n${args.target_text}\n\nWith:\n${args.replacement_text}`;
-    } else if (args.message) {
-      previewContent = `Commit message: "${args.message}"`;
-    }
-
-    if (previewContent) {
-      permContent.textContent = previewContent;
-      permPreviewBlock.classList.remove('hidden');
-    } else {
-      permPreviewBlock.classList.add('hidden');
-    }
-
-    permissionModal.classList.remove('hidden');
-  });
-
-  permDenyBtn.addEventListener('click', () => {
     if (currentPermissionReqId) {
-      window.api.respondToolPermission(currentPermissionReqId, false);
-      currentPermissionReqId = null;
+      permissionQueue.push(data);
+      const waiting = permissionQueue.length;
+      permSub.textContent = permSub.textContent.replace(/ \(\d+ more requests? waiting\)$/, '') +
+        ` (${waiting} more request${waiting > 1 ? 's' : ''} waiting)`;
+      return;
     }
-    permissionModal.classList.add('hidden');
+    showPermissionRequest(data);
   });
 
-  permApproveBtn.addEventListener('click', () => {
-    if (currentPermissionReqId) {
-      window.api.respondToolPermission(currentPermissionReqId, true);
-      currentPermissionReqId = null;
-    }
-    permissionModal.classList.add('hidden');
-  });
+  permDenyBtn.addEventListener('click', () => answerPermission(false));
+  permApproveBtn.addEventListener('click', () => answerPermission(true));
 }
 
 async function initSavedHistory() {
@@ -501,14 +582,19 @@ async function loadModelSelector() {
     }
 
     // Select activeModel if present, else first installed entry
+    // Must be installed: a saved/remembered model may since have been uninstalled.
     const activeOpt = [...modelSelect.options].find(
-      (o) => o.value === activeModel || o.value.startsWith(activeModel + ':')
+      (o) => o.dataset.installed === 'true' && (o.value === activeModel || o.value.startsWith(activeModel + ':'))
     );
     if (activeOpt) {
       modelSelect.value = activeOpt.value;
     } else {
       const firstInstalled = [...modelSelect.options].find((o) => o.dataset.installed === 'true');
-      if (firstInstalled) { modelSelect.value = firstInstalled.value; activeModel = firstInstalled.value; }
+      if (firstInstalled) {
+        modelSelect.value = firstInstalled.value;
+        activeModel = firstInstalled.value;
+        saveActiveModel(activeModel);
+      }
     }
 
     refreshModelAction();
@@ -798,7 +884,10 @@ function refreshModelAction() {
 
 modelSelect.addEventListener('change', () => {
   const opt = modelSelect.options[modelSelect.selectedIndex];
-  if (opt && opt.dataset.installed === 'true') activeModel = modelSelect.value;
+  if (opt && opt.dataset.installed === 'true') {
+    activeModel = modelSelect.value;
+    saveActiveModel(activeModel);
+  }
   refreshModelAction();
 });
 
@@ -827,6 +916,7 @@ modelDownloadBtn.addEventListener('click', async () => {
     modelDlFill.style.width = '100%';
     modelDlText.textContent = '✓ Done';
     activeModel = modelName;
+    saveActiveModel(modelName);
     // Refresh the list so the entry flips to ✓ installed
     setTimeout(() => loadModelSelector(), 800);
   } else {
@@ -1169,10 +1259,11 @@ async function sendMessage() {
 
   const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64, activeWorkspaceDir, currentDocs);
 
-  // FIX: rendering is now throttled to one rAF per batch of tokens (see
-  // onChatToken), so make sure the last batch is actually painted before we
-  // detach currentAssistantEl below — otherwise the very last chunk of text
-  // could silently never make it to the DOM.
+  // The main process returns the final answer — the exact text it saved.
+  // It can differ from the streamed tokens (a non-streamed fallback answer, an
+  // appended warning, a recovered tool result), so it replaces them. This
+  // also paints the last throttled token batch before we detach the element.
+  if (result.success && typeof result.reply === 'string') currentStreamText = result.reply;
   if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
 
   currentAssistantEl     = null;

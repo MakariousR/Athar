@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
   <title>Chat Memory</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -16,9 +16,10 @@
       <p id="setupStatus" class="setup-msg">Checking your local AI engine…</p>
       
       <div id="setupChoices" class="setup-choices hidden">
-        <button id="setupDefaultBtn" class="primary-btn setup-choice-btn">⬇ Install Recommended (Qwen 2.5 3B)</button>
+        <button id="setupDefaultBtn" class="primary-btn setup-choice-btn">⬇ Install Recommended (Qwen 2.5 Coder 7B)</button>
         <div class="setup-divider"><span>OR CHOOSE ANOTHER MODEL</span></div>
         <select id="setupModelSelect" class="model-select setup-select"></select>
+        <button id="setupSelectedBtn" class="secondary-btn setup-choice-btn">⬇ Install Selected Model</button>
       </div>
 
       <div id="setupCapCard" class="cap-card hidden"></div>
@@ -34,7 +35,7 @@
         <span class="permission-icon">🔒</span>
         <span class="permission-title">Tool Permission Required</span>
       </div>
-      <p class="permission-sub">The AI model requests permission to execute a modification in your workspace:</p>
+      <p id="permSub" class="permission-sub">The AI model requests permission to execute a modification in your workspace:</p>
       
       <div class="permission-details">
         <div class="permission-field"><span class="field-label">Tool:</span> <span id="permToolName" class="field-val"></span></div>

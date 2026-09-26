@@ -1,4 +1,6 @@
-const { ipcMain, dialog } = require('electron');
+const { ipcMain: electronIpcMain, dialog } = require('electron');
+const path = require('path');
+const { pathToFileURL } = require('url');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { parseDocumentFile, toMetadata } = require('./parser/document-parser');
 const { rankThreadsSemantic } = require('./search/semantic-ranker');
@@ -9,6 +11,62 @@ const embeddingStore = require('./store/embedding-store');
 
 let activeWorkspacePath = null;
 const pendingPermissions = new Map();
+
+// Every IPC route can read local files, run tools, or approve its own tool
+// permissions, so only our own bundled UI page may call them — never some
+// other page that ended up in a window (see the navigation lock in index.js).
+const TRUSTED_PAGE_URL = pathToFileURL(path.join(__dirname, '..', 'renderer', 'index.html')).href.toLowerCase();
+
+function isTrustedSender(event) {
+  const frame = event.senderFrame;
+  if (!frame || !frame.url) return false;
+  const url = frame.url.split(/[?#]/)[0].toLowerCase();
+  return url === TRUSTED_PAGE_URL;
+}
+
+const ipcMain = {
+  handle(channel, listener) {
+    electronIpcMain.handle(channel, (event, ...args) => {
+      if (!isTrustedSender(event)) {
+        console.warn(`Blocked IPC "${channel}" from untrusted sender: ${event.senderFrame && event.senderFrame.url}`);
+        return { success: false, error: 'Untrusted sender.' };
+      }
+      return listener(event, ...args);
+    });
+  },
+  on(channel, listener) {
+    electronIpcMain.on(channel, (event, ...args) => {
+      if (!isTrustedSender(event)) {
+        console.warn(`Blocked IPC "${channel}" from untrusted sender: ${event.senderFrame && event.senderFrame.url}`);
+        return;
+      }
+      listener(event, ...args);
+    });
+  }
+};
+
+/**
+ * "Continue" handling: only when the user explicitly asks to continue AND
+ * the previous reply actually looks cut off. Previously single words like
+ * "next", "more" or "proceed" were rewritten into "continue your last reply
+ * verbatim" — which broke real requests ("proceed" usually means "go ahead
+ * with what you proposed", i.e. new work, not more of the same text).
+ */
+const CONTINUE_TRIGGERS = /^(please\s+)?(continue|go on|keep going|carry on|continue writing|finish it|complete it|finish (the|your) (answer|response|reply))(\s+please)?[.!]?$/i;
+
+function looksCutOff(text) {
+  const t = String(text || '').trimEnd();
+  if (!t) return false;
+  if (((t.match(/```/g) || []).length) % 2 === 1) return true; // unclosed code block
+  // Finished replies usually end in punctuation, a closing bracket/quote, a code fence or an emoji.
+  return !/[.!?:;)\]}"'`*…؟۔]$|\p{Extended_Pictographic}$/u.test(t);
+}
+
+function isContinuationRequest(userText, history) {
+  if (!CONTINUE_TRIGGERS.test(String(userText || '').trim())) return false;
+  const lastAssistant = [...(history || [])].reverse().find((m) => m.role === 'assistant');
+  return Boolean(lastAssistant && looksCutOff(lastAssistant.text));
+}
 
 function registerIpcHandlers() {
 
@@ -210,7 +268,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('chat:get', async (event, id) => {
-    try { return { success: true, session: store.getSession(id) }; }
+    try { return { success: true, session: store.getSession(id, { withImages: true }) }; }
     catch (err) { return { success: false, error: err.message }; }
   });
 
@@ -224,13 +282,15 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null, documents = []) => {
+  // `_workspaceDir` from the renderer is deliberately ignored: the only
+  // workspace the tools may touch is the one the user picked in the native
+  // folder dialog (workspace:select), tracked here in the main process.
+  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = [], _workspaceDir = null, documents = []) => {
     try {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
 
-      const CONTINUE_TRIGGERS = /^(continue|go on|keep going|more|next|finish|complete it|proceed|and\??)\.?$/i;
-      const isContinuation = CONTINUE_TRIGGERS.test(userText.trim());
+      const isContinuation = isContinuationRequest(userText, conversationHistory);
 
       let effectiveUserText = userText;
 
@@ -252,12 +312,13 @@ function registerIpcHandlers() {
 
       store.appendMessage(sessionId, 'user', userText, images, documents);
 
-      // Fetch full active chat history (prior turns + new user message)
-      const currentSession = store.getSession(sessionId);
+      // Fetch full active chat history (prior turns + new user message), with
+      // image data: a vision model needs the images from earlier turns too.
+      const currentSession = store.getSession(sessionId, { withImages: true });
       const activeHistory = currentSession ? currentSession.messages : [];
 
       const chosenModel = modelName || ollama.DEFAULT_MODEL;
-      const effectiveWorkspace = workspaceDir || activeWorkspacePath;
+      const effectiveWorkspace = activeWorkspacePath;
 
       // Check if user request is targeting local workspace project files or git repository.
       const isWorkspaceOperation = Boolean(effectiveWorkspace) && WORKSPACE_KEYWORDS.test(userText);
@@ -289,7 +350,10 @@ function registerIpcHandlers() {
         })));
       }
 
-      let fullReply = '';
+      // Mirrors what the renderer is showing: tokens append, a `reset` status
+      // clears (a new agent step started, so the earlier text wasn't the answer).
+      // Only used as a fallback if generate() somehow returns nothing.
+      let visibleReply = '';
 
       // Real-time user permission prompt handler
       const onRequestPermission = ({ toolName, args }) => {
@@ -314,16 +378,17 @@ function registerIpcHandlers() {
         });
       };
 
-      await ollama.generate(
+      const finalText = await ollama.generate(
         effectiveUserText,
         ranked,
         activeHistory,
         chosenModel,
         (token) => {
-          fullReply += token;
+          visibleReply += token;
           event.sender.send('chat:token', token);
         },
         (statusMessage) => {
+          if (statusMessage && statusMessage.type === 'reset') visibleReply = '';
           event.sender.send('chat:status', statusMessage);
         },
         images,
@@ -333,12 +398,22 @@ function registerIpcHandlers() {
         sessionId
       );
 
-      store.appendMessage(sessionId, 'assistant', fullReply || '(no response)');
+      // generate()'s return value is the authoritative answer: it includes
+      // things that are never streamed as tokens (the no-tools fallback reply,
+      // backend error messages, recovered tool-call results, the "change may
+      // not have been saved" warning) and excludes intermediate step text.
+      // The same text is saved AND returned for the renderer to display, so
+      // what's stored always matches what the user saw.
+      const reply = (typeof finalText === 'string' && finalText.trim())
+        ? finalText
+        : (visibleReply.trim() ? visibleReply : '(no response)');
+
+      store.appendMessage(sessionId, 'assistant', reply);
 
       const updated = store.getSession(sessionId);
       event.sender.send('chat:session-updated', { id: sessionId, title: updated.title });
 
-      return { success: true };
+      return { success: true, reply };
     } catch (err) {
       console.error('chat:send error:', err);
       return { success: false, error: err.message };
@@ -346,4 +421,8 @@ function registerIpcHandlers() {
   });
 }
 
-module.exports = { registerIpcHandlers };
+module.exports = {
+  registerIpcHandlers,
+  // exported for tests
+  _internals: { isContinuationRequest, looksCutOff }
+};
