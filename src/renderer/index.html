@@ -116,7 +116,7 @@
       <!-- Sidebar tabs -->
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-tab="chats">Chats</button>
-        <button class="sidebar-tab" data-tab="history">History</button>
+        <button class="sidebar-tab" data-tab="history">Memory</button>
       </div>
 
       <!-- Chats tab -->
@@ -124,8 +124,9 @@
         <ul id="sessionList" class="session-list"></ul>
       </div>
 
-      <!-- History tab -->
+      <!-- Memory tab -->
       <div id="tabHistory" class="tab-panel hidden">
+        <button id="openMemoryBtn" class="primary-btn memory-open-btn">🔍 Search &amp; browse memory</button>
         <div id="historyList" class="history-list">
           <p class="history-empty">No history imported yet.<br/>Use the import button below.</p>
         </div>
@@ -166,8 +167,47 @@
           <span class="empty-hero-icon">🌊</span>
         </div>
         <p class="empty-title">Chat Memory</p>
-        <p class="empty-sub">Start a new chat or select one from the sidebar.<br/>Import your ChatGPT or Claude history to give the AI context about your past work.</p>
-        <button id="emptyNewChatBtn" class="primary-btn empty-btn">＋ New chat</button>
+        <p class="empty-sub">One private memory for all your AI chats.<br/>Import your ChatGPT, Claude or Gemini history — the assistant remembers it, and you can search it all in one place.</p>
+        <div class="empty-actions">
+          <button id="emptyNewChatBtn" class="primary-btn empty-btn">＋ New chat</button>
+          <button id="emptyMemoryBtn" class="secondary-btn empty-btn">🔍 Search my memory</button>
+        </div>
+      </div>
+
+      <!-- Memory browser -->
+      <div id="memoryView" class="memory-view hidden">
+        <div id="memoryListPane" class="memory-pane">
+          <div class="memory-toolbar">
+            <input id="memorySearchInput" class="memory-search-input" type="search" dir="auto"
+                   placeholder="Search your past conversations… e.g. “database decision last spring” or “python in Claude”" />
+            <select id="memorySourceFilter" class="model-select memory-source-filter" title="Only one source">
+              <option value="">All sources</option>
+              <option value="chatgpt">ChatGPT</option>
+              <option value="claude">Claude</option>
+              <option value="gemini">Gemini</option>
+              <option value="app">This app</option>
+            </select>
+          </div>
+          <div id="memorySummary" class="memory-summary"></div>
+          <div id="memoryUnderstood" class="memory-understood hidden"></div>
+          <div id="memoryResults" class="memory-results"></div>
+          <button id="memoryLoadMore" class="secondary-btn memory-load-more hidden">Load more</button>
+        </div>
+
+        <div id="memoryThreadPane" class="memory-pane hidden">
+          <div class="memory-thread-header">
+            <button id="memoryBackBtn" class="secondary-btn memory-back-btn">← Back</button>
+            <div class="memory-thread-heading">
+              <div id="memoryThreadTitle" class="memory-thread-title" dir="auto"></div>
+              <div id="memoryThreadMeta" class="memory-thread-meta"></div>
+            </div>
+            <div class="memory-thread-actions">
+              <button id="memoryAskBtn" class="primary-btn" title="Start a new chat with this conversation attached">💬 Ask about this</button>
+              <button id="memoryCopyBtn" class="secondary-btn" title="Copy the whole conversation as text">Copy</button>
+            </div>
+          </div>
+          <div id="memoryThreadMessages" class="message-list memory-thread-messages"></div>
+        </div>
       </div>
 
       <div id="chatView" class="chat-view hidden">

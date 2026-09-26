@@ -541,6 +541,7 @@ function renderMemoryStatus() {
   }
   importStatus.textContent = parts.join(' ');
   importStatus.classList.toggle('hidden', parts.length === 0);
+  if (!memoryView.classList.contains('hidden')) renderMemorySummary();
 }
 
 // ── Model selector ────────────────────────────────────────────────────────────
@@ -1045,7 +1046,7 @@ async function renderHistoryTab() {
     header.innerHTML = `
       <span class="source-dot" style="background:${SOURCE_COLORS[source] || SOURCE_COLORS.unknown}"></span>
       <span class="source-name">${escapeHtml(SOURCE_LABELS[source] || info.name || source)}</span>
-      <span class="source-count">${info.count.toLocaleString()} conversations</span>`;
+      <span class="source-count">${info.count.toLocaleString()} conversation${info.count === 1 ? '' : 's'}</span>`;
     summary.appendChild(header);
   }
   historyList.appendChild(summary);
@@ -1055,9 +1056,11 @@ async function renderHistoryTab() {
   for (const t of res.items) {
     const li = document.createElement('li');
     li.className = 'history-thread-item';
+    li.title = 'Open this conversation';
     li.innerHTML = `
-      <span class="history-thread-title">${escapeHtml(t.title)}</span>
+      <span class="history-thread-title" dir="auto">${escapeHtml(t.title)}</span>
       <span class="history-thread-date">${escapeHtml(SOURCE_LABELS[t.source] || t.sourceName)} · ${t.date || 'unknown date'}</span>`;
+    li.addEventListener('click', () => openMemoryThread(t.id));
     list.appendChild(li);
   }
   historyList.appendChild(list);
@@ -1123,6 +1126,13 @@ function renderMessages(messages) {
 }
 
 function appendMessageBubble(role, text, images = [], documents = []) {
+  const div = createMessageBubble(role, text, images, documents);
+  messageList.appendChild(div);
+  return div.querySelector('.message-text');
+}
+
+/** Builds (but doesn't insert) a message bubble — shared by the chat and the memory viewer. */
+function createMessageBubble(role, text, images = [], documents = []) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
 
@@ -1139,6 +1149,7 @@ function appendMessageBubble(role, text, images = [], documents = []) {
 
   const textEl = document.createElement('div');
   textEl.className = 'message-text';
+  textEl.dir = 'auto'; // Arabic (right-to-left) and English messages each lay out correctly
   if (role === 'assistant' && text) textEl.innerHTML = renderMarkdown(text);
   else textEl.textContent = text;
 
@@ -1177,8 +1188,7 @@ function appendMessageBubble(role, text, images = [], documents = []) {
 
   div.appendChild(avatar);
   div.appendChild(body);
-  messageList.appendChild(div);
-  return textEl;
+  return div;
 }
 
 function renderSourceChips(bubbleEl, sources) {
@@ -1349,6 +1359,274 @@ async function handleImportFile(file) {
   document.querySelector('[data-tab="history"]').click();
 }
 
+// ── Memory browser ────────────────────────────────────────────────────────────
+const memoryView            = document.getElementById('memoryView');
+const memoryListPane        = document.getElementById('memoryListPane');
+const memoryThreadPane      = document.getElementById('memoryThreadPane');
+const memorySearchInput     = document.getElementById('memorySearchInput');
+const memorySourceFilter    = document.getElementById('memorySourceFilter');
+const memorySummary         = document.getElementById('memorySummary');
+const memoryUnderstood      = document.getElementById('memoryUnderstood');
+const memoryResults         = document.getElementById('memoryResults');
+const memoryLoadMore        = document.getElementById('memoryLoadMore');
+const memoryBackBtn         = document.getElementById('memoryBackBtn');
+const memoryThreadTitle     = document.getElementById('memoryThreadTitle');
+const memoryThreadMeta      = document.getElementById('memoryThreadMeta');
+const memoryThreadMessages  = document.getElementById('memoryThreadMessages');
+const memoryAskBtn          = document.getElementById('memoryAskBtn');
+const memoryCopyBtn         = document.getElementById('memoryCopyBtn');
+
+let memoryListOffset = 0;
+let memorySearchSeq = 0;      // ignore results of searches that were superseded while running
+let memorySearchTimer = null;
+let memoryCurrentThread = null;
+
+function showMemoryView({ refresh = true } = {}) {
+  emptyState.classList.add('hidden');
+  chatView.classList.add('hidden');
+  memoryView.classList.remove('hidden');
+  if (headerChatTitle) headerChatTitle.textContent = 'Memory';
+  document.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
+  if (refresh) {
+    showMemoryList();
+    renderMemorySummary();
+    refreshMemoryResults();
+    memorySearchInput.focus();
+  }
+}
+
+function showMemoryList() {
+  memoryThreadPane.classList.add('hidden');
+  memoryListPane.classList.remove('hidden');
+}
+
+function renderMemorySummary() {
+  memorySummary.innerHTML = '';
+  const sources = (memoryStats && memoryStats.sources) || {};
+  const entries = Object.entries(sources);
+  if (entries.length === 0) return;
+  for (const [source, info] of entries) {
+    const pill = document.createElement('span');
+    pill.className = 'memory-source-pill';
+    pill.style.borderColor = SOURCE_COLORS[source] || SOURCE_COLORS.unknown;
+    const imported = info.lastImport ? ` · imported ${info.lastImport.slice(0, 10)}` : '';
+    pill.innerHTML = `
+      <span style="color:${SOURCE_COLORS[source] || SOURCE_COLORS.unknown};font-weight:600">${escapeHtml(SOURCE_LABELS[source] || info.name || source)}</span>
+      <span class="pill-meta">${info.count.toLocaleString()} conversation${info.count === 1 ? '' : 's'}${escapeHtml(imported)}</span>`;
+    if (source !== 'app') {
+      const remove = document.createElement('button');
+      remove.className = 'pill-remove';
+      remove.title = `Forget all imported ${SOURCE_LABELS[source] || source} conversations`;
+      remove.textContent = '✕';
+      remove.addEventListener('click', () => forgetMemorySource(source));
+      pill.appendChild(remove);
+    }
+    memorySummary.appendChild(pill);
+  }
+}
+
+async function forgetMemorySource(source) {
+  const label = SOURCE_LABELS[source] || source;
+  if (!confirm(`Forget all imported ${label} conversations?\n\nThey are removed from this app's memory (your original export file is not touched). You can import them again later.`)) return;
+  const res = await window.api.memoryDeleteSource(source);
+  if (!res.success) { alert(`Could not remove: ${res.error}`); return; }
+  const stats = await window.api.memoryStats();
+  if (stats.success) { memoryStats = stats; renderMemoryStatus(); }
+  renderMemorySummary();
+  refreshMemoryResults();
+  renderHistoryTab();
+}
+
+/** Escapes text, then highlights the given topic words in it. */
+function highlightTerms(text, terms) {
+  let html = escapeHtml(text);
+  const words = [...new Set((terms || []).filter((w) => w.length >= 3))];
+  for (const w of words) {
+    const re = new RegExp(`(${escapeHtml(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    html = html.replace(re, '<mark>$1</mark>');
+  }
+  return html;
+}
+
+function memoryResultCard({ title, source, sourceName, date, meta, snippetHtml, onClick }) {
+  const card = document.createElement('div');
+  card.className = 'memory-result';
+  card.tabIndex = 0;
+  const color = SOURCE_COLORS[source] || SOURCE_COLORS.unknown;
+  card.innerHTML = `
+    <div class="memory-result-head">
+      <span class="memory-result-source" style="color:${color}">${escapeHtml(SOURCE_LABELS[source] || sourceName || source)}</span>
+      <span class="memory-result-title" dir="auto">${escapeHtml(title)}</span>
+      <span class="memory-result-meta">${escapeHtml([date, meta].filter(Boolean).join(' · '))}</span>
+    </div>
+    ${snippetHtml ? `<div class="memory-result-snippet" dir="auto">${snippetHtml}</div>` : ''}`;
+  card.addEventListener('click', onClick);
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter') onClick(); });
+  return card;
+}
+
+async function refreshMemoryResults() {
+  const query = memorySearchInput.value.trim();
+  const source = memorySourceFilter.value || null;
+  const seq = ++memorySearchSeq;
+  memoryResults.innerHTML = '';
+  memoryUnderstood.classList.add('hidden');
+  memoryLoadMore.classList.add('hidden');
+
+  if (!query) {
+    memoryListOffset = 0;
+    await loadMoreMemoryList(seq);
+    return;
+  }
+
+  memoryResults.innerHTML = '<p class="memory-empty">Searching…</p>';
+  const res = await window.api.memorySearch(query, { source, limit: 30 });
+  if (seq !== memorySearchSeq) return; // a newer search started meanwhile
+  memoryResults.innerHTML = '';
+  if (!res.success) {
+    memoryResults.innerHTML = `<p class="memory-empty">Search failed: ${escapeHtml(res.error)}</p>`;
+    return;
+  }
+
+  const tags = [];
+  if (res.understood && res.understood.dates) tags.push(`📅 ${res.understood.dates}`);
+  if (res.understood && res.understood.sources && !source) tags.push(`📁 ${res.understood.sources.map((s) => SOURCE_LABELS[s] || s).join(', ')}`);
+  if (tags.length || res.note) {
+    memoryUnderstood.innerHTML = (tags.length ? `Searching${tags.map((t) => ` <span class="understood-tag">${escapeHtml(t)}</span>`).join('')}` : '') +
+      (res.note ? `${tags.length ? ' — ' : ''}${escapeHtml(res.note)}` : '');
+    memoryUnderstood.classList.remove('hidden');
+  }
+
+  if (res.passages.length === 0) {
+    memoryResults.innerHTML = `<p class="memory-empty">Nothing in your memory matches “${escapeHtml(query)}”.<br/>` +
+      `Try other words, or a hint like “last year” or “in Claude”.</p>`;
+    return;
+  }
+  for (const p of res.passages) {
+    memoryResults.appendChild(memoryResultCard({
+      title: p.title,
+      source: p.source,
+      sourceName: p.sourceName,
+      date: p.date,
+      snippetHtml: highlightTerms(p.text, res.understood && res.understood.terms),
+      onClick: () => openMemoryThread(p.threadId, p.msgStart, p.msgEnd)
+    }));
+  }
+}
+
+async function loadMoreMemoryList(seq = memorySearchSeq) {
+  const source = memorySourceFilter.value || null;
+  const res = await window.api.memoryList({ source, offset: memoryListOffset, limit: 50 });
+  if (seq !== memorySearchSeq) return;
+  if (!res.success) {
+    memoryResults.innerHTML = `<p class="memory-empty">Could not load your memory: ${escapeHtml(res.error)}</p>`;
+    return;
+  }
+  if (res.total === 0) {
+    memoryResults.innerHTML = '<p class="memory-empty">Your memory is empty.<br/>Import a ChatGPT, Claude or Gemini export with “Import chat history” in the sidebar — or just start chatting.</p>';
+    return;
+  }
+  for (const t of res.items) {
+    memoryResults.appendChild(memoryResultCard({
+      title: t.title,
+      source: t.source,
+      sourceName: t.sourceName,
+      date: t.date,
+      meta: `${t.messageCount} messages`,
+      snippetHtml: t.preview ? escapeHtml(t.preview) : '',
+      onClick: () => openMemoryThread(t.id)
+    }));
+  }
+  memoryListOffset += res.items.length;
+  memoryLoadMore.classList.toggle('hidden', memoryListOffset >= res.total);
+  memoryLoadMore.textContent = `Load more (${(res.total - memoryListOffset).toLocaleString()} more)`;
+}
+
+/** Opens a past conversation in the viewer, scrolled to (and highlighting) messages msgStart..msgEnd. */
+async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
+  if (memoryView.classList.contains('hidden')) showMemoryView({ refresh: false });
+  const res = await window.api.memoryGet(threadId);
+  if (!res.success) { alert(res.error); return; }
+  const thread = res.thread;
+  memoryCurrentThread = thread;
+
+  memoryListPane.classList.add('hidden');
+  memoryThreadPane.classList.remove('hidden');
+  memoryThreadTitle.textContent = thread.title;
+  const date = thread.createTime ? new Date(thread.createTime * 1000).toLocaleDateString() : 'unknown date';
+  memoryThreadMeta.textContent = `${SOURCE_LABELS[thread.source] || thread.sourceName} · ${date} · ${thread.messages.length} messages`;
+  memoryAskBtn.disabled = false;
+
+  memoryThreadMessages.innerHTML = '';
+  let firstHighlight = null;
+  const end = msgEnd === null || msgEnd === undefined ? msgStart : msgEnd;
+  thread.messages.forEach((m, i) => {
+    const bubble = createMessageBubble(m.role, m.text);
+    if (msgStart !== null && msgStart !== undefined && i >= msgStart && i <= end) {
+      bubble.classList.add('memory-highlight');
+      if (!firstHighlight) firstHighlight = bubble;
+    }
+    memoryThreadMessages.appendChild(bubble);
+  });
+  if (firstHighlight) firstHighlight.scrollIntoView({ block: 'center' });
+  else memoryThreadMessages.scrollTop = 0;
+}
+
+function conversationAsText(thread) {
+  return `${thread.title}\n${SOURCE_LABELS[thread.source] || thread.sourceName}\n\n` +
+    thread.messages.map((m) => `${m.role === 'user' ? 'You' : 'Assistant'}: ${m.text}`).join('\n\n');
+}
+
+memoryBackBtn.addEventListener('click', () => {
+  showMemoryList();
+  renderMemorySummary();
+  if (!memoryResults.children.length) refreshMemoryResults();
+});
+
+memoryCopyBtn.addEventListener('click', async () => {
+  if (!memoryCurrentThread) return;
+  try {
+    await navigator.clipboard.writeText(conversationAsText(memoryCurrentThread));
+    memoryCopyBtn.textContent = '✓ Copied';
+  } catch {
+    memoryCopyBtn.textContent = 'Copy failed';
+  }
+  setTimeout(() => { memoryCopyBtn.textContent = 'Copy'; }, 1500);
+});
+
+// Start a new chat with this past conversation attached, so the model can read all of it.
+memoryAskBtn.addEventListener('click', async () => {
+  if (!memoryCurrentThread) return;
+  const thread = memoryCurrentThread;
+  memoryAskBtn.disabled = true;
+  const { session } = await window.api.chatCreate();
+  await loadSessionList();
+  await openSession(session.id);
+  const res = await window.api.memoryAttachToChat(session.id, thread.id);
+  memoryAskBtn.disabled = false;
+  if (!res.success) { alert(`Could not attach the conversation: ${res.error}`); return; }
+  attachedDocuments.push({ ...res.resource });
+  renderDocumentPreviews();
+  renderSessionResourcesUI(session.id);
+  messageInput.value = /[؀-ۿ]/.test(thread.title)
+    ? 'ما الذي ناقشناه في هذه المحادثة، وما الذي تم الاتفاق عليه؟'
+    : 'What did we discuss in this conversation, and what was decided?';
+  messageInput.focus();
+  messageInput.select();
+});
+
+memorySearchInput.addEventListener('input', () => {
+  clearTimeout(memorySearchTimer);
+  memorySearchTimer = setTimeout(refreshMemoryResults, 450);
+});
+memorySearchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { clearTimeout(memorySearchTimer); refreshMemoryResults(); }
+});
+memorySourceFilter.addEventListener('change', refreshMemoryResults);
+memoryLoadMore.addEventListener('click', () => loadMoreMemoryList());
+document.getElementById('openMemoryBtn').addEventListener('click', () => showMemoryView());
+document.getElementById('emptyMemoryBtn').addEventListener('click', () => showMemoryView());
+
 // ── Settings Modal & Sidebar Toggle ──────────────────────────────────────────
 function openSettingsModal() {
   if (settingsModal) settingsModal.classList.remove('hidden');
@@ -1391,6 +1669,7 @@ if (localStorage.getItem('sidebarCollapsed') === 'true' && appShell) {
 
 // ── View helpers ──────────────────────────────────────────────────────────────
 function showChatView() {
+  memoryView.classList.add('hidden');
   emptyState.classList.add('hidden');
   chatView.classList.remove('hidden');
   updateHeaderModelDisplay();
@@ -1398,6 +1677,7 @@ function showChatView() {
 
 function showEmptyState() {
   if (sessionResourcesBar) sessionResourcesBar.classList.add('hidden');
+  memoryView.classList.add('hidden');
   chatView.classList.add('hidden');
   emptyState.classList.remove('hidden');
   if (headerChatTitle) headerChatTitle.textContent = 'Chat Memory';

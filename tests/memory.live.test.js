@@ -31,7 +31,10 @@ const related = [
   ['how do I learn python from scratch', 'claude-arabic'],
   ['which ingress controller did we choose', 'claude-long'],
   ['how to cook chicken kabsa', 'gpt-arabic-food'],
-  ['how much to save for taxes as a freelancer', 'gpt-taxes']
+  ['how much to save for taxes as a freelancer', 'gpt-taxes'],
+  // natural phrasing with source + date hints (hint words removed before matching)
+  ['what did I ask Claude about salary last year', 'claude-salary'],
+  ['ماذا سألت كلود عن تعلم البرمجة', 'claude-arabic']
 ];
 for (const [q, expected] of related) {
   test(`related: "${q}" → ${expected}`, async () => {

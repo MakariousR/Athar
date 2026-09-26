@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   memoryGet: (threadId) => ipcRenderer.invoke('memory:get', threadId),
   memorySearch: (query, filter) => ipcRenderer.invoke('memory:search', query, filter),
   memoryDeleteSource: (source) => ipcRenderer.invoke('memory:delete-source', source),
+  memoryAttachToChat: (sessionId, threadId) => ipcRenderer.invoke('memory:attach-to-chat', sessionId, threadId),
   onMemoryProgress: (cb) => {
     ipcRenderer.removeAllListeners('memory:progress');
     ipcRenderer.on('memory:progress', (_e, stats) => cb(stats));

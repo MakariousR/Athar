@@ -327,17 +327,32 @@ class MemoryIndex extends EventEmitter {
   async search(query, opts = {}) {
     this.load();
     const { excludeThreadIds = [], limit = 6, useQueryHints = true } = opts;
-    const hints = useQueryHints ? parseMemoryQuery(query) : { dateRange: null, sources: null };
+    const hints = useQueryHints ? parseMemoryQuery(query) : { dateRange: null, sources: null, text: query };
     const sources = opts.sources || hints.sources;
     const dateRange = opts.dateRange || hints.dateRange;
     const strictDate = dateRange && !dateRange.soft;
+    // Search with the hint phrases ("in Claude", "last year") removed: they
+    // never appear in the conversations and would only dilute the match.
+    const searchText = hints.text || query;
 
-    let queryVec = null;
-    if (this.vectors.size > 0 && tokenize(query).length > 0) {
-      try { queryVec = quantize((await this.embedTexts([normalizeArabicText(query)]))[0]); } catch { queryVec = null; }
+    // "What did I talk about last month?" — only a filter, no topic: list
+    // that period's / source's conversations instead of matching words.
+    if ((strictDate || sources) && tokenize(searchText).length === 0) {
+      const passages = this.browse({ exclude: new Set(excludeThreadIds), sources, dateRange: strictDate ? dateRange : null, limit });
+      const scope = [dateRange && dateRange.label, sources && sources.map((s) => SOURCE_NAMES[s] || s).join('/')].filter(Boolean).join(', ');
+      return {
+        passages,
+        hints: { sources, dateRange, text: searchText },
+        note: passages.length ? `These are the user's most recent conversations from ${scope}, one excerpt each.` : null
+      };
     }
 
-    const run = (useSources, useDate) => this.rank(query, queryVec, {
+    let queryVec = null;
+    if (this.vectors.size > 0) {
+      try { queryVec = quantize((await this.embedTexts([normalizeArabicText(searchText)]))[0]); } catch { queryVec = null; }
+    }
+
+    const run = (useSources, useDate) => this.rank(searchText, queryVec, {
       exclude: new Set(excludeThreadIds),
       sources: useSources ? sources : null,
       dateRange: useDate && strictDate ? dateRange : null,
@@ -356,7 +371,40 @@ class MemoryIndex extends EventEmitter {
       passages = run(false, false);
       if (passages.length) note = `Nothing matched in ${sources.map((s) => SOURCE_NAMES[s] || s).join('/')}; these are from other sources.`;
     }
-    return { passages, hints: { sources, dateRange }, note };
+    return { passages, hints: { sources, dateRange, text: searchText }, note };
+  }
+
+  /** Most recent conversations matching a source/date filter — first passage of each. */
+  browse({ exclude, sources, dateRange, limit }) {
+    const from = dateRange ? dateRange.from.getTime() / 1000 : null;
+    const to = dateRange ? dateRange.to.getTime() / 1000 : null;
+    const firstChunk = new Map();
+    for (const seg of Object.values(this.segments)) {
+      for (const c of seg.chunks) if (!firstChunk.has(c.threadId)) firstChunk.set(c.threadId, c);
+    }
+    return this.allThreads()
+      .filter((t) => !exclude.has(t.id) && (!sources || sources.includes(t.source)))
+      .filter((t) => {
+        if (from === null) return true;
+        const time = t.updateTime || t.createTime;
+        return time && time >= from && time < to;
+      })
+      .sort((a, b) => (b.updateTime || b.createTime || 0) - (a.updateTime || a.createTime || 0))
+      .slice(0, limit)
+      .map((t) => {
+        const c = firstChunk.get(t.id);
+        return {
+          threadId: t.id,
+          title: t.title,
+          source: t.source,
+          sourceName: SOURCE_NAMES[t.source] || t.source,
+          date: isoDate(t.updateTime || t.createTime),
+          msgStart: c ? c.msgStart : 0,
+          msgEnd: c ? c.msgEnd : 0,
+          text: c ? c.text : '',
+          score: 0
+        };
+      });
   }
 
   rank(query, queryVec, { exclude, sources, dateRange, softRange, limit }) {

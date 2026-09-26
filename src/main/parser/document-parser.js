@@ -422,8 +422,15 @@ function toMetadata(doc) {
   return meta;
 }
 
+/** Parses in-memory text as if it were a file called `name` (e.g. a past conversation attached to a chat). */
+function parseTextContent(name, text) {
+  const buf = Buffer.from(String(text || ''), 'utf8');
+  return parseTextBuffer(name, buf, { size: buf.length });
+}
+
 module.exports = {
   parseDocumentFile,
+  parseTextContent,
   parseTextFile,
   parsePdfFile,
   toMetadata,

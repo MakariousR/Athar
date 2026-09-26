@@ -15,9 +15,14 @@ const STOPWORDS = new Set([
   'does', 'did', 'about', 'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he', 'she', 'they', 'them', 'can', 'could',
   'would', 'should', 'will', 'have', 'has', 'had', 'not', 'no', 'yes', 'so', 'if', 'then', 'than', 'there', 'here',
   'when', 'where', 'why', 'all', 'any', 'some', 'just', 'also', 'into', 'out', 'up', 'down', 'user', 'assistant',
+  // How people ASK about their history — not what the history is about
+  'ask', 'asked', 'asking', 'tell', 'told', 'remember', 'recall', 'said', 'say', 'talk', 'talked', 'talking',
+  'discuss', 'discussed', 'discussion', 'conversation', 'conversations', 'chat', 'chats', 'mentioned', 'again',
+  'anything', 'something', 'things', 'thing', 'question', 'questions', 'get', 'got', 'give', 'gave', 'last', 'time',
   // Arabic (normalized forms)
   'في', 'من', 'علي', 'الي', 'عن', 'مع', 'هذا', 'هذه', 'ذلك', 'التي', 'الذي', 'ان', 'او', 'و', 'ما', 'لا', 'هل',
-  'كان', 'كانت', 'هو', 'هي', 'انا', 'انت', 'نحن', 'هم', 'كل', 'قد', 'لم', 'لن', 'ثم', 'كيف', 'ماذا', 'متي', 'اين'
+  'كان', 'كانت', 'هو', 'هي', 'انا', 'انت', 'نحن', 'هم', 'كل', 'قد', 'لم', 'لن', 'ثم', 'كيف', 'ماذا', 'متي', 'اين',
+  'سالت', 'سالتك', 'قلت', 'قال', 'قالت', 'تحدثنا', 'ناقشنا', 'محادثه', 'محادثات', 'محادثتي', 'محادثاتي', 'اتذكر', 'تذكر'
 ]);
 
 function tokenize(text) {

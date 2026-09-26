@@ -1542,3 +1542,72 @@ body {
 }
 
 
+
+/* ── MEMORY BROWSER ── */
+.memory-open-btn { margin: 8px 8px 4px; width: calc(100% - 16px); padding: 8px 12px; font-size: 13px; }
+.empty-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.history-thread-item { cursor: pointer; }
+
+.memory-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.memory-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; width: 100%; max-width: 900px; margin: 0 auto; padding: 16px 16px 0; }
+
+.memory-toolbar { display: flex; gap: 8px; }
+.memory-search-input {
+  flex: 1; min-width: 0;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 14px; font-size: 14px; outline: none;
+}
+.memory-search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.memory-source-filter { width: 150px; }
+
+.memory-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+.memory-source-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border); border-radius: 999px; background: rgba(255, 255, 255, 0.02);
+}
+.memory-source-pill .pill-meta { color: var(--muted); font-size: 11px; }
+.memory-source-pill .pill-remove {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 0 4px; border-radius: 50%;
+}
+.memory-source-pill .pill-remove:hover { color: var(--danger); }
+
+.memory-understood { font-size: 12px; color: var(--muted); margin: 6px 0; }
+.memory-understood .understood-tag {
+  display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 999px;
+  background: var(--accent-dim); color: var(--text);
+}
+
+.memory-results { flex: 1; overflow-y: auto; padding: 8px 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.memory-result {
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  background: var(--panel); cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  text-align: start;
+}
+.memory-result:hover { border-color: var(--accent); background: var(--sidebar-hover); }
+.memory-result-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.memory-result-title { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-result-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.memory-result-source { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.memory-result-snippet {
+  font-size: 12.5px; color: #c4cbd9; line-height: 1.55; white-space: pre-wrap;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+}
+.memory-result-snippet mark { background: rgba(0, 162, 255, 0.28); color: var(--text); border-radius: 3px; padding: 0 1px; }
+.memory-empty { color: var(--muted); text-align: center; padding: 40px 12px; font-size: 13px; line-height: 1.6; }
+.memory-load-more { align-self: center; margin: 4px 0 14px; padding: 6px 18px; font-size: 13px; }
+
+.memory-thread-header {
+  display: flex; align-items: center; gap: 12px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--border);
+}
+.memory-back-btn { padding: 6px 12px; font-size: 13px; }
+.memory-thread-heading { flex: 1; min-width: 0; }
+.memory-thread-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-thread-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.memory-thread-actions { display: flex; gap: 8px; }
+.memory-thread-actions button { padding: 7px 14px; font-size: 13px; }
+.memory-thread-messages { max-width: none; }
+.message.memory-highlight { box-shadow: 0 0 0 2px var(--accent), 0 0 18px var(--accent-glow); }

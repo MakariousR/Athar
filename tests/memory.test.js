@@ -74,6 +74,32 @@ test('date and source hints (English)', () => {
   assert.strictEqual(q('how do I bake bread').dateRange, null);
 });
 
+test('hint phrases are removed from the search text', () => {
+  const q = (s) => parseMemoryQuery(s, NOW).text;
+  assert.strictEqual(q('what did I ask Claude about salary last year?'), 'what did I ask about salary?');
+  assert.strictEqual(q('python tips in ChatGPT'), 'python tips');
+  assert.strictEqual(q('the 2024 election results'), 'the 2024 election results', 'soft year stays');
+  assert.strictEqual(q('how may I help'), 'how may I help', '"may" alone is not a month');
+  assert.strictEqual(parseMemoryQuery('how may I help', NOW).dateRange, null);
+});
+
+test('natural questions with hints still find the conversation', async () => {
+  const { mem } = await makeIndex();
+  // (fake embedder = shared words only, so use the conversation's own words; bge-m3 also matches synonyms — see memory.live.test.js)
+  const r = await mem.search('what did I ask Claude about negotiating the job offer last year');
+  assert.strictEqual(r.passages[0] && r.passages[0].threadId, 'claude-salary', JSON.stringify(r));
+});
+
+test('filter-only questions list that period\'s conversations', async () => {
+  const { mem } = await makeIndex();
+  const r = await mem.search('what did I talk about in 2025?');
+  const ids = r.passages.map((p) => p.threadId);
+  assert(ids.length >= 5, JSON.stringify(ids));
+  assert(r.passages.every((p) => p.date.startsWith('2025')), JSON.stringify(r.passages.map((p) => p.date)));
+  const claude = await mem.search('my Claude chats');
+  assert(claude.passages.length > 0 && claude.passages.every((p) => p.source === 'claude'));
+});
+
 test('date and source hints (Arabic)', () => {
   const q = (s) => parseMemoryQuery(s, NOW);
   assert.strictEqual(q('ماذا سألت الشهر الماضي').dateRange.from.getMonth(), 7);

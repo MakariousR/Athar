@@ -2,10 +2,11 @@ const { ipcMain: electronIpcMain, dialog, BrowserWindow } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
-const { parseDocumentFile } = require('./parser/document-parser');
+const { parseDocumentFile, parseTextContent } = require('./parser/document-parser');
 const ollama = require('./ollama/ollama-client');
 const store  = require('./store/chat-store');
 const { getMemory } = require('./memory');
+const { tokenize } = require('./memory/bm25');
 
 let activeWorkspacePath = null;
 const pendingPermissions = new Map();
@@ -234,10 +235,28 @@ function registerIpcHandlers() {
         passages,
         note,
         understood: {
-          dates: hints.dateRange ? hints.dateRange.label : null,
-          sources: hints.sources
+          dates: hints.dateRange && !hints.dateRange.soft ? hints.dateRange.label : null,
+          sources: hints.sources,
+          // topic words only (hint phrases and question words removed) — used for highlighting
+          terms: [...new Set(tokenize(hints.text || String(query || '')))]
         }
       };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
+  // "Ask about this conversation": attach a past conversation to a chat as a
+  // text resource, so the model can read/search all of it with read_chat_resource.
+  ipcMain.handle('memory:attach-to-chat', async (event, sessionId, threadId) => {
+    try {
+      const thread = memory.getThread(threadId);
+      if (!thread) return { success: false, error: 'Conversation not found.' };
+      const date = thread.createTime ? new Date(thread.createTime * 1000).toISOString().slice(0, 10) : 'unknown date';
+      const text = `# ${thread.title}\n\nPast conversation from ${thread.sourceName} · ${date}\n\n` +
+        thread.messages.map((m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:** ${m.text}`).join('\n\n');
+      const safeTitle = thread.title.replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 60) || 'Conversation';
+      const parsed = parseTextContent(`${safeTitle} (${thread.sourceName}).md`, text);
+      const { resource, reused } = store.addSessionResource(sessionId, parsed);
+      return { success: true, resource: { ...resource, reused } };
     } catch (err) { return { success: false, error: err.message }; }
   });
 
