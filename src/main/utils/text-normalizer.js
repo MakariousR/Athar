@@ -4,11 +4,14 @@
  */
 function normalizeArabicText(text) {
   if (!text) return '';
-  return text
-    .replace(/[\u064B-\u0652\u0670]/g, '') // remove tashkeel (diacritics)
+  return String(text)
+    .replace(/[ً-ْٰ]/g, '') // remove tashkeel (diacritics)
+    .replace(/ـ/g, '')                // remove tatweel (كـتـاب → كتاب)
     .replace(/[إأآا]/g, 'ا')              // normalize alef variations
     .replace(/ة/g, 'ه')                    // normalize teh marbuta
-    .replace(/ى/g, 'ي');                   // normalize alef maqsura
+    .replace(/ى/g, 'ي')                    // normalize alef maqsura
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))  // Arabic-Indic digits → 0-9
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0)); // Persian digits → 0-9
 }
 
 module.exports = { normalizeArabicText };

@@ -69,8 +69,8 @@ let activeSessionId      = null;
 let activeWorkspaceDir   = null;
 let currentPermissionReqId = null;
 const permissionQueue    = [];   // requests waiting behind the one on screen (tools can run in parallel)
-let embeddedThreads      = [];   // all threads from ALL imports merged, with embeddings
-let importedSources      = [];   // [{ source, label, count, importedAt }] for history tab
+let memoryStats          = null; // latest stats from the main process (counts per source, indexing progress)
+let lastImportNote       = '';   // summary of the most recent import, kept visible in the status line
 let isStreaming          = false;
 let currentAssistantEl   = null;
 let currentAssistantBubble = null;
@@ -146,8 +146,8 @@ function renderCapCard(modelName, containerEl) {
   containerEl.classList.remove('hidden');
 }
 
-const SOURCE_LABELS = { chatgpt: 'ChatGPT', claude: 'Claude', app: 'In-App Chat', unknown: 'Unknown' };
-const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', app: '#ab68ff', unknown: '#6c8cff' };
+const SOURCE_LABELS = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', app: 'This app', unknown: 'Imported' };
+const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', gemini: '#4285f4', app: '#ab68ff', unknown: '#6c8cff' };
 
 // ── Stable IPC listeners ──────────────────────────────────────────────────────
 
@@ -505,19 +505,42 @@ function setupPermissionModal() {
 }
 
 async function initSavedHistory() {
+  window.api.onMemoryProgress((stats) => {
+    memoryStats = stats;
+    renderMemoryStatus();
+  });
   try {
-    const res = await window.api.loadSavedHistory();
-    if (res.success && res.threads && res.threads.length > 0) {
-      embeddedThreads = res.threads;
-      importZone.classList.add('loaded');
-      importLabel.textContent = `✓ ${embeddedThreads.length} total conversations`;
-      importStatus.classList.remove('hidden');
-      importStatus.textContent = `Loaded ${embeddedThreads.length} conversations from disk.`;
+    const res = await window.api.memoryStats();
+    if (res.success) {
+      memoryStats = res;
+      renderMemoryStatus();
       renderHistoryTab();
     }
   } catch (err) {
-    console.warn('Could not load saved history:', err);
+    console.warn('Could not load memory stats:', err);
   }
+}
+
+/** Import-zone label + status line: how much history is remembered and whether it's still being indexed. */
+function renderMemoryStatus() {
+  if (!memoryStats) return;
+  const imported = Object.entries(memoryStats.sources || {}).filter(([src]) => src !== 'app');
+  const importedCount = imported.reduce((n, [, s]) => n + s.count, 0);
+  if (importedCount > 0) {
+    importZone.classList.add('loaded');
+    importLabel.textContent = `✓ ${importedCount.toLocaleString()} imported conversations`;
+  }
+  const parts = lastImportNote ? [lastImportNote] : [];
+  if (memoryStats.pending > 0) {
+    const pct = memoryStats.passages ? Math.floor((memoryStats.embedded / memoryStats.passages) * 100) : 0;
+    parts.push(memoryStats.error
+      ? `⚠ Indexing paused (${memoryStats.error.slice(0, 80)}). Keyword search still works; it resumes automatically.`
+      : `Indexing memory… ${pct}% (${memoryStats.embedded.toLocaleString()} / ${memoryStats.passages.toLocaleString()} passages). You can chat meanwhile.`);
+  } else if (memoryStats.threads > 0) {
+    parts.push(`Memory ready: ${memoryStats.threads.toLocaleString()} conversations, ${memoryStats.passages.toLocaleString()} passages.`);
+  }
+  importStatus.textContent = parts.join(' ');
+  importStatus.classList.toggle('hidden', parts.length === 0);
 }
 
 // ── Model selector ────────────────────────────────────────────────────────────
@@ -1005,57 +1028,39 @@ async function openSession(id) {
 }
 
 // ── History tab ───────────────────────────────────────────────────────────────
-function renderHistoryTab() {
-  if (!embeddedThreads || embeddedThreads.length === 0) {
+async function renderHistoryTab() {
+  const res = await window.api.memoryList({ limit: 100 });
+  if (!res.success || res.total === 0) {
     historyList.innerHTML = '<p class="history-empty">No history imported yet.<br/>Use the import button below.</p>';
     return;
   }
 
   historyList.innerHTML = '';
-
-  // Group threads by source
-  const groups = {};
-  for (const t of embeddedThreads) {
-    const src = t.source || 'unknown';
-    if (!groups[src]) groups[src] = [];
-    groups[src].push(t);
-  }
-
-  for (const [source, threads] of Object.entries(groups)) {
-    const section = document.createElement('div');
-    section.className = 'history-section';
-
+  const sources = (memoryStats && memoryStats.sources) || {};
+  const summary = document.createElement('div');
+  summary.className = 'history-section';
+  for (const [source, info] of Object.entries(sources)) {
     const header = document.createElement('div');
     header.className = 'history-source-header';
     header.innerHTML = `
       <span class="source-dot" style="background:${SOURCE_COLORS[source] || SOURCE_COLORS.unknown}"></span>
-      <span class="source-name">${SOURCE_LABELS[source] || source}</span>
-      <span class="source-count">${threads.length} conversations</span>`;
-
-    const list = document.createElement('ul');
-    list.className = 'history-thread-list';
-
-    // Sort by date descending, show up to 100
-    const sorted = [...threads]
-      .sort((a, b) => (b.createTime || 0) - (a.createTime || 0))
-      .slice(0, 100);
-
-    for (const t of sorted) {
-      const li = document.createElement('li');
-      li.className = 'history-thread-item';
-      const date = t.createTime
-        ? new Date(t.createTime * 1000).toLocaleDateString()
-        : 'Unknown date';
-      li.innerHTML = `
-        <span class="history-thread-title">${escapeHtml(t.title)}</span>
-        <span class="history-thread-date">${date}</span>`;
-      list.appendChild(li);
-    }
-
-    section.appendChild(header);
-    section.appendChild(list);
-    historyList.appendChild(section);
+      <span class="source-name">${escapeHtml(SOURCE_LABELS[source] || info.name || source)}</span>
+      <span class="source-count">${info.count.toLocaleString()} conversations</span>`;
+    summary.appendChild(header);
   }
+  historyList.appendChild(summary);
+
+  const list = document.createElement('ul');
+  list.className = 'history-thread-list';
+  for (const t of res.items) {
+    const li = document.createElement('li');
+    li.className = 'history-thread-item';
+    li.innerHTML = `
+      <span class="history-thread-title">${escapeHtml(t.title)}</span>
+      <span class="history-thread-date">${escapeHtml(SOURCE_LABELS[t.source] || t.sourceName)} · ${t.date || 'unknown date'}</span>`;
+    list.appendChild(li);
+  }
+  historyList.appendChild(list);
 }
 
 // ── Message rendering ─────────────────────────────────────────────────────────
@@ -1109,7 +1114,12 @@ function renderMarkdown(text) {
 
 function renderMessages(messages) {
   messageList.innerHTML = '';
-  for (const msg of messages) appendMessageBubble(msg.role, msg.text, msg.images || [], msg.documents || []);
+  for (const msg of messages) {
+    const textEl = appendMessageBubble(msg.role, msg.text, msg.images || [], msg.documents || []);
+    if (msg.role === 'assistant' && msg.sources && msg.sources.length) {
+      renderSourceChips(textEl.closest('.message'), msg.sources);
+    }
+  }
 }
 
 function appendMessageBubble(role, text, images = [], documents = []) {
@@ -1183,16 +1193,26 @@ function renderSourceChips(bubbleEl, sources) {
 
   const label = document.createElement('span');
   label.className = 'source-chips-label';
-  label.textContent = 'Sources:';
+  label.textContent = 'From your memory:';
   wrap.appendChild(label);
 
-  for (const s of sources) {
-    const chip = document.createElement('span');
-    chip.className = 'source-chip';
-    chip.style.borderColor = SOURCE_COLORS[s.source] || SOURCE_COLORS.unknown;
-    chip.style.color = SOURCE_COLORS[s.source] || SOURCE_COLORS.unknown;
-    chip.title = `${SOURCE_LABELS[s.source] || s.source} · similarity ${(s.score * 100).toFixed(0)}%${s.date ? ` · ${s.date}` : ''}`;
-    chip.textContent = `${SOURCE_LABELS[s.source] || s.source}: ${s.title.slice(0, 35)}${s.title.length > 35 ? '…' : ''}`;
+  // Cited memories ([M1] in the answer) first; ones the answer didn't use are dimmed.
+  const anyCitedInfo = sources.some((s) => typeof s.cited === 'boolean');
+  const ordered = [...sources].sort((a, b) => Number(Boolean(b.cited)) - Number(Boolean(a.cited)));
+  for (const s of ordered) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'source-chip' + (anyCitedInfo && !s.cited ? ' uncited' : '');
+    const color = SOURCE_COLORS[s.source] || SOURCE_COLORS.unknown;
+    chip.style.borderColor = color;
+    chip.style.color = color;
+    const sourceName = SOURCE_LABELS[s.source] || s.sourceName || s.source;
+    chip.title = `${s.ref ? `[${s.ref}] ` : ''}${sourceName}${s.date ? ` · ${s.date}` : ''}` +
+      `${anyCitedInfo ? (s.cited ? ' · used in this answer' : ' · found, not used') : ''} — click to open`;
+    chip.textContent = `${s.ref ? `${s.ref} · ` : ''}${sourceName}: ${s.title.slice(0, 35)}${s.title.length > 35 ? '…' : ''}`;
+    chip.addEventListener('click', () => {
+      if (typeof openMemoryThread === 'function') openMemoryThread(s.threadId, s.msgStart);
+    });
     wrap.appendChild(chip);
   }
 
@@ -1240,7 +1260,7 @@ async function sendMessage() {
 
   scrollToBottom();
 
-  const result = await window.api.chatSend(activeSessionId, text, embeddedThreads, activeModel, currentImagesBase64, activeWorkspaceDir, currentDocs);
+  const result = await window.api.chatSend(activeSessionId, text, activeModel, currentImagesBase64, currentDocs);
 
   // The main process returns the final answer — the exact text it saved.
   // It can differ from the streamed tokens (a non-streamed fallback answer, an
@@ -1253,11 +1273,13 @@ async function sendMessage() {
   currentAssistantBubble = null;
   assistantBubble.classList.remove('typing-indicator');
 
-  // If sources arrived but no tokens came (error case), still render chips
-  if (pendingSources) {
-    renderSourceChips(assistantBubble, pendingSources);
-    pendingSources = null;
+  // Final chips know which memories the answer actually cited
+  if (result.success && result.sources && result.sources.length) {
+    renderSourceChips(assistantBubble, result.sources);
+  } else if (pendingSources) {
+    renderSourceChips(assistantBubble, pendingSources); // error case: show what was found
   }
+  pendingSources = null;
 
   if (!result.success) {
     assistantTextEl.textContent = `Error: ${result.error}`;
@@ -1296,70 +1318,34 @@ importZone.addEventListener('drop', (e) => {
 async function handleImportFile(file) {
   if (!file) return;
 
-  importLabel.textContent = 'Parsing file…';
-  importStatus.textContent = '';
-  importStatus.classList.remove('hidden');
-
-  const filePath = window.api.getFilePath(file);
-  const parseResult = await window.api.parseExport(filePath);
-
-  if (!parseResult.success) {
-    importLabel.textContent = '＋ Import chat history';
-    importStatus.textContent = `Failed to parse: ${parseResult.error}`;
-    return;
-  }
-
-  const { threads, source } = parseResult;
-  importLabel.textContent = `Checking cache for ${threads.length} conversations…`;
+  importLabel.textContent = 'Importing…';
   importZone.classList.add('loading');
+  importStatus.classList.remove('hidden');
+  importStatus.textContent = 'Reading the export file…';
 
-  window.api.onEmbedProgress(({ done, total, cached, toEmbed, embedDone }) => {
-    if (toEmbed === 0) {
-      importLabel.textContent = `✓ All ${total} from cache`;
-    } else if (embedDone !== undefined) {
-      importLabel.textContent = `${cached} cached · ${embedDone}/${toEmbed} new`;
-    } else {
-      importLabel.textContent = `${cached} cached · ${toEmbed} to embed…`;
-    }
-  });
-
-  // Pass existing embedded threads so the handler can merge
-  const embedResult = await window.api.embedThreads(threads, embeddedThreads);
-
+  // The main process parses and indexes; embedding continues in the background
+  // (progress arrives via onMemoryProgress) and chatting works meanwhile.
+  const result = await window.api.importHistory(window.api.getFilePath(file));
   importZone.classList.remove('loading');
 
-  if (!embedResult.success) {
+  if (!result.success) {
     importLabel.textContent = '＋ Import chat history';
-    importStatus.textContent = `Embedding failed: ${embedResult.error}`;
+    importStatus.textContent = `Import failed: ${result.error}`;
     return;
   }
 
-  // Merge into app state
-  embeddedThreads = embedResult.threads;
+  const sourceLabel = SOURCE_LABELS[result.source] || result.source;
+  const changes = [
+    result.added ? `${result.added} new` : null,
+    result.updated ? `${result.updated} updated` : null,
+    result.unchanged ? `${result.unchanged} already imported` : null
+  ].filter(Boolean).join(', ');
+  lastImportNote = `${sourceLabel}: ${changes || 'nothing new'}.`;
+  importStatus.textContent = lastImportNote;
 
-  // Track this import in sources list
-  const sourceLabel = SOURCE_LABELS[source] || source;
-  importedSources.push({
-    source,
-    label: sourceLabel,
-    count: threads.length,
-    importedAt: new Date().toLocaleString()
-  });
-
-  importZone.classList.add('loaded');
-  const { stats } = embedResult;
-  importLabel.textContent = `✓ ${embeddedThreads.length} total conversations`;
-
-  if (stats.new === 0) {
-    importStatus.textContent = `${sourceLabel}: all ${stats.thisImport} from cache. Total: ${stats.total} conversations.`;
-  } else {
-    importStatus.textContent = `${sourceLabel}: ${stats.cached} from cache + ${stats.new} new. Total: ${stats.total} conversations.`;
-  }
-
-  // Update history tab
+  const stats = await window.api.memoryStats();
+  if (stats.success) { memoryStats = stats; renderMemoryStatus(); }
   renderHistoryTab();
-
-  // Switch to history tab to show the user what was imported
   document.querySelector('[data-tab="history"]').click();
 }
 

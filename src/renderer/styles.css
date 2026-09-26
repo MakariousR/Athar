@@ -1173,19 +1173,23 @@ body {
 }
 
 .source-chip {
+  font: inherit;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid;
-  cursor: default;
+  background: transparent;
+  cursor: pointer;
   white-space: nowrap;
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0.85;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, background 0.15s;
 }
-.source-chip:hover { opacity: 1; }
+.source-chip:hover { opacity: 1; background: rgba(255, 255, 255, 0.04); }
+.source-chip.uncited { opacity: 0.45; border-style: dashed; }
+.source-chip.uncited:hover { opacity: 0.8; }
 
 /* ── WORKSPACE SELECTOR ── */
 .workspace-zone {

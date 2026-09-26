@@ -1,12 +1,11 @@
-const { ipcMain: electronIpcMain, dialog } = require('electron');
+const { ipcMain: electronIpcMain, dialog, BrowserWindow } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
-const { parseDocumentFile, toMetadata } = require('./parser/document-parser');
-const { rankThreadsSemantic } = require('./search/semantic-ranker');
+const { parseDocumentFile } = require('./parser/document-parser');
 const ollama = require('./ollama/ollama-client');
 const store  = require('./store/chat-store');
-const embeddingStore = require('./store/embedding-store');
+const { getMemory } = require('./memory');
 
 let activeWorkspacePath = null;
 const pendingPermissions = new Map();
@@ -61,6 +60,21 @@ function looksCutOff(text) {
   return !/[.!?:;)\]}"'`*…؟۔]$|\p{Extended_Pictographic}$/u.test(t);
 }
 
+/**
+ * What to search the memory for. The user's own message — not the whole
+ * recent conversation: mixing in long assistant replies used to push the
+ * actual question out of the (length-limited) search query. A very short
+ * follow-up ("and the other one?") gets the previous user message for context.
+ */
+function buildMemoryQuery(userText, history) {
+  const text = String(userText || '').trim();
+  if (!text) return null;
+  const words = text.split(/\s+/).length;
+  if (words >= 6) return text;
+  const prevUser = [...(history || [])].reverse().find((m) => m.role === 'user' && m.text && m.text.trim());
+  return prevUser ? `${prevUser.text.trim().slice(0, 300)} ${text}` : text;
+}
+
 function isContinuationRequest(userText, history) {
   if (!CONTINUE_TRIGGERS.test(String(userText || '').trim())) return false;
   const lastAssistant = [...(history || [])].reverse().find((m) => m.role === 'assistant');
@@ -68,15 +82,6 @@ function isContinuationRequest(userText, history) {
 }
 
 function registerIpcHandlers() {
-
-  // Document parsing (metadata only — page text stays in the main process)
-  ipcMain.handle('document:parse', async (event, filePath) => {
-    try {
-      return toMetadata(await parseDocumentFile(filePath));
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
 
   // Session Resource handlers
   ipcMain.handle('resource:list', async (event, sessionId) => {
@@ -173,85 +178,71 @@ function registerIpcHandlers() {
     } catch (err) { return { success: false, error: err.message }; }
   });
 
-  // Returns threads + detected source label ('chatgpt' | 'claude' | 'unknown')
-  ipcMain.handle('file:parse', async (event, filePath) => {
+  // ─── Memory (imported + in-app conversation history) ───────────────────────
+  // The main process owns the memory: exports are parsed and indexed here, and
+  // only small results cross IPC (previously every thread WITH its embedding
+  // was sent to the renderer and back on every single message).
+  const memory = getMemory();
+  ollama.setMemorySearch((query, opts) => memory.search(query, opts));
+  memory.on('progress', (stats) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('memory:progress', stats);
+    }
+  });
+  const syncAppMemory = () => {
+    try { memory.syncAppSessions(store.loadSessions()); } catch (err) { console.warn('Memory sync failed:', err.message); }
+  };
+  // Load the index + pick up in-app chats shortly after startup (not blocking window creation).
+  setTimeout(syncAppMemory, 800);
+
+  ipcMain.handle('memory:import', async (event, filePath) => {
     try {
       const threads = parseAnyExport(filePath);
-      const source = threads.length > 0 ? (threads[0].source || 'unknown') : 'unknown';
-      return { success: true, threads, source };
+      if (threads.length === 0) return { success: false, error: 'No conversations found in this file.' };
+      const source = threads[0].source || 'unknown';
+      const result = memory.importThreads(threads, source);
+      return { success: true, ...result };
     } catch (err) {
       return { success: false, error: err.message };
     }
   });
 
-  ipcMain.handle('history:load', async () => {
-    try {
-      const imported = embeddingStore.loadPersistedThreads();
-      const appThreads = await embeddingStore.getEmbeddedAppThreads(ollama);
-      const combined = embeddingStore.mergeThreads(imported, appThreads);
-      return { success: true, threads: combined };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+  ipcMain.handle('memory:stats', async () => {
+    try { return { success: true, ...memory.stats() }; }
+    catch (err) { return { success: false, error: err.message }; }
   });
 
-  // Cache-aware & incremental embed — merges incoming threads, checks missing prompts, persists to disk
-  ipcMain.handle('file:embed', async (event, incomingThreads, existingEmbedded) => {
+  ipcMain.handle('memory:list', async (event, filter = {}) => {
+    try { return { success: true, ...memory.listThreads(filter) }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('memory:get', async (event, threadId) => {
     try {
-      // 1. Smart incremental merge: merge incoming with existing history, updating threads with new prompts
-      const mergedThreads = embeddingStore.mergeThreads(existingEmbedded || [], incomingThreads);
+      const thread = memory.getThread(threadId);
+      return thread ? { success: true, thread } : { success: false, error: 'Conversation not found.' };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
 
-      // 2. Split into cached vs uncached (new threads or threads with new content)
-      const { cached, uncached, hashMap } = embeddingStore.splitByCache(mergedThreads);
-
-      event.sender.send('file:embed-progress', {
-        done: cached.length,
-        total: mergedThreads.length,
-        cached: cached.length,
-        toEmbed: uncached.length
-      });
-
-      let newlyEmbedded = [];
-
-      if (uncached.length > 0) {
-        newlyEmbedded = await ollama.embedThreads(uncached, (done, total) => {
-          event.sender.send('file:embed-progress', {
-            done: cached.length + done,
-            total: mergedThreads.length,
-            cached: cached.length,
-            toEmbed: total,
-            embedDone: done
-          });
-        });
-        embeddingStore.cacheNewEmbeddings(newlyEmbedded, hashMap);
-      }
-
-      // Build full set
-      const embeddedMap = new Map();
-      for (const t of cached)        embeddedMap.set(t.id, t);
-      for (const t of newlyEmbedded) embeddedMap.set(t.id, t);
-      const allEmbedded = mergedThreads.map((t) => embeddedMap.get(t.id)).filter(Boolean);
-
-      // 3. Persist the updated history to disk so it reloads on restart
-      embeddingStore.savePersistedThreads(allEmbedded);
-
+  ipcMain.handle('memory:search', async (event, query, filter = {}) => {
+    try {
+      const opts = { limit: filter.limit || 30 };
+      if (filter.source) opts.sources = [filter.source];
+      const { passages, note, hints } = await memory.search(String(query || ''), opts);
       return {
         success: true,
-        threads: allEmbedded,
-        stats: {
-          total: allEmbedded.length,
-          thisImport: incomingThreads.length,
-          cached: cached.length,
-          new: newlyEmbedded.length
+        passages,
+        note,
+        understood: {
+          dates: hints.dateRange ? hints.dateRange.label : null,
+          sources: hints.sources
         }
       };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+    } catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('embedding:stats', async () => {
-    try { return { success: true, ...embeddingStore.getCacheStats() }; }
+  ipcMain.handle('memory:delete-source', async (event, source) => {
+    try { return { success: true, removed: memory.deleteSource(source) }; }
     catch (err) { return { success: false, error: err.message }; }
   });
 
@@ -272,19 +263,22 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('chat:delete', async (event, id) => {
-    try { store.deleteSession(id); return { success: true }; }
+    try { store.deleteSession(id); syncAppMemory(); return { success: true }; }
     catch (err) { return { success: false, error: err.message }; }
   });
 
   ipcMain.handle('chat:rename', async (event, id, title) => {
-    try { store.renameSession(id, title); return { success: true }; }
+    try { store.renameSession(id, title); syncAppMemory(); return { success: true }; }
     catch (err) { return { success: false, error: err.message }; }
   });
 
   // `_workspaceDir` from the renderer is deliberately ignored: the only
   // workspace the tools may touch is the one the user picked in the native
   // folder dialog (workspace:select), tracked here in the main process.
-  ipcMain.handle('chat:send', async (event, sessionId, userText, embeddedThreads, modelName, images = [], _workspaceDir = null, documents = []) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = []) => {
+    // Background memory indexing competes with the chat model for the GPU —
+    // pause it while answering, resume (and index this chat) afterwards.
+    memory.pause();
     try {
       const session = store.getSession(sessionId);
       const conversationHistory = session ? session.messages : [];
@@ -319,32 +313,31 @@ function registerIpcHandlers() {
       const chosenModel = modelName || ollama.DEFAULT_MODEL;
       const effectiveWorkspace = activeWorkspacePath;
 
-      // Combine imported threads with all embedded in-app chat session threads
-      const appThreads = await embeddingStore.getEmbeddedAppThreads(ollama);
-      const allCandidateThreads = embeddingStore.mergeThreads(embeddedThreads || [], appThreads);
-      const searchableThreads = allCandidateThreads.filter((t) => t.id !== sessionId);
-
-      const combinedQuery = [
-        ...activeHistory.slice(-6).map((m) => m.text),
-        userText
-      ].join(' ');
-
-      // Chat-history search runs for every message — a selected project folder
-      // no longer switches it off (the old keyword check matched most messages).
-      const ranked = searchableThreads.length > 0
-        ? await rankThreadsSemantic(searchableThreads, combinedQuery, 3)
-        : [];
+      // Memory search: passages from past conversations (imported and in-app,
+      // except this chat) relevant to THIS message. The relevance gate means
+      // unrelated questions get no memories at all.
+      let memoryResult = { passages: [], note: null };
+      const memoryQuery = isContinuation ? null : buildMemoryQuery(userText, conversationHistory);
+      if (memoryQuery) {
+        try {
+          memoryResult = await memory.search(memoryQuery, { excludeThreadIds: [sessionId], limit: 6 });
+        } catch (err) {
+          console.warn('Memory search failed:', err.message);
+        }
+      }
+      const memorySources = memoryResult.passages.map((p, i) => ({
+        ref: `M${i + 1}`,
+        threadId: p.threadId,
+        title: p.title,
+        source: p.source,
+        sourceName: p.sourceName,
+        date: p.date,
+        msgStart: p.msgStart,
+        score: p.score
+      }));
 
       // Emit sources BEFORE generation so the UI can show them alongside the response
-      if (ranked.length > 0) {
-        event.sender.send('chat:sources', ranked.map((t) => ({
-          id: t.id,
-          title: t.title,
-          source: t.source || 'unknown',
-          score: t.score,
-          date: t.createTime ? new Date(t.createTime * 1000).toISOString().slice(0, 10) : null
-        })));
-      }
+      if (memorySources.length > 0) event.sender.send('chat:sources', memorySources);
 
       // Mirrors what the renderer is showing: tokens append, a `reset` status
       // clears (a new agent step started, so the earlier text wasn't the answer).
@@ -376,7 +369,7 @@ function registerIpcHandlers() {
 
       const finalText = await ollama.generate(
         effectiveUserText,
-        ranked,
+        memoryResult,
         activeHistory,
         chosenModel,
         (token) => {
@@ -404,15 +397,21 @@ function registerIpcHandlers() {
         ? finalText
         : (visibleReply.trim() ? visibleReply : '(no response)');
 
-      store.appendMessage(sessionId, 'assistant', reply);
+      // Remember which memories were offered and which the answer actually
+      // cited ([M1]…), so the source chips survive reopening the chat.
+      const sources = memorySources.map((s) => ({ ...s, cited: new RegExp(`\\[${s.ref}\\]`).test(reply) }));
+      store.appendMessage(sessionId, 'assistant', reply, [], [], { sources });
 
       const updated = store.getSession(sessionId);
       event.sender.send('chat:session-updated', { id: sessionId, title: updated.title });
 
-      return { success: true, reply };
+      return { success: true, reply, sources };
     } catch (err) {
       console.error('chat:send error:', err);
       return { success: false, error: err.message };
+    } finally {
+      syncAppMemory(); // this chat becomes searchable from other chats
+      memory.resume();
     }
   });
 }
@@ -420,5 +419,5 @@ function registerIpcHandlers() {
 module.exports = {
   registerIpcHandlers,
   // exported for tests
-  _internals: { isContinuationRequest, looksCutOff }
+  _internals: { isContinuationRequest, looksCutOff, buildMemoryQuery }
 };

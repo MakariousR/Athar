@@ -53,7 +53,7 @@ test('tool set offered to the model is read-only', () => {
   const tools = agentLoop.buildToolSet({ executeTool: async () => '', onStatus() {}, workspaceDir: ws });
   assert.deepStrictEqual(Object.keys(tools).sort(), [
     'fetch_web_page', 'get_current_time', 'git_diff', 'git_log', 'git_status', 'list_chat_resources',
-    'list_directory', 'read_chat_resource', 'read_file', 'search_files', 'web_search'
+    'list_directory', 'read_chat_resource', 'read_file', 'search_files', 'search_memory', 'web_search'
   ]);
   const noFolder = agentLoop.buildToolSet({ executeTool: async () => '', onStatus() {}, workspaceDir: null });
   assert(!('read_file' in noFolder));

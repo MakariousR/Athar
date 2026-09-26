@@ -5,7 +5,6 @@ const { test, done, stubElectron, ROOT } = require('./helpers');
 
 const userData = stubElectron();
 const store = require(path.join(ROOT, 'src/main/store/chat-store'));
-const embStore = require(path.join(ROOT, 'src/main/store/embedding-store'));
 const { parseAnyExport } = require(path.join(ROOT, 'src/main/parser/chatgpt-parser'));
 const { isContinuationRequest, looksCutOff } = require(path.join(ROOT, 'src/main/ipc-handlers'))._internals;
 
@@ -27,7 +26,6 @@ test('ChatGPT: same-title conversations without IDs stay separate, IDs stable', 
   assert.notStrictEqual(threads[0].id, threads[1].id);
   assert(!threads.some((t) => t.id === 'New chat'));
   assert.deepStrictEqual(parseAnyExport(file).map((t) => t.id), threads.map((t) => t.id));
-  assert.strictEqual(embStore.mergeThreads([], threads).length, 2);
 });
 
 test('ChatGPT: real conversation_id is used when present', () => {

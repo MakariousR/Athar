@@ -21,7 +21,7 @@ const { z } = require('zod');
 
 const SEARCH_TOOLS = new Set(['web_search', 'fetch_web_page']);
 const ALL_KNOWN_TOOLS = [
-  'web_search', 'fetch_web_page', 'get_current_time',
+  'search_memory', 'web_search', 'fetch_web_page', 'get_current_time',
   'list_chat_resources', 'read_chat_resource',
   'read_file', 'list_directory', 'search_files',
   'git_status', 'git_log', 'git_diff'
@@ -47,6 +47,10 @@ function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission
   });
 
   const tools = {
+    search_memory: def('search_memory',
+      'Search the user\'s own past conversations (imported ChatGPT/Claude/Gemini history and earlier chats in this app). ' +
+      'Use when they ask what they discussed, decided, or asked before. Time and source hints in the query work, e.g. "database choice last spring" or "python tips in Claude".',
+      { query: z.string().describe('What to look for, in a few words') }),
     web_search: def('web_search',
       'Search the internet for current facts, news, updates, and real-time data.',
       { query: z.string().describe('Concise search query') }),

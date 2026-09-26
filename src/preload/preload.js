@@ -2,17 +2,20 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   getFilePath: (file) => webUtils.getPathForFile(file),
-  parseExport: (filePath) => ipcRenderer.invoke('file:parse', filePath),
-  parseDocument: (filePath) => ipcRenderer.invoke('document:parse', filePath),
   listResources: (sessionId) => ipcRenderer.invoke('resource:list', sessionId),
   addResource: (sessionId, filePath) => ipcRenderer.invoke('resource:add', sessionId, filePath),
   removeResource: (sessionId, resourceId) => ipcRenderer.invoke('resource:remove', sessionId, resourceId),
-  embedThreads: (threads, existing) => ipcRenderer.invoke('file:embed', threads, existing),
-  loadSavedHistory: () => ipcRenderer.invoke('history:load'),
-  getEmbeddingStats: () => ipcRenderer.invoke('embedding:stats'),
-  onEmbedProgress: (cb) => {
-    ipcRenderer.removeAllListeners('file:embed-progress');
-    ipcRenderer.on('file:embed-progress', (_e, data) => cb(data));
+
+  // Memory (imported + in-app conversation history)
+  importHistory: (filePath) => ipcRenderer.invoke('memory:import', filePath),
+  memoryStats: () => ipcRenderer.invoke('memory:stats'),
+  memoryList: (filter) => ipcRenderer.invoke('memory:list', filter),
+  memoryGet: (threadId) => ipcRenderer.invoke('memory:get', threadId),
+  memorySearch: (query, filter) => ipcRenderer.invoke('memory:search', query, filter),
+  memoryDeleteSource: (source) => ipcRenderer.invoke('memory:delete-source', source),
+  onMemoryProgress: (cb) => {
+    ipcRenderer.removeAllListeners('memory:progress');
+    ipcRenderer.on('memory:progress', (_e, stats) => cb(stats));
   },
 
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
@@ -41,8 +44,9 @@ contextBridge.exposeInMainWorld('api', {
   chatGet: (id) => ipcRenderer.invoke('chat:get', id),
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
   chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
-  chatSend: (sessionId, userText, embeddedThreads, modelName, images = [], workspaceDir = null, documents = []) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, embeddedThreads, modelName, images, workspaceDir, documents),
+  // The main process owns the memory and the project folder; only the message goes over IPC.
+  chatSend: (sessionId, userText, modelName, images = [], documents = []) =>
+    ipcRenderer.invoke('chat:send', sessionId, userText, null, modelName, images, null, documents),
 
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');

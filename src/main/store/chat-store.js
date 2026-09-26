@@ -327,7 +327,11 @@ function removeSessionResource(sessionId, idOrName) {
 
 // ─── Messages ────────────────────────────────────────────────────────────────
 
-function appendMessage(sessionId, role, text, images = [], documents = []) {
+/**
+ * @param {object} [extra]
+ * @param {object[]} [extra.sources] memory passages offered for this answer (shown as chips)
+ */
+function appendMessage(sessionId, role, text, images = [], documents = [], extra = {}) {
   const sessions = loadSessions();
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
@@ -358,6 +362,7 @@ function appendMessage(sessionId, role, text, images = [], documents = []) {
       };
     });
   }
+  if (Array.isArray(extra.sources) && extra.sources.length > 0) message.sources = extra.sources;
   session.messages.push(message);
   session.updatedAt = Date.now();
 
