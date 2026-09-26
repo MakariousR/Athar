@@ -14,6 +14,16 @@ contextBridge.exposeInMainWorld('api', {
   memorySearch: (query, filter) => ipcRenderer.invoke('memory:search', query, filter),
   memoryDeleteSource: (source) => ipcRenderer.invoke('memory:delete-source', source),
   memoryAttachToChat: (sessionId, threadId) => ipcRenderer.invoke('memory:attach-to-chat', sessionId, threadId),
+
+  // Portable memory profile
+  profileGet: () => ipcRenderer.invoke('profile:get'),
+  profileGenerate: (options) => ipcRenderer.invoke('profile:generate', options),
+  profileCancel: () => ipcRenderer.invoke('profile:cancel'),
+  profileSave: (patch) => ipcRenderer.invoke('profile:save', patch),
+  onProfileProgress: (cb) => {
+    ipcRenderer.removeAllListeners('profile:progress');
+    ipcRenderer.on('profile:progress', (_e, progress) => cb(progress));
+  },
   onMemoryProgress: (cb) => {
     ipcRenderer.removeAllListeners('memory:progress');
     ipcRenderer.on('memory:progress', (_e, stats) => cb(stats));

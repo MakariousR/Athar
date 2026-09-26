@@ -187,6 +187,7 @@
               <option value="gemini">Gemini</option>
               <option value="app">This app</option>
             </select>
+            <button id="openProfileBtn" class="secondary-btn memory-profile-btn" title="A summary of you, learned from your conversations — usable here and in other AI assistants">✨ Memory profile</button>
           </div>
           <div id="memorySummary" class="memory-summary"></div>
           <div id="memoryUnderstood" class="memory-understood hidden"></div>
@@ -207,6 +208,55 @@
             </div>
           </div>
           <div id="memoryThreadMessages" class="message-list memory-thread-messages"></div>
+        </div>
+
+        <div id="memoryProfilePane" class="memory-pane hidden">
+          <div class="memory-thread-header">
+            <button id="profileBackBtn" class="secondary-btn memory-back-btn">← Back</button>
+            <div class="memory-thread-heading">
+              <div class="memory-thread-title">✨ Your memory profile</div>
+              <div id="profileMeta" class="memory-thread-meta"></div>
+            </div>
+            <label class="profile-toggle" title="Give the assistant this profile in every chat">
+              <input type="checkbox" id="profileEnabled" /> Use in my chats
+            </label>
+          </div>
+          <div class="profile-body">
+            <p class="profile-intro">
+              A short summary of you — your work, projects, tools and how you like answers — learned from
+              <strong>your own messages</strong> across ChatGPT, Claude, Gemini and this app. Review and edit it,
+              let the assistant use it here, or copy it into another AI assistant so it knows you too.
+              It is built by your local model and stays on this computer unless you copy it.
+              <strong>Give it a quick read before using or sharing it</strong> — a small local model can occasionally misread something.
+            </p>
+            <div class="profile-generate-row">
+              <select id="profileScope" class="model-select profile-scope">
+                <option value="40">Quick — your last 40 conversations</option>
+                <option value="80" selected>Standard — your last 80 conversations</option>
+                <option value="200">Thorough — your last 200 (slow)</option>
+              </select>
+              <button id="profileGenerateBtn" class="primary-btn">Build my profile</button>
+              <button id="profileCancelBtn" class="secondary-btn hidden">Cancel</button>
+            </div>
+            <div id="profileProgress" class="progress-wrap hidden">
+              <div class="progress-bar"><div class="progress-fill" id="profileProgressFill"></div></div>
+              <span id="profileProgressText" class="progress-text"></span>
+            </div>
+            <p id="profileError" class="profile-error hidden"></p>
+            <textarea id="profileEditor" class="profile-editor" dir="auto" spellcheck="false"
+                      placeholder="Your profile will appear here. You can also write it yourself."></textarea>
+            <div class="profile-actions">
+              <button id="profileSaveBtn" class="primary-btn" disabled>Save changes</button>
+              <button id="profileCopyBtn" class="secondary-btn">Copy profile</button>
+              <button id="profileCopyAboutBtn" class="secondary-btn" title="ChatGPT custom instructions — first field (max 1,500 characters)">Copy for ChatGPT · “About you”</button>
+              <button id="profileCopyHowBtn" class="secondary-btn" title="ChatGPT custom instructions — second field (max 1,500 characters)">Copy for ChatGPT · “How to respond”</button>
+              <button id="profileExportBtn" class="secondary-btn">Export .md</button>
+            </div>
+            <p class="profile-hint">
+              Paste into ChatGPT's custom instructions (two fields, 1,500 characters each), Claude's profile preferences,
+              or Gemini's saved info. Only what you copy leaves this app.
+            </p>
+          </div>
         </div>
       </div>
 

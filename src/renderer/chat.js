@@ -1397,6 +1397,7 @@ function showMemoryView({ refresh = true } = {}) {
 
 function showMemoryList() {
   memoryThreadPane.classList.add('hidden');
+  memoryProfilePane.classList.add('hidden');
   memoryListPane.classList.remove('hidden');
 }
 
@@ -1551,6 +1552,7 @@ async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
   memoryCurrentThread = thread;
 
   memoryListPane.classList.add('hidden');
+  memoryProfilePane.classList.add('hidden');
   memoryThreadPane.classList.remove('hidden');
   memoryThreadTitle.textContent = thread.title;
   const date = thread.createTime ? new Date(thread.createTime * 1000).toLocaleDateString() : 'unknown date';
@@ -1626,6 +1628,129 @@ memorySourceFilter.addEventListener('change', refreshMemoryResults);
 memoryLoadMore.addEventListener('click', () => loadMoreMemoryList());
 document.getElementById('openMemoryBtn').addEventListener('click', () => showMemoryView());
 document.getElementById('emptyMemoryBtn').addEventListener('click', () => showMemoryView());
+
+// ── Memory profile ────────────────────────────────────────────────────────────
+const memoryProfilePane     = document.getElementById('memoryProfilePane');
+const profileMeta           = document.getElementById('profileMeta');
+const profileEnabled        = document.getElementById('profileEnabled');
+const profileScope          = document.getElementById('profileScope');
+const profileGenerateBtn    = document.getElementById('profileGenerateBtn');
+const profileCancelBtn      = document.getElementById('profileCancelBtn');
+const profileProgress       = document.getElementById('profileProgress');
+const profileProgressFill   = document.getElementById('profileProgressFill');
+const profileProgressText   = document.getElementById('profileProgressText');
+const profileError          = document.getElementById('profileError');
+const profileEditor         = document.getElementById('profileEditor');
+const profileSaveBtn        = document.getElementById('profileSaveBtn');
+
+let currentProfile = null;
+
+async function openProfilePane() {
+  if (memoryView.classList.contains('hidden')) showMemoryView({ refresh: false });
+  memoryListPane.classList.add('hidden');
+  memoryThreadPane.classList.add('hidden');
+  memoryProfilePane.classList.remove('hidden');
+  const res = await window.api.profileGet();
+  if (res.success) renderProfile(res);
+  setProfileBusy(Boolean(res.running));
+}
+
+function renderProfile(profile) {
+  currentProfile = profile;
+  profileEditor.value = profile.markdown || '';
+  profileEnabled.checked = Boolean(profile.enabled);
+  profileEnabled.disabled = !profile.markdown;
+  profileSaveBtn.disabled = true;
+  const bits = [];
+  if (profile.generatedAt) bits.push(`Built ${new Date(profile.generatedAt).toLocaleDateString()} from ${profile.conversationsUsed} conversations`);
+  if (profile.edited) bits.push('edited by you');
+  if (!profile.markdown) bits.push('Not built yet');
+  profileMeta.textContent = bits.join(' · ');
+  profileGenerateBtn.textContent = profile.generatedAt ? 'Rebuild profile' : 'Build my profile';
+  for (const id of ['profileCopyBtn', 'profileCopyAboutBtn', 'profileCopyHowBtn', 'profileExportBtn']) {
+    document.getElementById(id).disabled = !profile.markdown;
+  }
+  document.getElementById('profileCopyHowBtn').disabled = !(profile.chatgpt && profile.chatgpt.howToRespond);
+}
+
+function setProfileBusy(busy) {
+  profileGenerateBtn.disabled = busy;
+  profileScope.disabled = busy;
+  profileCancelBtn.classList.toggle('hidden', !busy);
+  profileProgress.classList.toggle('hidden', !busy);
+  profileEditor.readOnly = busy;
+}
+
+window.api.onProfileProgress(({ done, total }) => {
+  profileProgressFill.style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
+  profileProgressText.textContent = done >= total
+    ? 'Putting your profile together…'
+    : `Reading your conversations… part ${done + 1} of ${total}`;
+});
+
+profileGenerateBtn.addEventListener('click', async () => {
+  if (currentProfile && currentProfile.edited &&
+      !confirm('Rebuilding replaces the profile, including your edits. Continue?')) return;
+  profileError.classList.add('hidden');
+  profileProgressFill.style.width = '0%';
+  profileProgressText.textContent = 'Starting…';
+  setProfileBusy(true);
+  const res = await window.api.profileGenerate({ maxConversations: Number(profileScope.value), modelName: activeModel });
+  setProfileBusy(false);
+  if (res.success) {
+    renderProfile(res);
+  } else if (!res.cancelled) {
+    profileError.textContent = `Could not build the profile: ${res.error}`;
+    profileError.classList.remove('hidden');
+  }
+});
+
+profileCancelBtn.addEventListener('click', () => window.api.profileCancel());
+
+profileEditor.addEventListener('input', () => {
+  profileSaveBtn.disabled = profileEditor.value === ((currentProfile && currentProfile.markdown) || '');
+});
+
+profileSaveBtn.addEventListener('click', async () => {
+  const res = await window.api.profileSave({ markdown: profileEditor.value });
+  if (res.success) renderProfile(res);
+});
+
+profileEnabled.addEventListener('change', async () => {
+  const res = await window.api.profileSave({ enabled: profileEnabled.checked });
+  if (res.success) renderProfile(res);
+});
+
+async function copyWithFeedback(button, text) {
+  const label = button.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = `✓ Copied (${text.length.toLocaleString()} chars)`;
+  } catch {
+    button.textContent = 'Copy failed';
+  }
+  setTimeout(() => { button.textContent = label; }, 1800);
+}
+
+document.getElementById('profileCopyBtn').addEventListener('click', (e) => copyWithFeedback(e.currentTarget, profileEditor.value));
+document.getElementById('profileCopyAboutBtn').addEventListener('click', (e) =>
+  copyWithFeedback(e.currentTarget, (currentProfile && currentProfile.chatgpt && currentProfile.chatgpt.aboutYou) || ''));
+document.getElementById('profileCopyHowBtn').addEventListener('click', (e) =>
+  copyWithFeedback(e.currentTarget, (currentProfile && currentProfile.chatgpt && currentProfile.chatgpt.howToRespond) || ''));
+document.getElementById('profileExportBtn').addEventListener('click', () => {
+  const blob = new Blob([`# My memory profile\n\n${profileEditor.value}\n`], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'memory-profile.md';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+document.getElementById('openProfileBtn').addEventListener('click', openProfilePane);
+document.getElementById('profileBackBtn').addEventListener('click', () => {
+  showMemoryList();
+  renderMemorySummary();
+  if (!memoryResults.children.length) refreshMemoryResults();
+});
 
 // ── Settings Modal & Sidebar Toggle ──────────────────────────────────────────
 function openSettingsModal() {

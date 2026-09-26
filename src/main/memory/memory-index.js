@@ -263,11 +263,17 @@ class MemoryIndex extends EventEmitter {
     return pending.sort((a, b) => (b.time || 0) - (a.time || 0));
   }
 
-  pause() { this.paused = true; }
+  // Counted, so overlapping jobs (a chat answer while the profile is being
+  // built) keep indexing paused until the LAST of them finishes.
+  pause() {
+    this.pauseCount = (this.pauseCount || 0) + 1;
+    this.paused = true;
+  }
 
   resume() {
-    this.paused = false;
-    this.scheduleEmbedding();
+    this.pauseCount = Math.max(0, (this.pauseCount || 0) - 1);
+    this.paused = this.pauseCount > 0;
+    if (!this.paused) this.scheduleEmbedding();
   }
 
   scheduleEmbedding() {

@@ -1,24 +1,35 @@
 /**
- * The app-wide memory instance (lazily created on first use, after Electron is ready).
+ * The app-wide memory instance and profile store (lazily created on first
+ * use, after Electron is ready).
  */
 const path = require('path');
 const { app } = require('electron');
 const { MemoryIndex } = require('./memory-index');
+const { ProfileStore } = require('./profile');
 const ollama = require('../ollama/ollama-client');
 
 let memory = null;
+let profileStore = null;
+
+function memoryDir() {
+  return path.join(app.getPath('userData'), 'memory');
+}
 
 function getMemory() {
   if (!memory) {
-    const userData = app.getPath('userData');
     memory = new MemoryIndex({
-      dir: path.join(userData, 'memory'),
+      dir: memoryDir(),
       embedTexts: ollama.embedTexts,
       embedModel: ollama.EMBED_MODEL,
-      legacyDir: userData
+      legacyDir: app.getPath('userData')
     });
   }
   return memory;
 }
 
-module.exports = { getMemory };
+function getProfileStore() {
+  if (!profileStore) profileStore = new ProfileStore(memoryDir());
+  return profileStore;
+}
+
+module.exports = { getMemory, getProfileStore };

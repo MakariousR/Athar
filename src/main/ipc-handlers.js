@@ -5,8 +5,9 @@ const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { parseDocumentFile, parseTextContent } = require('./parser/document-parser');
 const ollama = require('./ollama/ollama-client');
 const store  = require('./store/chat-store');
-const { getMemory } = require('./memory');
+const { getMemory, getProfileStore } = require('./memory');
 const { tokenize } = require('./memory/bm25');
+const { buildProfile, toChatGptInstructions, profileContext } = require('./memory/profile');
 
 let activeWorkspacePath = null;
 const pendingPermissions = new Map();
@@ -260,6 +261,73 @@ function registerIpcHandlers() {
     } catch (err) { return { success: false, error: err.message }; }
   });
 
+  // ─── Memory profile ────────────────────────────────────────────────────────
+  const profiles = getProfileStore();
+  let profileJob = null; // AbortController of the running generation, if any
+
+  const profileResponse = (profile) => ({
+    success: true,
+    ...profile,
+    running: Boolean(profileJob),
+    chatgpt: toChatGptInstructions(profile.markdown)
+  });
+
+  ipcMain.handle('profile:get', async () => {
+    try { return profileResponse(profiles.get()); }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('profile:generate', async (event, { maxConversations = 80, modelName } = {}) => {
+    if (profileJob) return { success: false, error: 'A profile is already being built.' };
+    profileJob = new AbortController();
+    memory.pause(); // the chat model needs the GPU for this
+    try {
+      const result = await buildProfile({
+        threads: memory.allThreads(),
+        maxConversations: Math.min(Math.max(Number(maxConversations) || 80, 10), 400),
+        complete: (prompt, opts) => ollama.completeText(prompt, modelName || ollama.DEFAULT_MODEL, opts),
+        signal: profileJob.signal,
+        onProgress: (p) => { if (!event.sender.isDestroyed()) event.sender.send('profile:progress', p); }
+      });
+      const previous = profiles.get();
+      const saved = profiles.save({
+        markdown: result.markdown,
+        language: result.language,
+        conversationsUsed: result.conversationsUsed,
+        factsFound: result.factsFound,
+        generatedAt: new Date().toISOString(),
+        edited: false,
+        // first profile: on by default (it's local and editable); afterwards keep the user's choice
+        enabled: previous.generatedAt ? previous.enabled : true
+      });
+      profileJob = null;
+      return profileResponse(saved);
+    } catch (err) {
+      return { success: false, error: err.message, cancelled: err.message === 'Cancelled' };
+    } finally {
+      profileJob = null;
+      memory.resume();
+    }
+  });
+
+  ipcMain.handle('profile:cancel', async () => {
+    if (profileJob) profileJob.abort();
+    return { success: true };
+  });
+
+  ipcMain.handle('profile:save', async (event, { markdown, enabled } = {}) => {
+    try {
+      const patch = {};
+      if (typeof markdown === 'string') {
+        const current = profiles.get();
+        patch.markdown = markdown.slice(0, 20000);
+        if (markdown !== current.markdown) patch.edited = true;
+      }
+      if (typeof enabled === 'boolean') patch.enabled = enabled;
+      return profileResponse(profiles.save(patch));
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
   ipcMain.handle('memory:delete-source', async (event, source) => {
     try { return { success: true, removed: memory.deleteSource(source) }; }
     catch (err) { return { success: false, error: err.message }; }
@@ -344,6 +412,10 @@ function registerIpcHandlers() {
           console.warn('Memory search failed:', err.message);
         }
       }
+      // The user's reviewed memory profile, if they enabled it
+      const profile = profiles.get();
+      if (profile.enabled && profile.markdown) memoryResult.profile = profileContext(profile.markdown);
+
       const memorySources = memoryResult.passages.map((p, i) => ({
         ref: `M${i + 1}`,
         threadId: p.threadId,

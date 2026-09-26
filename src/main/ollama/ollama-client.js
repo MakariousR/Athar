@@ -220,8 +220,12 @@ function setMemorySearch(fn) {
 
 function formatMemoryToolResult(query, { passages, note }) {
   if (!passages || passages.length === 0) {
-    return `No past conversations matched "${query}". Tell the user you couldn't find it in their history (don't invent it). ` +
-      `A different wording, or a time/source hint like "last spring" or "in Claude", may help.`;
+    // Written as an instruction to the model, not as text to relay: small
+    // models tend to repeat tool output verbatim to the user.
+    return `[search_memory found no past conversation about "${query}".] ` +
+      `Do not mention this search to the user. Answer their message now using what you already know ` +
+      `(including the user profile, if one was provided). Only if they explicitly asked about a past conversation, ` +
+      `say briefly that you couldn't find it in their history — never invent one.`;
   }
   const blocks = passages.map((p, i) =>
     `[H${i + 1}] ${p.sourceName} · "${p.title}"${p.date ? ` · ${p.date}` : ''}\n${p.text.length > 1400 ? `${p.text.slice(0, 1400)}…` : p.text}`);
@@ -585,13 +589,25 @@ CRITICAL RULES:
     });
   }
 
-  // Relevant passages from past conversations (already relevance-gated by the memory search)
+  messages.push({ role: 'system', content: systemContent });
+
+  // The user's reviewed profile + memories relevant to THIS message. They go
+  // next to the current message (for this request only — never saved), not
+  // at the end of the long system prompt: small local models mostly act on
+  // what is closest to the question, and ignored both when they sat far away.
   const memoryBlock = memory && memory.passages
     ? formatMemoryContext(memory.passages, { maxChars: MEMORY_CONTEXT_CHARS, note: memory.note })
     : '';
-  if (memoryBlock) systemContent += `\n\n${memoryBlock}`;
-
-  messages.push({ role: 'system', content: systemContent });
+  const turnContext = [memory && memory.profile, memoryBlock].filter(Boolean);
+  if (turnContext.length) {
+    const how = [
+      memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
+      memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null
+    ].filter(Boolean).join('; ');
+    const block = `[Context for this reply, provided by the Chat Memory app — not written by the user. ` +
+      `Use it to personalise: ${how}. Don't mention this context block itself.]\n${turnContext.join('\n\n')}`;
+    preRead = preRead ? `${block}\n\n${preRead}` : block;
+  }
 
   // Conversation history
   if (conversationHistory && conversationHistory.length > 0) {
@@ -646,6 +662,29 @@ async function ollamaChat(reqBody) {
   }
   return res;
 }
+/**
+ * One non-streaming completion (no tools). Used for background jobs like
+ * building the memory profile. Same num_ctx/keep_alive as chat, so the model
+ * isn't reloaded between these calls and normal chatting.
+ */
+async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0.2, maxTokens = 600, signal } = {}) {
+  const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+    body: JSON.stringify({
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
+      keep_alive: KEEP_ALIVE,
+      options: { temperature, num_predict: maxTokens, num_ctx: NUM_CTX }
+    })
+  });
+  if (!res.ok) throw new Error(`Ollama chat failed: ${await res.text().catch(() => res.status)}`);
+  const data = await res.json();
+  return (data.message && data.message.content ? data.message.content : '').trim();
+}
+
 // ─── Main generate function ───────────────────────────────────────────────────
 /**
  * @param {string} userText
@@ -779,6 +818,7 @@ module.exports = {
   embedText,
   embedTexts,
   setMemorySearch,
+  completeText,
   generate,
   // exported for tests
   _internals: { executeTool, createTurnState, normalizeToolArgs }
