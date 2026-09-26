@@ -35,7 +35,7 @@
         <span class="permission-icon">🔒</span>
         <span class="permission-title">Tool Permission Required</span>
       </div>
-      <p id="permSub" class="permission-sub">The AI model requests permission to execute a modification in your workspace:</p>
+      <p id="permSub" class="permission-sub">The AI model is asking for permission:</p>
       
       <div class="permission-details">
         <div class="permission-field"><span class="field-label">Tool:</span> <span id="permToolName" class="field-val"></span></div>
@@ -66,15 +66,15 @@
       </div>
       
       <div class="settings-body">
-        <!-- Workspace Folder Section -->
+        <!-- Project Folder Section -->
         <div class="settings-section">
           <div class="section-header">
-            <h3>Workspace Folder</h3>
-            <p class="settings-desc">Select a project folder for local file editing & Git integration tools.</p>
+            <h3>Project Folder</h3>
+            <p class="settings-desc">Let the assistant read a project folder and its Git history to answer questions about it. Read-only: it can never change your files.</p>
           </div>
-          <div id="workspaceZone" class="workspace-zone" title="Select folder for File & Git tools">
-            <span id="workspaceText">📁 Select Workspace Folder</span>
-            <button id="clearWorkspaceBtn" class="clear-ws-btn hidden" title="Clear workspace">✕</button>
+          <div id="workspaceZone" class="workspace-zone" title="Choose a project folder (read-only)">
+            <span id="workspaceText">📁 Project folder</span>
+            <button id="clearWorkspaceBtn" class="clear-ws-btn hidden" title="Stop using this folder">✕</button>
           </div>
         </div>
 

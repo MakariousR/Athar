@@ -419,12 +419,12 @@ function setWorkspaceUI(folderPath) {
   if (folderPath) {
     const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
     workspaceText.textContent = `📁 ${folderName}`;
-    workspaceZone.title = `Workspace: ${folderPath}`;
+    workspaceZone.title = `Project folder (read-only): ${folderPath}`;
     workspaceZone.classList.add('active');
     clearWorkspaceBtn.classList.remove('hidden');
   } else {
-    workspaceText.textContent = '📁 Select Workspace';
-    workspaceZone.title = 'Select folder for File & Git tools';
+    workspaceText.textContent = '📁 Project folder';
+    workspaceZone.title = 'Let the assistant read a project folder (read-only — it can never change your files)';
     workspaceZone.classList.remove('active');
     clearWorkspaceBtn.classList.add('hidden');
   }
@@ -449,25 +449,8 @@ if (clearWorkspaceBtn) {
 }
 
 function buildPermissionPreview(toolName, args) {
-  const parts = [];
-  // Summary computed by the main process (e.g. "Overwrites the WHOLE existing
-  // file: 120 lines → 45 lines", "will permanently delete 37 items").
-  if (args.preview) parts.push(args.preview);
-
-  if (toolName === 'edit_file' && typeof args.target_text === 'string') {
-    const replacement = typeof args.replacement_text === 'string' ? args.replacement_text : '';
-    parts.push(`Replace:\n${args.target_text}\n\nWith:\n${replacement === '' ? '(nothing — this text will be deleted)' : replacement}`);
-    if (args.replace_all) parts.push('(Every occurrence in the file will be replaced.)');
-  } else if (typeof args.content === 'string') {
-    parts.push(args.content === '' ? '(empty file)' : args.content);
-  } else if (toolName === 'delete_file') {
-    parts.push(args.recursive ? 'Deletes this folder and EVERYTHING inside it.' : 'Deletes this file (or empty folder).');
-  } else if (toolName === 'git_checkout') {
-    parts.push('If this is a file path, any uncommitted changes to it are discarded permanently.');
-  } else if (args.message) {
-    parts.push(`Commit message: "${args.message}"`);
-  }
-  return parts.join('\n\n');
+  // Explanation written by the main process (e.g. why an unfamiliar web address needs approval).
+  return args.preview || '';
 }
 
 function showPermissionRequest(data) {
@@ -477,7 +460,7 @@ function showPermissionRequest(data) {
   const waiting = permissionQueue.length;
   const baseSub = toolName === 'fetch_web_page'
     ? 'The AI model wants to open a web address:'
-    : 'The AI model requests permission to execute a modification in your workspace:';
+    : 'The AI model is asking for permission:';
   permSub.textContent = waiting > 0 ? `${baseSub} (${waiting} more request${waiting > 1 ? 's' : ''} waiting)` : baseSub;
 
   permToolName.textContent = toolName;

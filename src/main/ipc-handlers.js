@@ -5,7 +5,6 @@ const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { parseDocumentFile, toMetadata } = require('./parser/document-parser');
 const { rankThreadsSemantic } = require('./search/semantic-ranker');
 const ollama = require('./ollama/ollama-client');
-const { WORKSPACE_KEYWORDS } = ollama;
 const store  = require('./store/chat-store');
 const embeddingStore = require('./store/embedding-store');
 
@@ -320,9 +319,6 @@ function registerIpcHandlers() {
       const chosenModel = modelName || ollama.DEFAULT_MODEL;
       const effectiveWorkspace = activeWorkspacePath;
 
-      // Check if user request is targeting local workspace project files or git repository.
-      const isWorkspaceOperation = Boolean(effectiveWorkspace) && WORKSPACE_KEYWORDS.test(userText);
-
       // Combine imported threads with all embedded in-app chat session threads
       const appThreads = await embeddingStore.getEmbeddedAppThreads(ollama);
       const allCandidateThreads = embeddingStore.mergeThreads(embeddedThreads || [], appThreads);
@@ -333,9 +329,9 @@ function registerIpcHandlers() {
         userText
       ].join(' ');
 
-      // Priority 1: Current Chat & Active Workspace Project
-      // Only query background imported history (Priority 2) if this is NOT a local workspace project action
-      const ranked = (!isWorkspaceOperation && searchableThreads.length > 0)
+      // Chat-history search runs for every message — a selected project folder
+      // no longer switches it off (the old keyword check matched most messages).
+      const ranked = searchableThreads.length > 0
         ? await rankThreadsSemantic(searchableThreads, combinedQuery, 3)
         : [];
 

@@ -9,6 +9,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node tests/run.js",
+    "test:live": "node tests/run.js --live",
     "dist": "electron-builder"
   },
   "build": {

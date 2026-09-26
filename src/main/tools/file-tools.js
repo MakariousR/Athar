@@ -253,110 +253,6 @@ async function searchFilesTool(workspaceDir, query) {
   return `Search results for "${query}" (showing up to ${maxResults}):\n${results.join('\n')}`;
 }
 
-/**
- * Creates or overwrites a file within the workspace.
- */
-async function writeFileTool(workspaceDir, relPath, content) {
-  if (!workspaceDir) return 'ERROR: No workspace folder selected. Please select a workspace directory first.';
-  const fullPath = isPathInWorkspace(relPath, workspaceDir);
-  if (!fullPath) return `ERROR: Access denied. Path "${relPath}" is outside the active workspace directory.`;
-
-  try {
-    const parentDir = path.dirname(fullPath);
-    if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
-
-    fs.writeFileSync(fullPath, content || '', 'utf8');
-    return `SUCCESS: File "${relPath}" has been written successfully (${Buffer.byteLength(content || '', 'utf8')} bytes).`;
-  } catch (err) {
-    return `ERROR: Failed to write file "${relPath}": ${err.message}`;
-  }
-}
-
-/**
- * Replaces target text in a file within the workspace. By default the
- * target text must match EXACTLY ONCE in the file — this used to silently
- * replace only the first of several matches (via String.replace with a
- * string argument), which could edit the wrong occurrence without any sign
- * of failure. Pass replaceAll=true to intentionally replace every match.
- */
-async function editFileTool(workspaceDir, relPath, targetText, replacementText, replaceAll = false) {
-  if (!workspaceDir) return 'ERROR: No workspace folder selected. Please select a workspace directory first.';
-  if (!targetText || typeof targetText !== 'string') return 'ERROR: target_text must be a non-empty string.';
-  const fullPath = isPathInWorkspace(relPath, workspaceDir);
-  if (!fullPath) return `ERROR: Access denied. Path "${relPath}" is outside the active workspace directory.`;
-
-  try {
-    if (!fs.existsSync(fullPath)) return `ERROR: File not found: "${relPath}"`;
-    const existing = fs.readFileSync(fullPath, 'utf8');
-
-    // read_file shows lines joined with "\n", so on a CRLF (Windows) file a
-    // target copied from it never matches. Retry with CRLF line endings, and
-    // write the replacement with the file's own line endings too.
-    if (!existing.includes(targetText) && existing.includes('\r\n') && !targetText.includes('\r')) {
-      targetText = targetText.replace(/\n/g, '\r\n');
-      if (typeof replacementText === 'string') replacementText = replacementText.replace(/\r?\n/g, '\r\n');
-    }
-
-    const occurrences = existing.split(targetText).length - 1;
-    if (occurrences === 0) {
-      return `ERROR: Could not find target text in file "${relPath}". Ensure exact string match including indentation and whitespace.`;
-    }
-    if (occurrences > 1 && !replaceAll) {
-      return `ERROR: target_text appears ${occurrences} times in "${relPath}", so the edit is ambiguous. ` +
-        `Either provide a longer, more specific target_text that matches only once, or call edit_file again ` +
-        `with replace_all=true to intentionally replace all ${occurrences} occurrences.`;
-    }
-
-    const updated = replaceAll
-      ? existing.split(targetText).join(replacementText || '')
-      : existing.replace(targetText, () => replacementText || ''); // function form: no "$&"/"$$" pattern expansion
-
-    fs.writeFileSync(fullPath, updated, 'utf8');
-    return occurrences > 1
-      ? `SUCCESS: File "${relPath}" updated — replaced all ${occurrences} occurrences.`
-      : `SUCCESS: File "${relPath}" updated successfully.`;
-  } catch (err) {
-    return `ERROR: Failed to edit file "${relPath}": ${err.message}`;
-  }
-}
-
-/**
- * Deletes a file or an empty directory within the workspace. A non-empty
- * directory is refused by default — the caller must explicitly pass
- * recursive=true to permanently delete a folder and everything inside it.
- * (Previously this always did a recursive delete regardless of what the
- * tool's own description promised, so approving "delete_file" on a folder
- * could silently wipe an entire subtree.)
- */
-async function deleteFileTool(workspaceDir, relPath, recursive = false) {
-  if (!workspaceDir) return 'ERROR: No workspace folder selected. Please select a workspace directory first.';
-  const fullPath = isPathInWorkspace(relPath, workspaceDir);
-  if (!fullPath) return `ERROR: Access denied. Path "${relPath}" is outside the active workspace directory.`;
-
-  try {
-    if (!fs.existsSync(fullPath)) return `ERROR: File or folder not found: "${relPath}"`;
-    const stat = fs.statSync(fullPath);
-
-    if (stat.isDirectory()) {
-      const entries = fs.readdirSync(fullPath);
-      if (entries.length > 0 && !recursive) {
-        return `ERROR: "${relPath}" is a non-empty directory (${entries.length} top-level item(s)). ` +
-          `This tool only deletes empty folders by default. To permanently delete this folder AND ` +
-          `everything inside it, call delete_file again with recursive=true.`;
-      }
-      fs.rmSync(fullPath, { recursive: true, force: true });
-      return entries.length > 0
-        ? `SUCCESS: Directory "${relPath}" and its ${entries.length} top-level item(s) were permanently deleted.`
-        : `SUCCESS: Empty directory "${relPath}" deleted successfully.`;
-    } else {
-      fs.unlinkSync(fullPath);
-      return `SUCCESS: File "${relPath}" deleted successfully.`;
-    }
-  } catch (err) {
-    return `ERROR: Failed to delete "${relPath}": ${err.message}`;
-  }
-}
-
 module.exports = {
   isPathInWorkspace,
   setReadBudget,
@@ -364,8 +260,5 @@ module.exports = {
   formatFileSlice,
   readFileTool,
   listDirectoryTool,
-  searchFilesTool,
-  writeFileTool,
-  editFileTool,
-  deleteFileTool
+  searchFilesTool
 };
