@@ -53,38 +53,74 @@ async function checkAllModels() {
   return { chatInstalled, defaultInstalled, embedInstalled, allInstalled: chatInstalled && embedInstalled };
 }
 
+/**
+ * Downloads a model. Ollama reports failures (unknown model, network error,
+ * disk full…) as an {"error": "..."} line INSIDE the progress stream with an
+ * HTTP 200 — so the stream itself must be checked, and only a final
+ * {"status": "success"} means the model is really installed.
+ */
 async function pullModel(modelName, onProgress = () => {}) {
   const res = await fetch(`${OLLAMA_BASE}/api/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: modelName, stream: true })
+    // `model` is the current field name; `name` keeps older Ollama versions working
+    body: JSON.stringify({ model: modelName, name: modelName, stream: true })
   });
-  if (!res.ok || !res.body) throw new Error(`Failed to pull ${modelName}: ${res.status}`);
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Failed to download ${modelName}: ${pullErrorMessage(detail) || `HTTP ${res.status}`}`);
+  }
 
   const reader  = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let succeeded = false;
+  const handle = (line) => {
+    if (!line.trim()) return;
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+    if (msg.error) throw new Error(friendlyPullError(modelName, msg.error));
+    if (msg.status === 'success') succeeded = true;
+    onProgress(msg);
+  };
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop();
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try { onProgress(JSON.parse(line)); } catch {}
-    }
+    for (const line of lines) handle(line);
   }
+  handle(buffer);
+  if (!succeeded) throw new Error(`The download of ${modelName} stopped before finishing. Check your connection and try again.`);
   return { success: true };
+}
+
+function pullErrorMessage(text) {
+  try { return JSON.parse(text).error || ''; } catch { return String(text || '').slice(0, 200); }
+}
+
+function friendlyPullError(modelName, error) {
+  if (/file does not exist|not found|manifest unknown/i.test(error)) {
+    return `"${modelName}" was not found in the Ollama library. Check the name on ollama.com/library.`;
+  }
+  if (/no space|disk/i.test(error)) return `Not enough disk space to download ${modelName}.`;
+  if (/dial tcp|connection|timeout|no such host|EOF/i.test(error)) {
+    return `Couldn't reach the Ollama library to download ${modelName} (${error}). Check your internet connection.`;
+  }
+  if (/requires a newer version|newer version of ollama/i.test(error)) {
+    return `${modelName} needs a newer version of Ollama — update Ollama from ollama.com and try again.`;
+  }
+  return `Failed to download ${modelName}: ${error}`;
 }
 
 async function deleteModel(modelName) {
   const res = await fetch(`${OLLAMA_BASE}/api/delete`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: modelName })
+    body: JSON.stringify({ model: modelName, name: modelName })
   });
-  if (!res.ok) throw new Error(`Failed to delete ${modelName}: ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to delete ${modelName}: ${pullErrorMessage(await res.text().catch(() => '')) || res.status}`);
   return { success: true };
 }
 

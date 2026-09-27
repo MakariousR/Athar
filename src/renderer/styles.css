@@ -1651,3 +1651,7 @@ body {
 .message-text pre, .message-text code { direction: ltr; unicode-bidi: isolate; text-align: left; }
 #messageInput, .memory-search-input, .profile-editor { unicode-bidi: plaintext; text-align: start; }
 .session-title, .history-thread-title, .memory-result-title, .memory-thread-title { unicode-bidi: plaintext; }
+
+/* Download failure: show the full reason, wrapped */
+.model-dl-text.error { white-space: normal; text-align: left; color: var(--danger); line-height: 1.4; }
+.model-dl-progress:has(.model-dl-text.error) .progress-bar { display: none; }

@@ -105,7 +105,7 @@ const MODEL_CATALOG = [
   { name: 'qwen2.5:1.5b',      label: 'Qwen 2.5 · 1.5B',       sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
   { name: 'llama3.2:1b',       label: 'Llama 3.2 · 1B',         sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
   { name: 'qwen2.5:3b',        label: 'Qwen 2.5 · 3B',          sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: 'Strong multilingual reasoning, tool calling & history search on modest hardware.' },
-  { name: 'qwen2.5-vl:3b',     label: 'Qwen 2.5 VL · 3B',       sizeBytes: 1_950_000_000, ram: '~3.5 GB', vision: true,  desc: '🖼️ Fast Vision + Tools. Compact multimodal model for visual analysis & reasoning.' },
+  { name: 'qwen2.5vl:3b',      label: 'Qwen 2.5 VL · 3B',       sizeBytes: 3_200_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Compact vision model: understands images and screenshots.' },
   { name: 'llama3.2:3b',       label: 'Llama 3.2 · 3B',         sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
   { name: 'phi4-mini',         label: 'Phi 4 Mini · 3.8B',      sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
   { name: 'gemma3:4b',         label: 'Gemma 3 · 4B',           sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Includes Vision & 140+ languages. Can analyze uploaded images & screenshots.' },
@@ -113,7 +113,7 @@ const MODEL_CATALOG = [
   { name: 'llama3.1:8b',       label: 'Llama 3.1 · 8B',         sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
   { name: 'qwen2.5:7b',        label: 'Qwen 2.5 · 7B',          sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
   { name: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder · 7B',    sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: '⭐ Default Recommended. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
-  { name: 'qwen2.5-vl:7b',     label: 'Qwen 2.5 VL · 7B',       sizeBytes: 4_750_000_000, ram: '~8.0 GB', vision: true,  desc: '🖼️🔥 Top Recommended All-Rounder! Vision + Native Tools + Top-Tier Coding & Reasoning.' },
+  { name: 'qwen2.5vl:7b',      label: 'Qwen 2.5 VL · 7B',       sizeBytes: 5_970_000_000, ram: '~9.0 GB', vision: true,  desc: '🖼️ Stronger vision model: image understanding, document reading and reasoning.' },
   { name: 'llama3.2-vision:11b', label: 'Llama 3.2 Vision · 11B', sizeBytes: 7_900_000_000, ram: '~11 GB',  vision: true,  desc: '🖼️ Meta flagship vision model. High-res image understanding, document OCR & tools.' },
   { name: 'gemma3:12b',        label: 'Gemma 3 · 12B',          sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
   { name: 'qwen2.5:14b',       label: 'Qwen 2.5 · 14B',         sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: 'High-tier reasoning & long-document analysis for powerful PCs.' },
@@ -904,6 +904,7 @@ modelDownloadBtn.addEventListener('click', async () => {
   modelDownloadBtn.classList.add('hidden');
   modelDownloadProgress.classList.remove('hidden');
   modelDlFill.style.width = '0%';
+  modelDlText.classList.remove('error');
   modelDlText.textContent = 'Starting…';
 
   window.api.onPullProgress((status) => {
@@ -927,7 +928,10 @@ modelDownloadBtn.addEventListener('click', async () => {
     // Refresh the list so the entry flips to ✓ installed
     setTimeout(() => loadModelSelector(), 800);
   } else {
-    modelDlText.textContent = 'Failed';
+    modelDlFill.style.width = '0%';
+    modelDlText.classList.add('error');
+    modelDlText.textContent = `Failed: ${result.error || 'unknown error'}`;
+    modelDlText.title = result.error || '';
     modelDownloadBtn.classList.remove('hidden');
     modelDownloadBtn.disabled = false;
     modelDownloadBtn.textContent = '⬇ Retry';
