@@ -1321,7 +1321,7 @@ function renderSourceChips(bubbleEl, sources) {
     const sourceName = SOURCE_LABELS[s.source] || s.sourceName || s.source;
     chip.title = `${s.ref ? `[${s.ref}] ` : ''}${sourceName}${s.date ? ` · ${s.date}` : ''}` +
       `${anyCitedInfo ? (s.cited ? ' · used in this answer' : ' · found, not used') : ''} — click to open`;
-    chip.textContent = `${s.ref ? `${s.ref} · ` : ''}${sourceName}: ${s.title.slice(0, 35)}${s.title.length > 35 ? '…' : ''}`;
+    chip.textContent = `${sourceName}: ${s.title.slice(0, 35)}${s.title.length > 35 ? '…' : ''}`;
     chip.addEventListener('click', () => {
       if (typeof openMemoryThread === 'function') openMemoryThread(s.threadId, s.msgStart);
     });
