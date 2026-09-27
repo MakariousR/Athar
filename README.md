@@ -73,7 +73,14 @@ npm run dist
 ```
 
 Uses `electron-builder` (see `build` in `package.json`) to produce a Windows
-NSIS installer, macOS DMG or Linux AppImage.
+NSIS installer, macOS DMG or Linux AppImage. It first regenerates
+`THIRD-PARTY-NOTICES.txt` (`npm run notices`) from the shipped dependencies.
+
+The installer shows `LICENSE.txt` (the end-user license agreement) and must
+be accepted to install. `LICENSE.txt`, `PRIVACY.md` and
+`THIRD-PARTY-NOTICES.txt` ship with the app and open from Settings → footer
+links. The icon is drawn in `assets/icon.svg`; `icon.ico` and `icon.png` are
+exported from it. Update the version in `package.json` for each release.
 
 ## Project structure
 

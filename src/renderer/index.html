@@ -110,8 +110,27 @@
         <footer class="settings-about">
           <img src="../../assets/icon.png" alt="" class="settings-about-icon">
           <span>Athar <span id="appVersion"></span></span>
+          <span class="settings-about-links">
+            <button class="text-btn" data-doc="license">License</button>
+            <button class="text-btn" data-doc="privacy">Privacy</button>
+            <button class="text-btn" data-doc="notices">Open-source licenses</button>
+          </span>
         </footer>
       </div>
+    </div>
+  </div>
+
+  <!-- License / privacy policy / open-source notices reader -->
+  <div id="docModal" class="settings-modal hidden">
+    <div class="settings-backdrop"></div>
+    <div class="settings-card doc-card" role="dialog" aria-labelledby="docTitle">
+      <div class="settings-header">
+        <h2 id="docTitle"></h2>
+        <button id="docCloseBtn" class="icon-action" title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="docBody" class="doc-body"></div>
     </div>
   </div>
 

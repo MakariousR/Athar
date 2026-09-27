@@ -4,26 +4,40 @@
   "version": "1.0.0-beta.1",
   "description": "One private memory for all your AI chats: import ChatGPT, Claude and Gemini history, search it, and let a local Ollama model remember and cite it.",
   "main": "src/main/index.js",
-  "author": "",
+  "author": "Makarious Robert",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "start": "electron .",
     "test": "node tests/run.js",
     "test:live": "node tests/run.js --live",
-    "dist": "electron-builder"
+    "dist": "npm run notices && electron-builder",
+    "notices": "node scripts/generate-notices.js"
   },
   "build": {
     "appId": "com.makarious.athar",
     "productName": "Athar",
+    "copyright": "Copyright (c) 2026 Makarious Robert",
     "files": [
       "src/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "LICENSE.txt",
+      "PRIVACY.md",
+      "THIRD-PARTY-NOTICES.txt"
     ],
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "license": "LICENSE.txt",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Athar"
     },
     "mac": {
       "target": "dmg",

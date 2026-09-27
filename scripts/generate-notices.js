@@ -1,0 +1,144 @@
+/**
+ * Writes THIRD-PARTY-NOTICES.txt: the license of every open-source package
+ * shipped inside Athar (production dependencies, plus the copy of marked in
+ * src/renderer). Their licenses require these notices to ship with the app.
+ * Electron's and Chromium's own licenses are added to the installer by
+ * electron-builder (LICENSE.electron.txt, LICENSES.chromium.html).
+ *
+ * Run: npm run notices   (also runs before every `npm run dist`)
+ */
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+const ROOT = path.join(__dirname, '..');
+const OUT = path.join(ROOT, 'THIRD-PARTY-NOTICES.txt');
+const LICENSE_FILE_RE = /^(licen[cs]e|copying|notice)(\.(md|txt|markdown))?$/i;
+
+function productionPackageDirs() {
+  const out = execSync('npm ls --omit=dev --all --parseable', { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  return [...new Set(out.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && path.resolve(l) !== path.resolve(ROOT)))];
+}
+
+function licenseText(dir) {
+  const file = fs.readdirSync(dir).find((f) => LICENSE_FILE_RE.test(f));
+  return file ? fs.readFileSync(path.join(dir, file), 'utf8').trim() : null;
+}
+
+function licenseName(pkg) {
+  if (typeof pkg.license === 'string') return pkg.license;
+  if (pkg.license && pkg.license.type) return pkg.license.type;
+  if (Array.isArray(pkg.licenses)) return pkg.licenses.map((l) => l.type || l).join(' OR ');
+  return 'see license text';
+}
+
+const entries = new Map();
+for (const dir of productionPackageDirs()) {
+  const pkgPath = path.join(dir, 'package.json');
+  if (!fs.existsSync(pkgPath)) continue;
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const key = `${pkg.name}@${pkg.version}`;
+  if (entries.has(key)) continue;
+  entries.set(key, {
+    name: pkg.name,
+    version: pkg.version,
+    license: licenseName(pkg),
+    homepage: pkg.homepage || (pkg.repository && (pkg.repository.url || pkg.repository)) || '',
+    author: typeof pkg.author === 'string' ? pkg.author : (pkg.author && pkg.author.name) || null,
+    text: licenseText(dir)
+  });
+}
+
+const MIT_TEXT = (holder) => `MIT License
+
+Copyright (c) ${holder}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.`;
+
+// Packages published without a license file: give the standard text of the
+// license they declare (Apache-2.0: its full text is already in this file).
+for (const e of entries.values()) {
+  if (e.text) continue;
+  if (e.license === 'MIT') {
+    e.text = MIT_TEXT(e.author || `the ${e.name} authors`);
+  } else if (e.license === 'Apache-2.0') {
+    const withText = [...entries.values()].find((o) => o.license === 'Apache-2.0' && o.text);
+    e.text = `Licensed under the Apache License, Version 2.0` +
+      (withText ? ` — its full text is included in this file under "${withText.name}".` :': https://www.apache.org/licenses/LICENSE-2.0');
+  }
+}
+
+// Bundled directly in the renderer (not an npm dependency)
+const marked = fs.readFileSync(path.join(ROOT, 'src/renderer/marked.umd.js'), 'utf8');
+const markedVersion = (marked.match(/marked v([\d.]+)/) || [])[1] || '';
+entries.set(`marked@${markedVersion}`, {
+  name: 'marked',
+  version: markedVersion,
+  license: 'MIT',
+  homepage: 'https://github.com/markedjs/marked',
+  text: `MIT License
+
+Copyright (c) 2018-2026, MarkedJS (https://marked.js.org/)
+Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.`
+});
+
+const sorted = [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));
+const line = '='.repeat(78);
+const body = sorted.map((e) => [
+  line,
+  `${e.name} ${e.version}  (${e.license})`,
+  e.homepage ? String(e.homepage).replace(/^git\+/, '').replace(/\.git$/, '') : null,
+  line,
+  '',
+  e.text || `Licensed under ${e.license}. No license file was included in the package.`,
+  ''
+].filter((x) => x !== null).join('\n')).join('\n');
+
+const header = `THIRD-PARTY NOTICES — Athar
+
+Athar includes the open-source software listed below. Each component is
+licensed by its authors under the license shown; those licenses apply to that
+component only, not to Athar itself. Electron and Chromium, which Athar runs
+on, are covered by LICENSE.electron.txt and LICENSES.chromium.html in the
+installation folder.
+
+Components (${sorted.length}): ${sorted.map((e) => e.name).join(', ')}
+
+`;
+fs.writeFileSync(OUT, header + body);
+console.log(`Wrote ${path.relative(ROOT, OUT)}: ${sorted.length} components` +
+  `${sorted.some((e) => !e.text) ? ` (no license file in: ${sorted.filter((e) => !e.text).map((e) => e.name).join(', ')})` : ''}`);

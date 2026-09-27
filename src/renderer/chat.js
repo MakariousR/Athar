@@ -2394,10 +2394,41 @@ if (headerModelPill) headerModelPill.addEventListener('click', openSettingsModal
 
 if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', toggleSidebar);
 
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && settingsModal && !settingsModal.classList.contains('hidden')) {
-    closeSettingsModal();
+// License, privacy policy and open-source notices (Settings footer)
+const docModal = document.getElementById('docModal');
+const DOC_TITLES = { license: 'License agreement', privacy: 'Privacy policy', notices: 'Open-source licenses' };
+
+async function openDocument(name) {
+  const body = document.getElementById('docBody');
+  document.getElementById('docTitle').textContent = DOC_TITLES[name] || '';
+  body.innerHTML = '';
+  body.className = 'doc-body';
+  docModal.classList.remove('hidden');
+  const res = await window.api.appDocument(name);
+  if (!res.success) { body.textContent = `Could not open this document: ${res.error}`; return; }
+  if (name === 'privacy') {
+    body.classList.add('markdown', 'message-text');
+    body.innerHTML = renderMarkdown(res.text);
+  } else {
+    const pre = document.createElement('pre');
+    pre.className = 'doc-text';
+    pre.textContent = res.text;
+    body.appendChild(pre);
   }
+  body.scrollTop = 0;
+}
+const closeDocument = () => docModal.classList.add('hidden');
+
+document.querySelectorAll('.settings-about [data-doc]').forEach((btn) => {
+  btn.addEventListener('click', () => openDocument(btn.dataset.doc));
+});
+document.getElementById('docCloseBtn').addEventListener('click', closeDocument);
+docModal.querySelector('.settings-backdrop').addEventListener('click', closeDocument);
+
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!docModal.classList.contains('hidden')) { closeDocument(); return; } // the reader first, then Settings
+  if (settingsModal && !settingsModal.classList.contains('hidden')) closeSettingsModal();
 });
 
 // Restore saved sidebar collapsed state

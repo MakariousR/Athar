@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   appVersion: () => ipcRenderer.invoke('app:version'),
+  appDocument: (name) => ipcRenderer.invoke('app:document', name),
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
   findOllama: () => ipcRenderer.invoke('ollama:find'),
   startOllama: () => ipcRenderer.invoke('ollama:start'),

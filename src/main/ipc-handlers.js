@@ -169,6 +169,15 @@ function registerIpcHandlers() {
 
   ipcMain.handle('app:version', () => app.getVersion());
 
+  // License, privacy policy and open-source notices shipped with the app (these three files only)
+  const APP_DOCUMENTS = { license: 'LICENSE.txt', privacy: 'PRIVACY.md', notices: 'THIRD-PARTY-NOTICES.txt' };
+  ipcMain.handle('app:document', (event, name) => {
+    const file = APP_DOCUMENTS[name];
+    if (!file) return { success: false, error: 'Unknown document.' };
+    try { return { success: true, text: require('fs').readFileSync(path.join(__dirname, '..', '..', file), 'utf8') }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
   // Setup for people without Ollama: find it, start it, or install it
   ipcMain.handle('ollama:find', async () => {
     const exe = await ollamaInstaller.findOllama();
