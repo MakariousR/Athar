@@ -172,7 +172,7 @@ function scheduleRender() {
   renderScheduled = true;
   requestAnimationFrame(() => {
     renderScheduled = false;
-    if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
+    if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(stripCitations(currentStreamText));
     scrollToBottom();
   });
 }
@@ -1318,6 +1318,21 @@ function sanitizeHtml(html) {
   return container.innerHTML;
 }
 
+// The model cites memories as [M1], [M2, M3]… The main process uses those to
+// know which chats an answer used (the chips); the labels themselves are
+// hidden from the answer. Code like arr[M1] is left alone.
+const CITATION = String.raw`\[M\d+(?:\s*[,–-]\s*M?\d+)*\]`;
+const LEADING_CITATIONS_RE = new RegExp(String.raw`^([ \t]*(?:[-*+]|\d+[.)])?[ \t]*)(?:${CITATION}[ \t]*)+`, 'gm');
+const INLINE_CITATION_RE = new RegExp(String.raw`[ \t]*(?<!\w)${CITATION}`, 'g');
+
+function stripCitations(text) {
+  if (!text || !text.includes('[M')) return text;
+  return text
+    .replace(LEADING_CITATIONS_RE, '$1')   // "[M1] You discussed…" / "- [M2] You worked…"
+    .replace(INLINE_CITATION_RE, '')       // "…as we decided [M1]." → "…as we decided."
+    .replace(/[ \t]*\(\s*(?:see\s*)?\)/gi, ''); // "(see [M1])" leftovers
+}
+
 function renderMarkdown(text) {
   if (!text) return '';
   // Collapse multiple blank lines before numbered headers, bold lines, and bullet points
@@ -1362,7 +1377,7 @@ function createMessageBubble(role, text, images = [], documents = [], { markdown
   textEl.className = 'message-text';
   textEl.dir = 'auto'; // Arabic (right-to-left) and English messages each lay out correctly
   if (markdown && text) {
-    textEl.innerHTML = renderMarkdown(text);
+    textEl.innerHTML = renderMarkdown(role === 'assistant' ? stripCitations(text) : text);
     textEl.classList.add('markdown'); // line breaks come from the HTML, not pre-wrap
   } else textEl.textContent = text;
   if (role === 'user' && !text) textEl.classList.add('hidden'); // attachment-only message: no empty bubble
@@ -1519,7 +1534,7 @@ async function sendMessage() {
   // appended warning, a recovered tool result), so it replaces them. This
   // also paints the last throttled token batch before we detach the element.
   if (result.success && typeof result.reply === 'string') currentStreamText = result.reply;
-  if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(currentStreamText);
+  if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(stripCitations(currentStreamText));
 
   currentAssistantEl     = null;
   currentAssistantBubble = null;
