@@ -40,7 +40,7 @@ const TIME_SENSITIVE_AR = /الآن|الان|حالياً|حاليا|اليوم|
 
 // Questions about the user's OWN past, attached files or project are answered
 // from memory/files — never by searching the web.
-const PERSONAL_RE = /\b(did (i|we|you)|have (i|we)|i (asked|said|told|mentioned|decided|wrote)|we (decided|discussed|talked)|you (told|advised|suggested|recommended|said to) me|(did|what did) (chatgpt|claude|gemini|it) (say|suggest|advise|recommend|tell)|my (last|previous|past|earlier|old) (chat|conversation|question)|last time|remember when|in (my|our) (chat|conversation|history|memory))\b|سألت|ناقشنا|تحدثنا|قلت لك|قلت لي|نصحتني|اقترحت علي|أخبرتني|اخبرتني|في محادثتي|في محادثاتي|آخر مرة|اخر مرة/i;
+const PERSONAL_RE = /\b(did (i|we|you)|have (i|we)|i (asked|said|told|mentioned|decided|wrote)|we (decided|discussed|talked)|you (told|advised|suggested|recommended|said to) me|(did|what did) (chatgpt|claude|gemini|it) (say|suggest|advise|recommend|tell)|my (last|previous|past|earlier|old) (chat|conversation|question)|(my|our) (chats?|conversations?|history)|last time|remember when|in (my|our) (chat|conversation|history|memory))\b|سألت|ناقشنا|ناقشت|تحدثنا|تحدثت|قلنا|قلت لك|قلت لي|نصحتني|اقترحت علي|أخبرتني|اخبرتني|محادثتي|محادثاتي|دردشتي|آخر مرة|اخر مرة/i;
 
 function isPersonalMemoryQuestion(text) {
   return PERSONAL_RE.test(String(text || ''));
