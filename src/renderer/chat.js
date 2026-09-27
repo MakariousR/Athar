@@ -2385,6 +2385,9 @@ function updateHeaderModelDisplay() {
 
 if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
 if (sidebarSettingsBtn) sidebarSettingsBtn.addEventListener('click', openSettingsModal);
+
+// Version at the bottom of Settings (so testers can say which build they have)
+window.api.appVersion().then((v) => { const el = document.getElementById('appVersion'); if (el) el.textContent = v; }).catch(() => {});
 if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettingsModal);
 if (settingsBackdrop) settingsBackdrop.addEventListener('click', closeSettingsModal);
 if (headerModelPill) headerModelPill.addEventListener('click', openSettingsModal);

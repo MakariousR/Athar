@@ -1,4 +1,4 @@
-const { ipcMain: electronIpcMain, dialog, BrowserWindow, shell } = require('electron');
+const { ipcMain: electronIpcMain, dialog, BrowserWindow, shell, app } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
@@ -166,6 +166,8 @@ function registerIpcHandlers() {
     const status = await ollama.checkAllModels();
     return { running: true, ...status };
   });
+
+  ipcMain.handle('app:version', () => app.getVersion());
 
   // Setup for people without Ollama: find it, start it, or install it
   ipcMain.handle('ollama:find', async () => {

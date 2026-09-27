@@ -41,6 +41,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'Athar',
+    icon: path.join(__dirname, '..', '..', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,

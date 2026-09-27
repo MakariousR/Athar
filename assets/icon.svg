@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Athar (أثر, "trace"): traces along a path, from faint to bright -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a2b4a"/>
+      <stop offset="1" stop-color="#080c16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5fd8ff" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#5fd8ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="dot" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1f8fff"/>
+      <stop offset="1" stop-color="#6fdcff"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="212" fill="url(#bg)"/>
+  <rect x="48.5" y="48.5" width="927" height="927" rx="211.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <circle cx="290" cy="724" r="70" fill="#1f6fff" fill-opacity="0.45"/>
+  <circle cx="470" cy="548" r="96" fill="#1f8fff" fill-opacity="0.75"/>
+  <circle cx="704" cy="330" r="250" fill="url(#glow)"/>
+  <circle cx="704" cy="330" r="136" fill="url(#dot)"/>
+  <circle cx="704" cy="330" r="136" fill="none" stroke="#e9f8ff" stroke-opacity="0.35" stroke-width="10"/>
+</svg>

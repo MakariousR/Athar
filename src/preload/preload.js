@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('memory:progress', (_e, stats) => cb(stats));
   },
 
+  appVersion: () => ipcRenderer.invoke('app:version'),
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
   findOllama: () => ipcRenderer.invoke('ollama:find'),
   startOllama: () => ipcRenderer.invoke('ollama:start'),
