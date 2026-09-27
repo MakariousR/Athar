@@ -45,4 +45,4 @@ If a future version changes what Athar sends over the internet, this policy will
 
 ## Contact
 
-Questions about privacy: [your contact email]
+Questions about privacy: mekorobert2010@gmail.com
