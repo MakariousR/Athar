@@ -749,11 +749,16 @@ ${webRule}`;
   const webBlock = memory && memory.webResearch
     ? `<web_research_for_this_question>\n${memory.webResearch}\n</web_research_for_this_question>`
     : '';
-  const turnContext = [memory && memory.profile, memoryBlock, webBlock, memory && memory.offlineInstruction].filter(Boolean);
+  // Pages the user linked in this message, opened by the app before answering
+  const pagesBlock = memory && memory.linkedPages
+    ? `<pages_the_user_linked>\n${memory.linkedPages}\n</pages_the_user_linked>`
+    : '';
+  const turnContext = [memory && memory.profile, memoryBlock, pagesBlock, webBlock, memory && memory.offlineInstruction].filter(Boolean);
   if (turnContext.length) {
     const how = [
       memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
       memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
+      pagesBlock ? 'the app already opened the page(s) the user linked — answer from their text below, in the same language as the user\'s message, and never say you cannot access websites (if a page could not be opened, say that)' : null,
       webBlock ? 'the web research is newer than your training data: base current facts on it (not on what you remember) and mention the source and date' : null,
       memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
@@ -841,6 +846,8 @@ async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0
 const toolNoticeShown = new Set(); // models we've already explained "no tools" for (once per app session)
 
 /** Web research that actually contains results (not an error / "no results" / timeout message). */
+const MAX_LINKED_PAGES = 2; // links in one message that are opened before answering
+
 function isUsableResearch(result) {
   const text = typeof result === 'string' ? result : '';
   return text.length > 200 && !/^ERROR:/.test(text) && !/returned no results|found no readable content|timed out/i.test(text.slice(0, 300));
@@ -911,6 +918,32 @@ async function generate(
     return isUsableResearch(result) ? result : null;
   };
 
+  // 0. A link in the user's message: open it before answering. Left to the
+  //    model, a 7B model often replies "I can't access websites", and one
+  //    without tool support can't open pages at all.
+  let linkedPages = null;
+  let pagesOpened = false;
+  const links = [...new Set(extractUrls(userText))].slice(0, MAX_LINKED_PAGES);
+  if (links.length > 0) {
+    if (await checkOnline()) {
+      const pages = [];
+      for (const url of links) {
+        // The user's own link, so no approval is needed (see createTurnState)
+        const page = await executeTool('fetch_web_page', { url }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
+        // Any readable text counts (a short page is still the page), unlike search results
+        const opened = typeof page === 'string' && !/^ERROR:/.test(page) &&
+          !/found no readable content|timed out/i.test(page.slice(0, 300)) && page.trim().length > 40;
+        if (opened) pagesOpened = true;
+        pages.push(opened
+          ? `Page: ${url}\n${page}`
+          : `Page: ${url}\nCould not be opened: ${String(page).replace(/^ERROR:\s*/, '').slice(0, 300)}`);
+      }
+      linkedPages = pages.join('\n\n');
+    } else {
+      linkedPages = `The user linked ${links.join(', ')}, but there is no internet connection, so the page could not be opened. Say so.`;
+    }
+  }
+
   // 1. Time-sensitive question ("latest…", prices, who is the CEO, a year after
   //    the model's training data…): get current information BEFORE answering,
   //    instead of hoping a 7B model notices its knowledge is out of date.
@@ -974,6 +1007,7 @@ async function generate(
         cutoffLabel: cutoff.label,
         toolsAvailable: withTools,
         webResearch: research,
+        linkedPages,
         offlineInstruction: why ? freshness.offlineInstruction({ why, cutoffLabel: cutoff.label }) : null
       };
       const allMessages = buildMessages(userText, context, conversationHistory, images, workspaceDir, documents, sessionId, preRead);
@@ -1005,10 +1039,13 @@ async function generate(
     };
 
     onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
+    // The linked page is already open: answering from it needs no tools, and a
+    // small model given tools tends to try opening it again, then give up.
+    const useTools = toolsAvailable && !pagesOpened;
     try {
-      return await run(toolsAvailable);
+      return await run(useTools);
     } catch (err) {
-      if (!toolsAvailable) {
+      if (!useTools) {
         onStatus({ icon: '⚠️', text: `Model error: ${err.message}` });
         return `Sorry — the model backend reported an error: ${err.message}`;
       }
