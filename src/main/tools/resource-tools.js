@@ -19,7 +19,8 @@ let embedder = null;          // async (text) => number[]   (injected by ollama-
 let embedderId = 'default';   // cache key: changes if the embedding model changes
 
 const CHUNK_CHARS = 600;
-const MAX_SEMANTIC_CHUNKS = 500;   // beyond this, semantic indexing would take too long → lexical only
+const MAX_SEMANTIC_CHUNKS = 2500;  // ~1.5M characters; beyond this, keyword search only
+const EMBED_BATCH = 32;
 const MAX_SEARCH_HITS = 6;
 const DEFAULT_LINE_WINDOW = 200;
 
@@ -35,6 +36,8 @@ function setRangeBudget(chars) {
 }
 function getOutputBudget() { return outputBudget; }
 function setEmbedder(fn, id = 'default') { embedder = typeof fn === 'function' ? fn : null; embedderId = id; }
+let batchEmbedder = null;    // async (texts[]) => number[][] — optional, much faster for indexing
+function setBatchEmbedder(fn) { batchEmbedder = typeof fn === 'function' ? fn : null; }
 
 let normalizeText = (t) => t;
 try {
@@ -395,28 +398,125 @@ function cosine(a, b) {
 }
 
 /** Cosine similarity per chunk, or null when semantic search isn't available. */
-async function semanticScores(sessionId, meta, chunks, query, onStatus) {
-  if (!embedder || chunks.length === 0 || chunks.length > MAX_SEMANTIC_CHUNKS) return null;
-  try {
-    let cache = store.getResourceEmbeddings(sessionId, meta.id);
-    const valid = cache && cache.model === embedderId && cache.hash === meta.hash &&
-      Array.isArray(cache.vectors) && cache.vectors.length === chunks.length;
-
-    if (!valid) {
-      const vectors = [];
-      for (let i = 0; i < chunks.length; i++) {
-        if (i % 10 === 0) onStatus({ icon: '🧭', text: `Indexing "${meta.name}" for semantic search (${i}/${chunks.length})…` });
-        const v = await embedder(String(normalizeText(chunks[i].text)));
-        vectors.push(v.map((x) => Math.round(x * 1e4) / 1e4));
-      }
-      cache = { model: embedderId, hash: meta.hash, vectors };
-      store.setResourceEmbeddings(sessionId, meta.id, cache);
+/** Embeds many texts, in batches when a batch embedder is available (much faster). */
+async function embedMany(texts, onProgress = () => {}) {
+  const out = [];
+  if (batchEmbedder) {
+    for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+      onProgress(i, texts.length);
+      out.push(...await batchEmbedder(texts.slice(i, i + EMBED_BATCH)));
     }
-    const q = await embedder(String(normalizeText(query)));
-    return cache.vectors.map((v) => cosine(q, v));
+    return out;
+  }
+  for (let i = 0; i < texts.length; i++) {
+    if (i % 10 === 0) onProgress(i, texts.length);
+    out.push(await embedder(texts[i]));
+  }
+  return out;
+}
+
+// One indexing job per file at a time (upload-time indexing and a question
+// arriving meanwhile share the same work instead of doing it twice).
+const indexing = new Map();
+
+/** Cached chunk vectors for a file, computing them if needed. Returns null if semantic search isn't available. */
+async function getChunkVectors(sessionId, meta, chunks, onStatus = () => {}) {
+  if ((!embedder && !batchEmbedder) || chunks.length === 0 || chunks.length > MAX_SEMANTIC_CHUNKS) return null;
+  const cache = store.getResourceEmbeddings(sessionId, meta.id);
+  const valid = cache && cache.model === embedderId && cache.hash === meta.hash &&
+    Array.isArray(cache.vectors) && cache.vectors.length === chunks.length;
+  if (valid) return cache.vectors;
+
+  const key = `${sessionId}:${meta.id}`;
+  if (!indexing.has(key)) {
+    indexing.set(key, (async () => {
+      const raw = await embedMany(chunks.map((c) => String(normalizeText(c.text))), (done, total) =>
+        onStatus({ icon: '🧭', text: `Indexing "${meta.name}" for search (${done}/${total})…` }));
+      const vectors = raw.map((v) => v.map((x) => Math.round(x * 1e4) / 1e4));
+      store.setResourceEmbeddings(sessionId, meta.id, { model: embedderId, hash: meta.hash, vectors });
+      return vectors;
+    })().finally(() => indexing.delete(key)));
+  }
+  return indexing.get(key);
+}
+
+async function semanticScores(sessionId, meta, chunks, query, onStatus) {
+  try {
+    const vectors = await getChunkVectors(sessionId, meta, chunks, onStatus);
+    if (!vectors) return null;
+    const [q] = await embedMany([String(normalizeText(query))]);
+    return vectors.map((v) => cosine(q, v));
   } catch {
     return null; // embedding model missing/unreachable → fall back to keyword search
   }
+}
+
+/** Index a newly attached file right away (in the background), so the first question about it is fast. */
+async function indexResource(sessionId, meta) {
+  if (!meta || meta.noText) return;
+  const pages = loadPages(sessionId, meta);
+  if (!pages) return;
+  try { await getChunkVectors(sessionId, meta, buildChunks(pages)); } catch { /* retried on first question */ }
+}
+
+// ─── Automatic passages for every message ────────────────────────────────────
+// Relevance gate for adding file passages to a message automatically.
+// bge-m3 similarity between a question and a ~600-char passage: related
+// passages scored 0.49–0.66, unrelated questions at most 0.40 (calibrated in
+// tests/resources.live.test.js). Keyword coverage is the fallback when
+// embeddings aren't available.
+const PASSAGE_SEM_GATE = 0.45;
+const PASSAGE_KEYWORD_GATE = 0.6;
+const MAX_AUTO_PASSAGES = 6;
+
+/**
+ * Searches the given files for passages relevant to `query` and returns them
+ * formatted for the prompt ('' when nothing is relevant enough). Used on every
+ * message, so follow-up questions about an attached file see the right part
+ * of it even when they don't name the file.
+ */
+async function findRelevantPassages(sessionId, resources, query, { maxChars = 8000, onStatus = () => {} } = {}) {
+  const terms = [...new Set(tokenize(query))];
+  if (terms.length === 0) return { text: '', count: 0 };
+  const hits = [];
+
+  for (const meta of resources) {
+    if (meta.noText) continue;
+    const pages = loadPages(sessionId, meta);
+    if (!pages) continue;
+    const chunks = buildChunks(pages);
+    if (chunks.length === 0) continue;
+
+    const sem = await semanticScores(sessionId, meta, chunks, query, onStatus);
+    chunks.forEach((c, i) => {
+      const lowered = String(normalizeText(c.text)).toLowerCase();
+      const coverage = terms.filter((t) => lowered.includes(t)).length / terms.length;
+      const passes = sem ? (sem[i] >= PASSAGE_SEM_GATE || (coverage >= PASSAGE_KEYWORD_GATE && terms.length >= 2))
+        : coverage >= PASSAGE_KEYWORD_GATE;
+      if (!passes) return;
+      hits.push({ meta, index: i, chunk: c, score: sem ? 0.7 * sem[i] + 0.3 * coverage : coverage });
+    });
+  }
+  if (hits.length === 0) return { text: '', count: 0 };
+
+  // Best passages within the budget, then shown in document order.
+  hits.sort((a, b) => b.score - a.score);
+  const picked = [];
+  let used = 0;
+  for (const h of hits) {
+    if (picked.length >= MAX_AUTO_PASSAGES) break;
+    const size = h.chunk.text.length + 80;
+    if (used + size > maxChars && picked.length > 0) continue;
+    picked.push(h);
+    used += size;
+  }
+  picked.sort((a, b) => (a.meta.name.localeCompare(b.meta.name)) || (a.index - b.index));
+
+  const blocks = picked.map((h) => {
+    const where = [`page ${h.chunk.page}`, h.chunk.line ? `line ${h.chunk.line}` : null].filter(Boolean).join(', ');
+    return `--- "${h.meta.name}", ${where} ---\n${neutralize(h.chunk.text)}`;
+  });
+  return { text: blocks.join('\n\n'), count: picked.length };
 }
 
 async function searchResources(sessionId, targets, query, args, ctx) {
@@ -532,6 +632,9 @@ module.exports = {
   setRangeBudget,
   getOutputBudget,
   setEmbedder,
+  setBatchEmbedder,
+  indexResource,
+  findRelevantPassages,
   // exported for tests
   _internals: { buildChunks, lexicalScores, tokenize, clip, parsePageSpec, compressPages }
 };

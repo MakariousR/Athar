@@ -3,6 +3,12 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
 const { parseDocumentFile, parseTextContent } = require('./parser/document-parser');
+const resourceTools = require('./tools/resource-tools');
+
+/** Index an attached file for search in the background, so the first question about it is fast. */
+function indexInBackground(sessionId, resource) {
+  resourceTools.indexResource(sessionId, resource).catch(() => {});
+}
 const ollama = require('./ollama/ollama-client');
 const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
@@ -102,6 +108,7 @@ function registerIpcHandlers() {
       const parsed = await parseDocumentFile(filePath);
       if (!parsed.success) return { success: false, error: parsed.error };
       const { resource, reused } = store.addSessionResource(sessionId, parsed);
+      if (!reused) indexInBackground(sessionId, resource);
       return { success: true, resource, reused, warning: parsed.warning || null };
     } catch (err) {
       return { success: false, error: err.message };
@@ -257,6 +264,7 @@ function registerIpcHandlers() {
       const safeTitle = thread.title.replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 60) || 'Conversation';
       const parsed = parseTextContent(`${safeTitle} (${thread.sourceName}).md`, text);
       const { resource, reused } = store.addSessionResource(sessionId, parsed);
+      if (!reused) indexInBackground(sessionId, resource);
       return { success: true, resource: { ...resource, reused } };
     } catch (err) { return { success: false, error: err.message }; }
   });

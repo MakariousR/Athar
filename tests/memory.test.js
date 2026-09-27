@@ -1,27 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
-const { test, done, tempDir, ROOT } = require('./helpers');
+const { test, done, tempDir, fakeEmbed, ROOT } = require('./helpers');
 
 const { MemoryIndex, formatMemoryContext } = require(path.join(ROOT, 'src/main/memory/memory-index'));
 const { chunkThread } = require(path.join(ROOT, 'src/main/memory/chunker'));
 const { parseMemoryQuery } = require(path.join(ROOT, 'src/main/memory/query-parser'));
 const { tokenize } = require(path.join(ROOT, 'src/main/memory/bm25'));
 const corpus = require('./fixtures/memory-corpus');
-
-/** Deterministic stand-in for bge-m3: hashed bag of words (so "meaning" ≈ shared words). */
-function fakeEmbed(texts) {
-  return Promise.resolve(texts.map((text) => {
-    const v = new Array(256).fill(0);
-    for (const tok of tokenize(text)) {
-      let h = 0;
-      for (const ch of tok) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-      v[h % 256] += 1;
-    }
-    v[255] += 0.01; // never all-zero
-    return v;
-  }));
-}
 
 async function makeIndex(dir = tempDir('cm-mem-'), embedTexts = fakeEmbed) {
   const mem = new MemoryIndex({ dir, embedTexts, embedModel: 'fake' });

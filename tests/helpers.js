@@ -61,4 +61,22 @@ function tempDir(prefix = 'chat-memory-') {
   return dir;
 }
 
-module.exports = { test, done, stubElectron, tempDir, ROOT };
+/**
+ * Deterministic stand-in for the bge-m3 embedding model: a hashed bag of words
+ * (so "meaning" ≈ shared words). Lets search tests run without Ollama.
+ */
+function fakeEmbed(texts) {
+  const { tokenize } = require(path.join(ROOT, 'src/main/memory/bm25'));
+  return Promise.resolve(texts.map((text) => {
+    const v = new Array(256).fill(0);
+    for (const tok of tokenize(text)) {
+      let hash = 0;
+      for (const ch of tok) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+      v[hash % 256] += 1;
+    }
+    v[255] += 0.01; // never all-zero
+    return v;
+  }));
+}
+
+module.exports = { test, done, stubElectron, tempDir, fakeEmbed, ROOT };
