@@ -683,7 +683,7 @@ function buildMessages(userText, memory, conversationHistory, images = [], works
 
   const now = new Date();
 
-  let systemContent = `You are Chat Memory, the user's personal AI assistant. You remember their past conversations — imported from ChatGPT, Claude and Gemini, plus earlier chats in this app — and can search the web and read files they attach.
+  let systemContent = `You are Athar, the user's personal AI assistant. You remember their past conversations — imported from ChatGPT, Claude and Gemini, plus earlier chats in this app — and can search the web and read files they attach.
 
 Today's real-world date is ${now.toDateString()} (${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}).
 Your own knowledge comes from training data that ends ${memory && memory.cutoffLabel ? `around ${memory.cutoffLabel}` : 'some time before today'}. Anything that may have changed since then (prices, news, versions, who holds a role…) you only know from web results in this conversation — otherwise say your information is as of your training data.
@@ -757,7 +757,7 @@ ${webRule}`;
       webBlock ? 'the web research is newer than your training data: base current facts on it (not on what you remember) and mention the source and date' : null,
       memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
-    const block = `[Context for this reply, provided by the Chat Memory app — not written by the user. ` +
+    const block = `[Context for this reply, provided by the Athar app — not written by the user. ` +
       `Use it to personalise: ${how}. Don't mention this context block itself.]\n${turnContext.join('\n\n')}`;
     preRead = preRead ? `${block}\n\n${preRead}` : block;
   }

@@ -37,7 +37,7 @@ async function done() {
  * app.getPath('userData') can run in plain Node. Returns the temp userData dir.
  */
 function stubElectron() {
-  const userData = tempDir('chat-memory-test-');
+  const userData = tempDir('athar-test-');
   require.cache[require.resolve('electron', { paths: [ROOT] })] = {
     loaded: true,
     exports: {
@@ -55,7 +55,7 @@ process.on('exit', () => {
   for (const dir of tempDirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }
 });
 
-function tempDir(prefix = 'chat-memory-') {
+function tempDir(prefix = 'athar-') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;

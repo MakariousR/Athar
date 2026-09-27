@@ -1,6 +1,6 @@
 {
-  "name": "chat-memory-app",
-  "productName": "Chat Memory",
+  "name": "athar",
+  "productName": "Athar",
   "version": "0.1.0",
   "description": "One private memory for all your AI chats: import ChatGPT, Claude and Gemini history, search it, and let a local Ollama model remember and cite it.",
   "main": "src/main/index.js",
@@ -14,8 +14,8 @@
     "dist": "electron-builder"
   },
   "build": {
-    "appId": "com.example.chatmemory",
-    "productName": "Chat Memory",
+    "appId": "com.makarious.athar",
+    "productName": "Athar",
     "files": [
       "src/**/*",
       "assets/**/*",

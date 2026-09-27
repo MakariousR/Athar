@@ -1,4 +1,4 @@
-const { ipcMain: electronIpcMain, dialog, BrowserWindow } = require('electron');
+const { ipcMain: electronIpcMain, dialog, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { parseAnyExport } = require('./parser/chatgpt-parser');
@@ -10,6 +10,7 @@ function indexInBackground(sessionId, resource) {
   resourceTools.indexResource(sessionId, resource).catch(() => {});
 }
 const ollama = require('./ollama/ollama-client');
+const ollamaInstaller = require('./ollama/ollama-installer');
 const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
 const { tokenize } = require('./memory/bm25');
@@ -165,6 +166,31 @@ function registerIpcHandlers() {
     const status = await ollama.checkAllModels();
     return { running: true, ...status };
   });
+
+  // Setup for people without Ollama: find it, start it, or install it
+  ipcMain.handle('ollama:find', async () => {
+    const exe = await ollamaInstaller.findOllama();
+    const canInstall = ollamaInstaller.canInstall();
+    return { installed: !!exe, canInstall, size: !exe && canInstall ? await ollamaInstaller.installerSize() : null };
+  });
+
+  ipcMain.handle('ollama:start', async () => {
+    try { await ollamaInstaller.startOllama(); return { success: true }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('ollama:install', async (event) => {
+    try {
+      await ollamaInstaller.installOllama((progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ollama:install-progress', progress);
+      });
+      return { success: true };
+    } catch (err) { return { success: false, error: err.message, cancelled: !!err.cancelled }; }
+  });
+
+  ipcMain.handle('ollama:install-cancel', () => { ollamaInstaller.cancelInstall(); return { success: true }; });
+
+  ipcMain.handle('ollama:open-download-page', () => shell.openExternal(ollamaInstaller.DOWNLOAD_PAGE));
 
   ipcMain.handle('ollama:list-models', async () => {
     try { return { success: true, models: await ollama.listModels() }; }

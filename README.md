@@ -1,4 +1,6 @@
-# Chat Memory
+# Athar (أثر)
+
+_Athar_ is Arabic for "trace": what your conversations leave behind.
 
 One private memory for all your AI chats. Import your ChatGPT, Claude and Gemini
 history; a local model (via [Ollama](https://ollama.com)) remembers it, cites it,
@@ -27,7 +29,10 @@ you ask for.
 
 ## Requirements
 
-- [Ollama](https://ollama.com) running locally
+- [Ollama](https://ollama.com). On Windows, if it is missing the app offers to install
+  it (it downloads the official installer, checks that it is signed by Ollama Inc.,
+  and installs it without an admin prompt). If it is installed but not running,
+  the app starts it.
 - A chat model — default `qwen2.5-coder:7b` (any installed chat model works;
   pick one in Settings) — and the `bge-m3` embedding model. The app offers to
   download both on first start.

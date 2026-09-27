@@ -135,7 +135,7 @@ const SOURCE_PATTERNS = [
   ['chatgpt', new RegExp(`\\b${SRC_PRE}(?:chat\\s?gpt|gpt-?[345o]\\w*|openai)\\b|(?:(?:في|مع|من)\\s+)?(?:شات|تشات) ?جي ?بي ?تي`, 'g')],
   ['claude', new RegExp(`\\b${SRC_PRE}claude\\b|(?:(?:في|مع|من)\\s+)?كلود`, 'g')],
   ['gemini', new RegExp(`\\b${SRC_PRE}(?:gemini|bard)\\b|(?:(?:في|مع|من)\\s+)?(?:جيميني|جيمناي|جمناي)`, 'g')],
-  ['app', /\b(?:in this app|here in the app|in chat memory|in-app)\b/g]
+  ['app', /\b(?:in this app|here in the app|in chat memory|in athar|in-app)\b/g]
 ];
 
 function tidy(text) {

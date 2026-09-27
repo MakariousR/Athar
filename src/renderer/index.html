@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
-  <title>Chat Memory</title>
+  <title>Athar</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,9 +11,21 @@
   <!-- SETUP OVERLAY -->
   <div id="setupOverlay" class="setup-overlay">
     <div class="setup-card">
-      <h1>Chat Memory</h1>
+      <h1>Athar <span class="app-name-ar" lang="ar">أثر</span></h1>
       <p class="setup-sub">Your personal AI that remembers your past conversations.</p>
       <p id="setupStatus" class="setup-msg">Checking your local AI engine…</p>
+
+      <div id="setupOllama" class="setup-ollama hidden">
+        <button id="setupOllamaBtn" class="primary-btn setup-choice-btn">Install Ollama</button>
+        <div id="setupOllamaProgress" class="setup-ollama-progress hidden">
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+          <div class="setup-ollama-progress-row">
+            <span id="setupOllamaProgressText"></span>
+            <button id="setupOllamaCancelBtn" class="setup-link-btn">Cancel</button>
+          </div>
+        </div>
+        <button id="setupOllamaManualBtn" class="setup-link-btn">Or download it yourself from ollama.com</button>
+      </div>
       
       <div id="setupChoices" class="setup-choices hidden">
         <button id="setupDefaultBtn" class="primary-btn setup-choice-btn">⬇ Install Recommended (Qwen 2.5 Coder 7B)</button>
@@ -109,7 +121,7 @@
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-top">
         <div class="brand-group">
-          <span class="app-brand">Chat Memory</span>
+          <span class="app-brand">Athar</span>
         </div>
         <button id="newChatBtn" class="icon-btn" title="New chat">＋</button>
       </div>
@@ -152,7 +164,7 @@
           <button id="sidebarToggleBtn" class="icon-btn topbar-toggle" title="Toggle Sidebar">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-          <span id="headerChatTitle" class="header-title" dir="auto">Chat Memory</span>
+          <span id="headerChatTitle" class="header-title" dir="auto">Athar</span>
         </div>
         <div class="topbar-right">
           <button id="headerModelPill" class="header-pill" title="Click to change model or settings">
@@ -167,7 +179,7 @@
         <div class="empty-icon-wrap">
           <span class="empty-hero-icon">🌊</span>
         </div>
-        <p class="empty-title">Chat Memory</p>
+        <p class="empty-title">Athar</p>
         <p class="empty-sub">One private memory for all your AI chats.<br/>Import your ChatGPT, Claude or Gemini history — the assistant remembers it, and you can search it all in one place.</p>
         <div class="empty-actions">
           <button id="emptyNewChatBtn" class="primary-btn empty-btn">＋ New chat</button>
@@ -291,7 +303,7 @@
           <div class="input-container composer" id="inputContainer">
             <div id="imagePreviewBar" class="image-preview-bar hidden"></div>
             <div id="docPreviewBar" class="doc-preview-bar hidden"></div>
-            <textarea id="messageInput" placeholder="Message Chat Memory…" rows="1" dir="auto"></textarea>
+            <textarea id="messageInput" placeholder="Message Athar…" rows="1" dir="auto"></textarea>
             <div class="composer-actions">
               <button id="attachDocBtn" class="icon-action" title="Attach files (PDF, text, code)" aria-label="Attach files">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>

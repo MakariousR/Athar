@@ -30,6 +30,15 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
+  findOllama: () => ipcRenderer.invoke('ollama:find'),
+  startOllama: () => ipcRenderer.invoke('ollama:start'),
+  installOllama: () => ipcRenderer.invoke('ollama:install'),
+  cancelOllamaInstall: () => ipcRenderer.invoke('ollama:install-cancel'),
+  openOllamaDownloadPage: () => ipcRenderer.invoke('ollama:open-download-page'),
+  onOllamaInstallProgress: (cb) => {
+    ipcRenderer.removeAllListeners('ollama:install-progress');
+    ipcRenderer.on('ollama:install-progress', (_e, progress) => cb(progress));
+  },
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
   pullModel: (modelName) => ipcRenderer.invoke('ollama:pull-model', modelName),
   deleteModel: (modelName) => ipcRenderer.invoke('ollama:delete-model', modelName),

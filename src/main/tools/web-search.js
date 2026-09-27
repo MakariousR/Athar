@@ -9,7 +9,7 @@ const { selectRelevant, formatFiguresSection } = require('./research-figures');
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 // Wikimedia asks API clients to identify themselves instead of posing as a browser.
-const API_UA = 'ChatMemory/0.1 (desktop app; local research assistant)';
+const API_UA = 'Athar/0.1 (desktop app; local research assistant)';
 
 // ─── Private-network guard (SSRF) ────────────────────────────────────────────
 // URLs fetched here are chosen by the model, which can be steered by text in

@@ -281,10 +281,9 @@ window.api.onChatStatus((statusData) => {
 // ── Setup flow ────────────────────────────────────────────────────────────────
 async function checkSetup() {
   const result = await window.api.checkOllama();
-  if (!result.running) {
-    setupStatus.innerHTML = `Ollama isn't running. Install it from <strong>ollama.com</strong>, start it, then relaunch this app.`;
-    return;
-  }
+  if (!result.running) { showOllamaSetup(); return; }
+  stopOllamaWatch();
+  setupOllama.classList.add('hidden');
   // chatInstalled is true when ANY chat model is installed (not only the default)
   if (result.chatInstalled && result.embedInstalled) { enterApp(); return; }
 
@@ -302,6 +301,118 @@ async function checkSetup() {
     renderSetupSteps([embedSetupStep()]);
   }
 }
+
+// ── Getting Ollama: start it if installed, otherwise install it ──────────────
+const setupOllama             = document.getElementById('setupOllama');
+const setupOllamaBtn          = document.getElementById('setupOllamaBtn');
+const setupOllamaManualBtn    = document.getElementById('setupOllamaManualBtn');
+const setupOllamaProgress     = document.getElementById('setupOllamaProgress');
+const setupOllamaProgressBar  = setupOllamaProgress.querySelector('.progress-bar');
+const setupOllamaProgressFill = setupOllamaProgress.querySelector('.progress-fill');
+const setupOllamaProgressText = document.getElementById('setupOllamaProgressText');
+const setupOllamaCancelBtn    = document.getElementById('setupOllamaCancelBtn');
+let setupOllamaAction = null; // what the main button does right now
+let ollamaWatchTimer = null;
+let ollamaInstalling = false;
+
+async function showOllamaSetup() {
+  setupStatus.textContent = 'Looking for Ollama, the free program Athar uses to run AI on your computer…';
+  const found = await window.api.findOllama();
+
+  if (found.installed) {
+    setupStatus.textContent = 'Starting Ollama…';
+    const res = await window.api.startOllama();
+    if (res.success) { checkSetup(); return; }
+    setupStatus.textContent = `Ollama is installed but didn't start: ${res.error}`;
+    showOllamaButtons('Try again', checkSetup);
+    return;
+  }
+
+  setupStatus.innerHTML = 'Athar runs AI privately on your own computer using <strong>Ollama</strong>, a free program. ' +
+    "It isn't installed yet.";
+  if (found.canInstall) {
+    const size = found.size ? ` (${formatBytes(found.size)} download)` : '';
+    showOllamaButtons(`Install Ollama${size}`, installOllama);
+  } else {
+    showOllamaButtons('Download Ollama', () => window.api.openOllamaDownloadPage(), { manual: false });
+  }
+  watchForOllama(); // continue by itself if Ollama gets installed another way
+}
+
+function showOllamaButtons(label, action, { manual = true } = {}) {
+  setupOllama.classList.remove('hidden');
+  setupOllamaProgress.classList.add('hidden');
+  setupOllamaBtn.classList.remove('hidden');
+  setupOllamaBtn.textContent = label;
+  setupOllamaAction = action;
+  setupOllamaManualBtn.classList.toggle('hidden', !manual);
+}
+
+function watchForOllama() {
+  stopOllamaWatch();
+  ollamaWatchTimer = setInterval(async () => {
+    if (ollamaInstalling) return;
+    const res = await window.api.checkOllama();
+    if (res.running) { stopOllamaWatch(); checkSetup(); }
+  }, 4000);
+}
+
+function stopOllamaWatch() {
+  if (ollamaWatchTimer) clearInterval(ollamaWatchTimer);
+  ollamaWatchTimer = null;
+}
+
+async function installOllama() {
+  stopOllamaWatch();
+  ollamaInstalling = true;
+  setupOllamaBtn.classList.add('hidden');
+  setupOllamaManualBtn.classList.add('hidden');
+  setupOllamaProgress.classList.remove('hidden');
+  setupOllamaCancelBtn.classList.remove('hidden');
+  setupOllamaProgressBar.classList.remove('indeterminate');
+  setupOllamaProgressFill.style.width = '0%';
+  setupOllamaProgressText.textContent = 'Starting the download…';
+  setupStatus.textContent = 'Installing Ollama. You can keep using your computer meanwhile.';
+
+  window.api.onOllamaInstallProgress((p) => {
+    if (p.phase === 'download') {
+      const pct = p.total ? Math.round((p.received / p.total) * 100) : 0;
+      setupOllamaProgressFill.style.width = `${pct}%`;
+      setupOllamaProgressText.textContent = p.total
+        ? `Downloading… ${formatBytes(p.received)} of ${formatBytes(p.total)} (${pct}%)`
+        : 'Downloading…';
+      return;
+    }
+    // After the download, stopping halfway could leave a broken install
+    setupOllamaCancelBtn.classList.add('hidden');
+    setupOllamaProgressBar.classList.add('indeterminate');
+    setupOllamaProgressText.textContent = {
+      verify: 'Checking the download is the genuine Ollama…',
+      install: 'Installing… this takes a minute or two',
+      start: 'Starting Ollama…'
+    }[p.phase] || '';
+  });
+
+  const res = await window.api.installOllama();
+  ollamaInstalling = false;
+  setupOllamaProgressBar.classList.remove('indeterminate');
+  if (res.success) {
+    setupOllama.classList.add('hidden');
+    checkSetup();
+    return;
+  }
+  setupStatus.textContent = res.cancelled ? 'Installation cancelled.' : `Couldn't install Ollama: ${res.error}`;
+  showOllamaButtons('Try again', installOllama);
+  watchForOllama();
+}
+
+setupOllamaBtn.addEventListener('click', () => { if (setupOllamaAction) setupOllamaAction(); });
+setupOllamaManualBtn.addEventListener('click', () => window.api.openOllamaDownloadPage());
+setupOllamaCancelBtn.addEventListener('click', () => {
+  setupOllamaCancelBtn.classList.add('hidden');
+  setupOllamaProgressText.textContent = 'Cancelling…';
+  window.api.cancelOllamaInstall();
+});
 
 function embedSetupStep() {
   return { model: EMBED_MODEL, label: 'Multilingual Embedding Model (bge-m3)', size: EMBED_MODEL_SIZE };
@@ -1121,7 +1232,7 @@ async function openSession(id) {
   });
   const { session } = await window.api.chatGet(id);
   if (headerChatTitle && session) {
-    headerChatTitle.textContent = session.title || 'Chat Memory';
+    headerChatTitle.textContent = session.title || 'Athar';
   }
   renderMessages(session ? session.messages || [] : []);
   clearAttachedDocuments();
@@ -2116,7 +2227,7 @@ function showEmptyState() {
   memoryView.classList.add('hidden');
   chatView.classList.add('hidden');
   emptyState.classList.remove('hidden');
-  if (headerChatTitle) headerChatTitle.textContent = 'Chat Memory';
+  if (headerChatTitle) headerChatTitle.textContent = 'Athar';
   updateHeaderModelDisplay();
 }
 

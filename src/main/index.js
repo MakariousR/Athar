@@ -1,5 +1,26 @@
 const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// The app used to be called "Chat Memory" and kept its data in
+// "%APPDATA%/Chat Memory". Move anything there into the new folder before
+// the app opens it (entries already in the new folder are left alone).
+function moveDataFromOldName() {
+  try {
+    const oldDir = path.join(app.getPath('appData'), 'Chat Memory');
+    const newDir = app.getPath('userData');
+    if (path.resolve(oldDir) === path.resolve(newDir) || !fs.existsSync(oldDir)) return;
+    fs.mkdirSync(newDir, { recursive: true });
+    for (const entry of fs.readdirSync(oldDir)) {
+      const target = path.join(newDir, entry);
+      if (!fs.existsSync(target)) fs.renameSync(path.join(oldDir, entry), target);
+    }
+    if (fs.readdirSync(oldDir).length === 0) fs.rmdirSync(oldDir);
+  } catch (err) {
+    console.error('Could not move data from the old "Chat Memory" folder:', err.message);
+  }
+}
+moveDataFromOldName();
 const { registerIpcHandlers } = require('./ipc-handlers');
 
 let mainWindow;
@@ -19,7 +40,7 @@ function createWindow() {
     height: 750,
     minWidth: 800,
     minHeight: 600,
-    title: 'Chat Memory',
+    title: 'Athar',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,

@@ -1938,3 +1938,15 @@ body {
   .memory-thread-body { position: relative; }
   .memory-file-panel { position: absolute; inset: 0 0 16px 0; z-index: 5; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
 }
+
+/* ── Setup: installing Ollama ── */
+.setup-ollama { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+.setup-ollama-progress { display: flex; flex-direction: column; gap: 8px; }
+.setup-ollama-progress .progress-bar { flex: none; }
+.setup-ollama-progress-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+.setup-link-btn { background: none; border: none; padding: 4px; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.setup-link-btn:hover { color: var(--text); }
+.progress-bar.indeterminate .progress-fill { width: 35% !important; animation: progress-slide 1.2s ease-in-out infinite; }
+@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+
+.setup-card h1 .app-name-ar { font-weight: 500; color: var(--muted); margin-inline-start: 6px; }
