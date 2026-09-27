@@ -1655,3 +1655,6 @@ body {
 /* Download failure: show the full reason, wrapped */
 .model-dl-text.error { white-space: normal; text-align: left; color: var(--danger); line-height: 1.4; }
 .model-dl-progress:has(.model-dl-text.error) .progress-bar { display: none; }
+
+/* Model card: capability warning (e.g. no tool support) */
+.cap-row.cap-warn .cap-val { color: #f5b544; white-space: normal; text-align: right; }

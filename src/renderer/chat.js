@@ -122,25 +122,36 @@ const MODEL_CATALOG = [
   { name: 'qwen2.5:72b',       label: 'Qwen 2.5 · 72B',         sizeBytes: 47_000_000_000, ram: '~52 GB',  vision: false, desc: 'Top-of-the-line 72B model. Maximum capability for workstation hardware.' }
 ];
 
+// What Ollama reports each INSTALLED model can do, e.g. ["completion","tools","vision"].
+// Authoritative when present; the catalog's `vision` flag is only a fallback.
+const installedCapabilities = new Map();
+
 function getModelInfo(modelName) {
-  return MODEL_CATALOG.find((m) => m.name === modelName || m.name.startsWith(modelName + ':')) || {
+  const info = MODEL_CATALOG.find((m) => m.name === modelName || m.name.startsWith(modelName + ':')) || {
     name: modelName,
     label: modelName,
     ram: 'Unknown',
     vision: false,
     desc: 'Custom installed model.'
   };
+  const caps = installedCapabilities.get(modelName);
+  if (!caps) return info;
+  return { ...info, vision: caps.includes('vision'), tools: caps.includes('tools') };
 }
 
 function renderCapCard(modelName, containerEl) {
   if (!containerEl) return;
   const info = getModelInfo(modelName);
+  const toolsRow = info.tools === undefined ? '' : info.tools
+    ? '<div class="cap-row"><span>Tools:</span> <span class="cap-val">✓ web search, memory search, files</span></div>'
+    : '<div class="cap-row cap-warn"><span>Tools:</span> <span class="cap-val">✗ not supported — can\'t search or read files on its own (memory and automatic web research still work)</span></div>';
   containerEl.innerHTML = `
     <div class="cap-title">
       <span>${escapeHtml(info.label)}</span>
       <span class="cap-badge ${info.vision ? 'vision' : ''}">${info.vision ? '🖼️ Vision + Text' : '⚡ Text Only'}</span>
     </div>
     <div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>
+    ${toolsRow}
     <div class="cap-desc">${escapeHtml(info.desc)}</div>
   `;
   containerEl.classList.remove('hidden');
@@ -576,14 +587,20 @@ async function loadModelSelector() {
       .sort((a, b) => a.sizeBytes - b.sizeBytes);
 
     modelSelect.innerHTML = '';
+    installedCapabilities.clear();
     for (const entry of allEntries) {
       const inst = findInstalled(entry.name);
+      if (inst && Array.isArray(inst.capabilities)) {
+        installedCapabilities.set(entry.name, inst.capabilities);
+        installedCapabilities.set(inst.name, inst.capabilities);
+      }
       const opt  = document.createElement('option');
       opt.value  = entry.name;
       opt.dataset.installed = inst ? 'true' : 'false';
       const sizeStr = inst ? formatBytes(inst.size) : `~${formatBytes(entry.sizeBytes)}`;
+      const noTools = inst && Array.isArray(inst.capabilities) && !inst.capabilities.includes('tools');
       opt.textContent = inst
-        ? `✓  ${entry.label}  (${sizeStr})`
+        ? `✓  ${entry.label}  (${sizeStr})${noTools ? '  · no tools' : ''}`
         : `⬇  ${entry.label}  (${sizeStr})`;
       modelSelect.appendChild(opt);
     }

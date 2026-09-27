@@ -270,15 +270,21 @@ async function runAgentLoop({
   maxSteps  = 40,         // bounds the SDK's own tool-call → continue loop within one call
   maxTotalMs = 600000,    // hard time limit per call (becomes an AbortSignal inside the SDK)
   needsWorkspaceRead = false, // question is explicitly about the project folder → nudge once if no tool was used
+  useTools = true,            // false for models without tool calling (Ollama rejects tools for them)
   model = ollama(modelName),  // overridable for tests
   onError = () => {},
   fallbackRetriesLeft = 3,    // retries for "printed a tool call as text"
   continueRetriesLeft = 1,    // nudges when a project question was answered without looking
   progressLogSoFar = []       // "tool → result" recap across retries, fed back to the model
 }) {
-  const tools = buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText });
+  const tools = useTools ? buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText }) : {};
   const toolNames = Object.keys(tools);
   const researchLog = [];
+
+  // The SDK reports stream failures (e.g. Ollama's "model does not support
+  // tools") only through onError and then a generic "No output generated".
+  // Keep the real error so the caller — and the user — see what went wrong.
+  let streamError = null;
 
   // Text streaming: tokens are held back until it's clear the step's output
   // isn't a printed tool call, so raw JSON doesn't flash up as the answer.
@@ -291,10 +297,13 @@ async function runAgentLoop({
     model,
     system: systemContent,
     messages: [...messages],
-    tools,
+    ...(useTools ? { tools } : {}),
     stopWhen: stepCountIs(maxSteps),
     timeout: maxTotalMs,
-    onError,
+    onError: (event) => {
+      streamError = (event && event.error) || event;
+      onError(event);
+    },
     prepareStep: async () => {
       onStatus({ type: 'reset' }); // UI clears text from the previous step
       streamBuffer = '';
@@ -337,17 +346,27 @@ async function runAgentLoop({
         }
       }
     }
-    if (!streamFlushed && streamBuffer && tryParseFallbackToolCalls(streamBuffer, toolNames).length === 0) {
+    if (!streamFlushed && streamBuffer && tryParseFallbackToolCalls(streamBuffer, ALL_KNOWN_TOOLS).length === 0) {
       onToken(streamBuffer);
     }
   } finally {
     clearInterval(heartbeat);
   }
 
-  const finalText = await result.text;
-  const stepMessages = await result.responseMessages;
-  const toolCallsSoFar = await result.toolCalls;
-  const toolResultsSoFar = await result.toolResults;
+  let finalText, stepMessages, toolCallsSoFar, toolResultsSoFar;
+  try {
+    finalText = await result.text;
+    stepMessages = await result.responseMessages;
+    toolCallsSoFar = await result.toolCalls;
+    toolResultsSoFar = await result.toolResults;
+  } catch (err) {
+    // Replace the SDK's generic "No output generated" with the actual cause.
+    if (streamError) {
+      const cause = streamError.responseBody || streamError.message || String(streamError);
+      throw new Error(typeof cause === 'string' ? cause.replace(/^\{"error":"(.*)"\}$/, '$1') : String(cause));
+    }
+    throw err;
+  }
 
   const progressLog = [
     ...progressLogSoFar,
@@ -356,7 +375,7 @@ async function runAgentLoop({
 
   const retry = (followUpContent, overrides) => runAgentLoop({
     modelName, systemContent, userText, workspaceDir, executeTool,
-    onToken, onStatus, onRequestPermission, maxSteps, maxTotalMs, needsWorkspaceRead,
+    onToken, onStatus, onRequestPermission, maxSteps, maxTotalMs, needsWorkspaceRead, useTools,
     model, onError, fallbackRetriesLeft, continueRetriesLeft,
     messages: [...messages, ...stepMessages, { role: 'user', content: followUpContent }],
     ...overrides
@@ -407,8 +426,8 @@ async function runAgentLoop({
 
   // Retry budget spent but the reply still contains printed tool calls:
   // never show raw JSON as the answer. Keep any real prose around it.
-  if (tryParseFallbackToolCalls(finalText, toolNames).length > 0) {
-    const prose = stripToolCallJson(finalText, toolNames);
+  if (tryParseFallbackToolCalls(finalText, ALL_KNOWN_TOOLS).length > 0) {
+    const prose = stripToolCallJson(finalText, ALL_KNOWN_TOOLS);
     return {
       text: prose || 'Sorry — I couldn\'t finish working this out. Please try asking again, a bit more specifically.',
       researchLog
