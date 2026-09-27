@@ -1874,3 +1874,9 @@ body {
 .workspace-zone.disabled { opacity: 0.5; cursor: not-allowed; }
 .workspace-zone.disabled:hover { border-color: var(--border); background: var(--bg); }
 .workspace-note { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #f5b544; }
+
+/* Rendered markdown (answers, and imported messages in the memory viewer):
+   HTML provides the line breaks, so pre-wrap would add big blank gaps */
+.message-text.markdown { white-space: normal; }
+.message-text.markdown pre { white-space: pre; }
+.message.user .message-text.markdown pre { max-width: 100%; overflow-x: auto; }

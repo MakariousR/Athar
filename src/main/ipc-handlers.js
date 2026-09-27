@@ -210,7 +210,7 @@ function registerIpcHandlers() {
       if (threads.length === 0) return { success: false, error: 'No conversations found in this file.' };
       const source = threads[0].source || 'unknown';
       const result = memory.importThreads(threads, source);
-      return { success: true, ...result };
+      return { success: true, ...result, skippedEmpty: threads.skippedEmpty || 0 };
     } catch (err) {
       return { success: false, error: err.message };
     }

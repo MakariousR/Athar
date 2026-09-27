@@ -67,9 +67,16 @@ function normalizeThread(t, fallbackSource) {
   };
 }
 
+/**
+ * Content hash of a whole conversation. Covers every message, so a re-import
+ * picks up changes anywhere in it — e.g. after a parser improvement fills in
+ * code blocks that an earlier import stored as placeholders.
+ */
 function threadSignature(t) {
-  const last = t.messages[t.messages.length - 1];
-  return `${t.title}|${t.messages.length}|${last ? last.text.length : 0}|${last ? last.text.slice(-80) : ''}`;
+  const hash = require('crypto').createHash('sha1');
+  hash.update(t.title || '');
+  for (const m of t.messages) hash.update(`\u0000${m.role}\u0000${m.text}`);
+  return hash.digest('hex');
 }
 
 class Segment {

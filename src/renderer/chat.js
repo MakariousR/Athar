@@ -541,7 +541,7 @@ function renderMemoryStatus() {
   const importedCount = imported.reduce((n, [, s]) => n + s.count, 0);
   if (importedCount > 0) {
     importZone.classList.add('loaded');
-    importLabel.textContent = `✓ ${importedCount.toLocaleString()} imported conversations`;
+    importLabel.textContent = `✓ ${importedCount.toLocaleString()} imported conversation${importedCount === 1 ? '' : 's'}`;
   }
   const parts = lastImportNote ? [lastImportNote] : [];
   if (memoryStats.pending > 0) {
@@ -1237,7 +1237,7 @@ function appendMessageBubble(role, text, images = [], documents = []) {
 }
 
 /** Builds (but doesn't insert) a message bubble — shared by the chat and the memory viewer. */
-function createMessageBubble(role, text, images = [], documents = []) {
+function createMessageBubble(role, text, images = [], documents = [], { markdown = role === 'assistant' } = {}) {
   // Minimal layout: your messages are a soft bubble on the right; the
   // assistant's answer is plain text across the column (no avatar, no label).
   const div = document.createElement('div');
@@ -1250,8 +1250,10 @@ function createMessageBubble(role, text, images = [], documents = []) {
   const textEl = document.createElement('div');
   textEl.className = 'message-text';
   textEl.dir = 'auto'; // Arabic (right-to-left) and English messages each lay out correctly
-  if (role === 'assistant' && text) textEl.innerHTML = renderMarkdown(text);
-  else textEl.textContent = text;
+  if (markdown && text) {
+    textEl.innerHTML = renderMarkdown(text);
+    textEl.classList.add('markdown'); // line breaks come from the HTML, not pre-wrap
+  } else textEl.textContent = text;
   if (role === 'user' && !text) textEl.classList.add('hidden'); // attachment-only message: no empty bubble
 
   body.appendChild(textEl);
@@ -1477,7 +1479,8 @@ async function handleImportFile(file) {
   const changes = [
     result.added ? `${result.added} new` : null,
     result.updated ? `${result.updated} updated` : null,
-    result.unchanged ? `${result.unchanged} already imported` : null
+    result.unchanged ? `${result.unchanged} already imported` : null,
+    result.skippedEmpty ? `${result.skippedEmpty} skipped (the export has no text for them)` : null
   ].filter(Boolean).join(', ');
   lastImportNote = `${sourceLabel}: ${changes || 'nothing new'}.`;
   importStatus.textContent = lastImportNote;
@@ -1692,7 +1695,7 @@ async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
   let firstHighlight = null;
   const end = msgEnd === null || msgEnd === undefined ? msgStart : msgEnd;
   thread.messages.forEach((m, i) => {
-    const bubble = createMessageBubble(m.role, m.text);
+    const bubble = createMessageBubble(m.role, m.text, [], [], { markdown: true });
     if (msgStart !== null && msgStart !== undefined && i >= msgStart && i <= end) {
       bubble.classList.add('memory-highlight');
       if (!firstHighlight) firstHighlight = bubble;
