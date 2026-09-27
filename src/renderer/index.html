@@ -262,20 +262,36 @@
 
       <div id="chatView" class="chat-view hidden">
         <div id="sessionResourcesBar" class="session-resources-bar hidden">
-          <span class="resources-label">📚 Session Resources:</span>
+          <span class="resources-label">Files in this chat</span>
           <div id="sessionResourcesList" class="session-resources-list"></div>
         </div>
         <div id="messageList" class="message-list"></div>
-        <div class="input-container" id="inputContainer">
-          <div id="imagePreviewBar" class="image-preview-bar hidden"></div>
-          <div id="docPreviewBar" class="doc-preview-bar hidden"></div>
-          <div class="input-bar">
-            <button id="attachDocBtn" class="attach-btn" title="Attach document or code file (.pdf, .txt, .py, .js, .html, etc.)">📄</button>
-            <input type="file" id="documentFileInput" accept=".pdf,.txt,.md,.py,.js,.ts,.html,.css,.json,.csv,.c,.cpp,.h,.java,.rs,.go,.sh,.yaml,.yml,.xml,.sql,.log,text/*,application/pdf" multiple class="hidden" />
-            <button id="attachImgBtn" class="attach-btn hidden" title="Attach image for Vision AI model">🖼️</button>
-            <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
+
+        <!-- Shown in an empty chat: greeting + composer float in the middle -->
+        <div id="chatWelcome" class="chat-welcome hidden">
+          <h2 class="chat-welcome-title">What can I help with?</h2>
+          <p class="chat-welcome-sub">I remember your past chats from ChatGPT, Claude, Gemini and this app.</p>
+        </div>
+
+        <div class="composer-wrap">
+          <div class="input-container composer" id="inputContainer">
+            <div id="imagePreviewBar" class="image-preview-bar hidden"></div>
+            <div id="docPreviewBar" class="doc-preview-bar hidden"></div>
             <textarea id="messageInput" placeholder="Message Chat Memory…" rows="1" dir="auto"></textarea>
-            <button id="sendBtn" class="send-btn">Send</button>
+            <div class="composer-actions">
+              <button id="attachDocBtn" class="icon-action" title="Attach files (PDF, text, code)" aria-label="Attach files">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>
+              </button>
+              <input type="file" id="documentFileInput" accept=".pdf,.txt,.md,.py,.js,.ts,.html,.css,.json,.csv,.c,.cpp,.h,.java,.rs,.go,.sh,.yaml,.yml,.xml,.sql,.log,text/*,application/pdf" multiple class="hidden" />
+              <button id="attachImgBtn" class="icon-action hidden" title="Attach an image" aria-label="Attach an image">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5.5-5.5L6 20"/></svg>
+              </button>
+              <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
+              <span class="composer-spacer"></span>
+              <button id="sendBtn" class="send-btn" title="Send (Enter)" aria-label="Send" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>

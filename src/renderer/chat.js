@@ -233,7 +233,7 @@ window.api.onChatStatus((statusData) => {
     box.className = 'thought-box';
     box.innerHTML = `
       <div class="thought-header">
-        <span class="thought-title"><span class="thought-chevron">▼</span> Thought Process</span>
+        <span class="thought-title"><span class="thought-chevron">${svgIcon('<path d="M6 9l6 6 6-6"/>')}</span><span class="thought-label">Thinking…</span></span>
         <span class="thought-count">1 step</span>
       </div>
       <div class="thought-content">
@@ -256,7 +256,7 @@ window.api.onChatStatus((statusData) => {
   if (info.type === 'progress') {
     const item = progressItem || document.createElement('li');
     item.className = 'thought-step-item progress';
-    item.innerHTML = `<span class="thought-step-icon">${escapeHtml(info.icon || '⏳')}</span> <span class="thought-step-text">${escapeHtml(info.text)}</span>`;
+    item.innerHTML = `<span class="thought-step-dot"></span><span class="thought-step-text">${escapeHtml(info.text)}</span>`;
     stepsList.appendChild(item); // (re)attach at the end
     const steps = stepsList.querySelectorAll('li:not(.progress)').length;
     box.querySelector('.thought-count').textContent = `${steps} step${steps === 1 ? '' : 's'}`;
@@ -268,7 +268,7 @@ window.api.onChatStatus((statusData) => {
 
   const stepItem  = document.createElement('li');
   stepItem.className = 'thought-step-item';
-  stepItem.innerHTML = `<span class="thought-step-icon">${escapeHtml(info.icon || '⚡')}</span> <span class="thought-step-text">${escapeHtml(info.text)}</span>`;
+  stepItem.innerHTML = `<span class="thought-step-dot"></span><span class="thought-step-text">${escapeHtml(info.text)}</span>`;
   stepsList.appendChild(stepItem);
 
   const countEl = box.querySelector('.thought-count');
@@ -639,6 +639,7 @@ function updateVisionCapability() {
 }
 
 function clearAttachedImages() {
+  queueMicrotask(updateSendState); // attachments changed
   attachedImages = [];
   if (imagePreviewBar) {
     imagePreviewBar.innerHTML = '';
@@ -653,6 +654,7 @@ function removeAttachedImage(index) {
 }
 
 function renderImagePreviews() {
+  queueMicrotask(updateSendState); // attachments changed
   if (!imagePreviewBar) return;
   if (attachedImages.length === 0) {
     imagePreviewBar.innerHTML = '';
@@ -670,7 +672,7 @@ function renderImagePreviews() {
       <div class="image-preview-info">
         <span class="image-preview-name">${escapeHtml(img.name)}</span>
       </div>
-      <button type="button" class="image-preview-remove" title="Remove image">&times;</button>
+      <button type="button" class="image-preview-remove" title="Remove image" aria-label="Remove">${ICONS.close}</button>
     `;
     chip.querySelector('.image-preview-remove').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -706,6 +708,7 @@ if (attachImgBtn && imageFileInput) {
 }
 
 function clearAttachedDocuments() {
+  queueMicrotask(updateSendState); // attachments changed
   attachedDocuments = [];
   if (docPreviewBar) {
     docPreviewBar.innerHTML = '';
@@ -725,14 +728,26 @@ async function removeAttachedDocument(index) {
   }
 }
 
+// Simple line icons (inherit the text colour via stroke="currentColor").
+const svgIcon = (paths) => `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+const FILE_OUTLINE = '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>';
+const ICONS = {
+  file: svgIcon(`${FILE_OUTLINE}<path d="M9 13h6M9 17h4"/>`),
+  code: svgIcon(`${FILE_OUTLINE}<path d="M10 12.5l-2 2 2 2M14 12.5l2 2-2 2"/>`),
+  data: svgIcon(`${FILE_OUTLINE}<path d="M8.5 12h7v6h-7zM8.5 15h7M12 12v6"/>`),
+  pdf: svgIcon(`${FILE_OUTLINE}<path d="M9 17v-4h1.5a1.25 1.25 0 0 1 0 2.5H9"/>`),
+  close: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>')
+};
+
 function getDocumentIcon(ext) {
-  if (ext === '.pdf') return '📕';
-  if (['.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.c', '.cpp', '.h', '.java', '.rs', '.go', '.sh', '.sql'].includes(ext)) return '💻';
-  if (['.json', '.csv', '.yaml', '.yml', '.xml', '.toml'].includes(ext)) return '📊';
-  return '📄';
+  if (ext === '.pdf') return ICONS.pdf;
+  if (['.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.c', '.cpp', '.h', '.java', '.rs', '.go', '.sh', '.sql'].includes(ext)) return ICONS.code;
+  if (['.json', '.csv', '.yaml', '.yml', '.xml', '.toml'].includes(ext)) return ICONS.data;
+  return ICONS.file;
 }
 
 function renderDocumentPreviews() {
+  queueMicrotask(updateSendState); // attachments changed
   if (!docPreviewBar) return;
   if (attachedDocuments.length === 0) {
     docPreviewBar.innerHTML = '';
@@ -760,7 +775,7 @@ function renderDocumentPreviews() {
         <span class="doc-preview-name">${escapeHtml(doc.name)}</span>
         <span class="doc-preview-meta">${escapeHtml(details)}</span>
       </div>
-      <button type="button" class="doc-preview-remove" title="Remove document">&times;</button>
+      <button type="button" class="doc-preview-remove" title="Remove document" aria-label="Remove">${ICONS.close}</button>
     `;
     chip.querySelector('.doc-preview-remove').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -795,7 +810,7 @@ async function renderSessionResourcesUI(sessionId) {
       <span class="resource-chip-icon">${icon}</span>
       <span class="resource-chip-name">${escapeHtml(r.name)}</span>
       <span class="resource-chip-meta">(${escapeHtml(details)})</span>
-      <button type="button" class="resource-chip-remove" title="Remove resource from session">&times;</button>
+      <button type="button" class="resource-chip-remove" title="Remove resource from session" aria-label="Remove">${ICONS.close}</button>
     `;
 
     chip.querySelector('.resource-chip-remove').addEventListener('click', async (e) => {
@@ -1145,6 +1160,7 @@ function renderMessages(messages) {
       renderSourceChips(textEl.closest('.message'), msg.sources);
     }
   }
+  updateEmptyChatState();
 }
 
 function appendMessageBubble(role, text, images = [], documents = []) {
@@ -1155,27 +1171,22 @@ function appendMessageBubble(role, text, images = [], documents = []) {
 
 /** Builds (but doesn't insert) a message bubble — shared by the chat and the memory viewer. */
 function createMessageBubble(role, text, images = [], documents = []) {
+  // Minimal layout: your messages are a soft bubble on the right; the
+  // assistant's answer is plain text across the column (no avatar, no label).
   const div = document.createElement('div');
   div.className = `message ${role}`;
-
-  const avatar = document.createElement('div');
-  avatar.className = 'message-avatar';
-  avatar.textContent = role === 'user' ? 'Y' : 'AI';
+  div.setAttribute('aria-label', role === 'user' ? 'You said' : 'Assistant replied');
 
   const body = document.createElement('div');
   body.className = 'message-body';
-
-  const roleLabel = document.createElement('div');
-  roleLabel.className = 'message-role';
-  roleLabel.textContent = role === 'user' ? 'You' : 'Assistant';
 
   const textEl = document.createElement('div');
   textEl.className = 'message-text';
   textEl.dir = 'auto'; // Arabic (right-to-left) and English messages each lay out correctly
   if (role === 'assistant' && text) textEl.innerHTML = renderMarkdown(text);
   else textEl.textContent = text;
+  if (role === 'user' && !text) textEl.classList.add('hidden'); // attachment-only message: no empty bubble
 
-  body.appendChild(roleLabel);
   body.appendChild(textEl);
 
   if (documents && documents.length > 0) {
@@ -1192,23 +1203,25 @@ function createMessageBubble(role, text, images = [], documents = []) {
       chip.innerHTML = `
         <span class="msg-doc-icon">${icon}</span>
         <span class="msg-doc-name">${escapeHtml(doc.name)}</span>
-        ${meta ? `<span class="msg-doc-meta">(${escapeHtml(meta)})</span>` : ''}
+        ${meta ? `<span class="msg-doc-meta">${escapeHtml(meta)}</span>` : ''}
       `;
       docWrap.appendChild(chip);
     }
-    body.appendChild(docWrap);
+    body.insertBefore(docWrap, textEl); // attachments above the message text
   }
 
   if (images && images.length > 0) {
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'msg-images';
     for (const imgStr of images) {
       const imgEl = document.createElement('img');
       imgEl.className = 'msg-image-thumb';
       imgEl.src = imgStr.startsWith('data:') ? imgStr : `data:image/png;base64,${imgStr}`;
-      body.appendChild(imgEl);
+      imgWrap.appendChild(imgEl);
     }
+    body.insertBefore(imgWrap, textEl);
   }
 
-  div.appendChild(avatar);
   div.appendChild(body);
   return div;
 }
@@ -1225,7 +1238,7 @@ function renderSourceChips(bubbleEl, sources) {
 
   const label = document.createElement('span');
   label.className = 'source-chips-label';
-  label.textContent = 'From your memory:';
+  label.textContent = 'From your memory';
   wrap.appendChild(label);
 
   // Cited memories ([M1] in the answer) first; ones the answer didn't use are dimmed.
@@ -1281,6 +1294,7 @@ async function sendMessage() {
   pendingSources = null;
 
   appendMessageBubble('user', text, currentImagesDataUrl, currentDocs);
+  updateEmptyChatState();
 
   const assistantTextEl = appendMessageBubble('assistant', '');
   const assistantBubble = assistantTextEl.closest('.message');
@@ -1304,6 +1318,7 @@ async function sendMessage() {
   currentAssistantEl     = null;
   currentAssistantBubble = null;
   assistantBubble.classList.remove('typing-indicator');
+  finishThoughtBox(assistantBubble);
 
   // Final chips know which memories the answer actually cited
   if (result.success && result.sources && result.sources.length) {
@@ -1319,7 +1334,7 @@ async function sendMessage() {
   }
 
   isStreaming = false;
-  sendBtn.disabled = false;
+  updateSendState();
   messageInput.focus();
   scrollToBottom();
   renderSessionResourcesUI(activeSessionId);
@@ -1333,8 +1348,33 @@ messageInput.addEventListener('keydown', (e) => {
 });
 messageInput.addEventListener('input', () => {
   messageInput.style.height = 'auto';
-  messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
+  messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
+  updateSendState();
 });
+
+/** Send is enabled only when there's something to send and no answer is in progress. */
+function updateSendState() {
+  const hasContent = messageInput.value.trim() || attachedImages.length > 0 || attachedDocuments.length > 0;
+  sendBtn.disabled = isStreaming || !hasContent;
+}
+
+/** An empty chat shows a greeting with the composer floating in the middle; it moves down once messages exist. */
+function updateEmptyChatState() {
+  const empty = messageList.children.length === 0;
+  chatView.classList.toggle('is-empty', empty);
+  document.getElementById('chatWelcome').classList.toggle('hidden', !empty);
+}
+
+/** When an answer is done, the thought process folds away (click to reopen). */
+function finishThoughtBox(bubble) {
+  const box = bubble && bubble.querySelector('.thought-box');
+  if (!box) return;
+  const label = box.querySelector('.thought-label');
+  if (label) label.textContent = 'Thought process';
+  box.classList.add('collapsed', 'done');
+  const progress = box.querySelector('.thought-step-item.progress');
+  if (progress) progress.remove();
+}
 
 // ── Import history ────────────────────────────────────────────────────────────
 importZone.addEventListener('click', () => fileInput.click());
