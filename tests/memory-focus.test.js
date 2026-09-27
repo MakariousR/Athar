@@ -100,6 +100,43 @@ test('one shared word is not enough when several chats have it in their title', 
   assert(clear.focus && clear.focus.threadId === 'py-2');
 });
 
+// ── Asking for a list of conversations ──
+test('"what were the main chats titles between me and claude" lists every Claude chat once', async () => {
+  const mem = await makeIndex();
+  const claudeIds = corpus.filter((t) => t.source === 'claude').map((t) => t.id).sort();
+  for (const q of ['tell me what were the main chats titles between me and claude', 'ما هي عناوين محادثاتي مع كلود؟', 'list my chats with Claude']) {
+    const r = await mem.search(q);
+    assert(r.list, `${q}: not a list`);
+    assert.deepStrictEqual(r.passages.map((p) => p.threadId).sort(), claudeIds, q);
+    assert(r.note.includes(`TOTAL: ${claudeIds.length}`), r.note);
+  }
+});
+
+test('"how many chats do I have with ChatGPT?" / "كم محادثة عندي مع شات جي بي تي؟" give the total', async () => {
+  const mem = await makeIndex();
+  const n = corpus.filter((t) => t.source === 'chatgpt').length;
+  for (const q of ['how many chats do I have with ChatGPT?', 'كم محادثة عندي مع شات جي بي تي؟']) {
+    const r = await mem.search(q);
+    assert(r.list && r.note.includes(`TOTAL: ${n} `), `${q}: ${r.note}`);
+    assert(r.passages.every((p) => p.source === 'chatgpt'));
+  }
+});
+
+test('"which of my conversations were about X" lists each matching chat once', async () => {
+  const mem = await makeIndex();
+  const r = await mem.search('which of my conversations were about kubernetes?');
+  assert(r.list && r.passages.length > 0);
+  assert.strictEqual(new Set(r.passages.map((p) => p.threadId)).size, r.passages.length, 'a chat listed twice');
+  assert.strictEqual(r.passages[0].threadId, 'claude-long');
+});
+
+test('ordinary questions are not treated as a list request', async () => {
+  const mem = await makeIndex();
+  for (const q of ['what did I say about work in our chats?', 'give me a list of numbers in python', 'summarize my chat about the bakery database']) {
+    assert(!(await mem.search(q)).list, q);
+  }
+});
+
 // ── Deleting a chat in the app removes it from memory ──
 test('deleting a chat (the real delete handler) removes it from memory search and stored vectors', async () => {
   const electron = require('electron');

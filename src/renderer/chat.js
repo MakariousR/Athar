@@ -1406,6 +1406,8 @@ function createMessageBubble(role, text, images = [], documents = [], { markdown
   return div;
 }
 
+const MAX_VISIBLE_CHIPS = 8;
+
 function renderSourceChips(bubbleEl, sources) {
   if (!sources || sources.length === 0) return;
 
@@ -1447,7 +1449,22 @@ function renderSourceChips(bubbleEl, sources) {
     chip.addEventListener('click', () => {
       if (typeof openMemoryThread === 'function') openMemoryThread(s.threadId, s.msgStart);
     });
+    if (wrap.querySelectorAll('.source-chip').length >= MAX_VISIBLE_CHIPS) chip.classList.add('hidden');
     wrap.appendChild(chip);
+  }
+
+  // A list of many conversations: show a few, the rest on request
+  const hiddenChips = wrap.querySelectorAll('.source-chip.hidden');
+  if (hiddenChips.length > 0) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'source-chip source-chips-more';
+    more.textContent = `+${hiddenChips.length} more`;
+    more.addEventListener('click', () => {
+      hiddenChips.forEach((c) => c.classList.remove('hidden'));
+      more.remove();
+    });
+    wrap.appendChild(more);
   }
 
   // Append to the message body, not the text element
