@@ -56,6 +56,7 @@ const permApproveBtn        = document.getElementById('permApproveBtn');
 const settingsModal         = document.getElementById('settingsModal');
 const settingsBtn           = document.getElementById('settingsBtn');
 const sidebarSettingsBtn    = document.getElementById('sidebarSettingsBtn');
+const navMemoryBtn          = document.getElementById('navMemoryBtn');
 const closeSettingsBtn      = document.getElementById('closeSettingsBtn');
 const settingsBackdrop      = document.querySelector('.settings-backdrop');
 
@@ -112,7 +113,7 @@ const MODEL_CATALOG = [
   { name: 'mistral',           label: 'Mistral · 7B',            sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
   { name: 'llama3.1:8b',       label: 'Llama 3.1 · 8B',         sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
   { name: 'qwen2.5:7b',        label: 'Qwen 2.5 · 7B',          sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
-  { name: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder · 7B',    sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: '⭐ Default Recommended. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
+  { name: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder · 7B',    sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Recommended default. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
   { name: 'qwen2.5vl:7b',      label: 'Qwen 2.5 VL · 7B',       sizeBytes: 5_970_000_000, ram: '~9.0 GB', vision: true,  desc: '🖼️ Stronger vision model: image understanding, document reading and reasoning.' },
   { name: 'llama3.2-vision:11b', label: 'Llama 3.2 Vision · 11B', sizeBytes: 7_900_000_000, ram: '~11 GB',  vision: true,  desc: '🖼️ Meta flagship vision model. High-res image understanding, document OCR & tools.' },
   { name: 'gemma3:12b',        label: 'Gemma 3 · 12B',          sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
@@ -148,7 +149,7 @@ function renderCapCard(modelName, containerEl) {
   containerEl.innerHTML = `
     <div class="cap-title">
       <span>${escapeHtml(info.label)}</span>
-      <span class="cap-badge ${info.vision ? 'vision' : ''}">${info.vision ? '🖼️ Vision + Text' : '⚡ Text Only'}</span>
+      <span class="cap-badge ${info.vision ? 'vision' : ''}">${info.vision ? 'Images + text' : 'Text only'}</span>
     </div>
     <div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>
     ${toolsRow}
@@ -540,12 +541,12 @@ function setWorkspaceUI(folderPath) {
   activeWorkspaceDir = folderPath;
   if (folderPath) {
     const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
-    workspaceText.textContent = `📁 ${folderName}`;
+    workspaceText.textContent = folderName;
     workspaceZone.title = `Project folder (read-only): ${folderPath}`;
     workspaceZone.classList.add('active');
     clearWorkspaceBtn.classList.remove('hidden');
   } else {
-    workspaceText.textContent = '📁 Project folder';
+    workspaceText.textContent = 'Choose a folder…';
     workspaceZone.title = 'Let the assistant read a project folder (read-only — it can never change your files)';
     workspaceZone.classList.remove('active');
     clearWorkspaceBtn.classList.add('hidden');
@@ -650,18 +651,15 @@ function renderMemoryStatus() {
   if (!memoryStats) return;
   const imported = Object.entries(memoryStats.sources || {}).filter(([src]) => src !== 'app');
   const importedCount = imported.reduce((n, [, s]) => n + s.count, 0);
-  if (importedCount > 0) {
-    importZone.classList.add('loaded');
-    importLabel.textContent = `✓ ${importedCount.toLocaleString()} imported conversation${importedCount === 1 ? '' : 's'}`;
-  }
+  importZone.classList.toggle('loaded', importedCount > 0);
   const parts = lastImportNote ? [lastImportNote] : [];
   if (memoryStats.pending > 0) {
     const pct = memoryStats.passages ? Math.floor((memoryStats.embedded / memoryStats.passages) * 100) : 0;
     parts.push(memoryStats.error
-      ? `⚠ Indexing paused (${memoryStats.error.slice(0, 80)}). Keyword search still works; it resumes automatically.`
-      : `Indexing memory… ${pct}% (${memoryStats.embedded.toLocaleString()} / ${memoryStats.passages.toLocaleString()} passages). You can chat meanwhile.`);
-  } else if (memoryStats.threads > 0) {
-    parts.push(`Memory ready: ${memoryStats.threads.toLocaleString()} conversations, ${memoryStats.passages.toLocaleString()} passages.`);
+      ? `Indexing paused (${memoryStats.error.slice(0, 80)}). Keyword search still works; it resumes automatically.`
+      : `Indexing memory… ${pct}%. You can chat meanwhile.`);
+  } else if (importedCount > 0) {
+    parts.push(`${importedCount.toLocaleString()} imported conversation${importedCount === 1 ? '' : 's'} in memory`);
   }
   importStatus.textContent = parts.join(' ');
   importStatus.classList.toggle('hidden', parts.length === 0);
@@ -714,7 +712,7 @@ async function loadModelSelector() {
       const noTools = inst && Array.isArray(inst.capabilities) && !inst.capabilities.includes('tools');
       opt.textContent = inst
         ? `✓  ${entry.label}  (${sizeStr})${noTools ? '  · no tools' : ''}`
-        : `⬇  ${entry.label}  (${sizeStr})`;
+        : `${entry.label}  (${sizeStr}) · not downloaded`;
       modelSelect.appendChild(opt);
     }
 
@@ -1086,13 +1084,13 @@ function refreshModelAction() {
     modelDownloadBtn.classList.add('hidden');
     modelDeleteBtn.classList.remove('hidden');
     modelDeleteBtn.disabled = false;
-    modelDeleteBtn.textContent = '🗑️ Uninstall Model';
+    modelDeleteBtn.textContent = 'Uninstall this model';
   } else {
     modelDownloadProgress.classList.add('hidden');
     modelDeleteBtn.classList.add('hidden');
     modelDownloadBtn.classList.remove('hidden');
     modelDownloadBtn.disabled = false;
-    modelDownloadBtn.textContent = '⬇ Download';
+    modelDownloadBtn.textContent = 'Download';
   }
 
   updateCapabilityUI();
@@ -1144,7 +1142,7 @@ modelDownloadBtn.addEventListener('click', async () => {
     modelDlText.title = result.error || '';
     modelDownloadBtn.classList.remove('hidden');
     modelDownloadBtn.disabled = false;
-    modelDownloadBtn.textContent = '⬇ Retry';
+    modelDownloadBtn.textContent = 'Retry download';
   }
 });
 
@@ -1161,7 +1159,7 @@ modelDeleteBtn.addEventListener('click', async () => {
   } else {
     alert(`Failed to delete model: ${result.error}`);
     modelDeleteBtn.disabled = false;
-    modelDeleteBtn.textContent = '🗑️ Uninstall Model';
+    modelDeleteBtn.textContent = 'Uninstall this model';
   }
 });
 
@@ -1194,7 +1192,18 @@ function renderSessionList(sessions) {
     sessionList.appendChild(li);
     return;
   }
-  for (const s of sessions) {
+  // Newest first, under small date headings (Today, Yesterday, …)
+  const time = (s) => s.updatedAt || s.createdAt || 0;
+  let lastGroup = null;
+  for (const s of [...sessions].sort((a, b) => time(b) - time(a))) {
+    const group = sessionGroup(time(s));
+    if (group !== lastGroup) {
+      const heading = document.createElement('li');
+      heading.className = 'session-group';
+      heading.textContent = group;
+      sessionList.appendChild(heading);
+      lastGroup = group;
+    }
     const li = document.createElement('li');
     li.className = 'session-item' + (s.id === activeSessionId ? ' active' : '');
     li.dataset.id = s.id;
@@ -1204,13 +1213,25 @@ function renderSessionList(sessions) {
     title.textContent = s.title;
     const del = document.createElement('button');
     del.className = 'session-delete';
-    del.textContent = '✕';
+    del.title = 'Delete chat';
+    del.setAttribute('aria-label', 'Delete chat');
+    del.innerHTML = svgIcon('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>');
     del.addEventListener('click', (e) => { e.stopPropagation(); deleteSession(s.id); });
     li.appendChild(title);
     li.appendChild(del);
     li.addEventListener('click', () => openSession(s.id));
     sessionList.appendChild(li);
   }
+}
+
+function sessionGroup(ms) {
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const day = 86400000;
+  if (ms >= startOfToday.getTime()) return 'Today';
+  if (ms >= startOfToday.getTime() - day) return 'Yesterday';
+  if (ms >= startOfToday.getTime() - 7 * day) return 'Previous 7 days';
+  if (ms >= startOfToday.getTime() - 30 * day) return 'Previous 30 days';
+  return new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
 async function createNewChat() {
@@ -1245,6 +1266,7 @@ async function openSession(id) {
 
 // ── History tab ───────────────────────────────────────────────────────────────
 async function renderHistoryTab() {
+  if (!historyList) return; // the sidebar has no memory list any more (the Memory view does)
   const res = await window.api.memoryList({ limit: 100 });
   if (!res.success || res.total === 0) {
     historyList.innerHTML = '<p class="history-empty">No history imported yet.<br/>Use the import button below.</p>';
@@ -1495,6 +1517,127 @@ function escapeHtml(str) {
 
 function scrollToBottom() { messageList.scrollTop = messageList.scrollHeight; }
 
+// ── Prompt navigation ─────────────────────────────────────────────────────────
+// A slim rail on the right of the chat: one mark per question you asked.
+// Hover it for the list of questions; click one to jump to it. The question
+// on screen is highlighted. Alt+↑ / Alt+↓ go to the previous / next question.
+const promptNav = document.getElementById('promptNav');
+let promptItems = []; // [{ el, tick, row }]
+let promptNavTimer = null;
+
+function promptLabel(messageEl) {
+  const text = (messageEl.querySelector('.message-text') || {}).textContent || '';
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean) return clean;
+  const doc = messageEl.querySelector('.msg-doc-name');
+  return doc ? doc.textContent.trim() : 'Attachment';
+}
+
+function buildPromptNav() {
+  const prompts = [...messageList.querySelectorAll(':scope > .message.user')];
+  promptNav.innerHTML = '';
+  promptItems = [];
+  if (prompts.length < 2) { promptNav.classList.add('hidden'); return; }
+
+  const rail = document.createElement('div');
+  rail.className = 'prompt-nav-rail';
+  const panel = document.createElement('div');
+  panel.className = 'prompt-nav-panel';
+  const heading = document.createElement('div');
+  heading.className = 'prompt-nav-heading';
+  heading.textContent = `Your questions (${prompts.length})`;
+  const list = document.createElement('div');
+  list.className = 'prompt-nav-list';
+  panel.append(heading, list);
+
+  prompts.forEach((el, i) => {
+    const label = promptLabel(el);
+    const tick = document.createElement('button');
+    tick.type = 'button';
+    tick.className = 'prompt-nav-tick';
+    tick.setAttribute('aria-label', `Question ${i + 1}: ${label.slice(0, 80)}`);
+    tick.addEventListener('click', () => jumpToPrompt(i));
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'prompt-nav-item';
+    row.innerHTML = '<span class="prompt-nav-num"></span><span class="prompt-nav-text" dir="auto"></span>';
+    row.querySelector('.prompt-nav-num').textContent = i + 1;
+    row.querySelector('.prompt-nav-text').textContent = label;
+    row.title = label.slice(0, 300);
+    row.addEventListener('click', () => jumpToPrompt(i));
+    rail.appendChild(tick);
+    list.appendChild(row);
+    promptItems.push({ el, tick, row });
+  });
+
+  const hint = document.createElement('div');
+  hint.className = 'prompt-nav-hint';
+  hint.textContent = 'Alt + ↑ / ↓ to move between questions';
+  panel.appendChild(hint);
+  promptNav.append(panel, rail);
+  promptNav.classList.remove('hidden');
+  updateActivePrompt();
+}
+
+/** Index of the question at the top of the view (the last one scrolled past). */
+function currentPromptIndex() {
+  const top = messageList.getBoundingClientRect().top + 80;
+  let current = 0;
+  promptItems.forEach(({ el }, i) => { if (el.getBoundingClientRect().top <= top) current = i; });
+  return current;
+}
+
+function updateActivePrompt() {
+  if (!promptItems.length) return;
+  const current = currentPromptIndex();
+  promptItems.forEach(({ tick, row }, i) => {
+    tick.classList.toggle('active', i === current);
+    row.classList.toggle('active', i === current);
+  });
+}
+
+function jumpToPrompt(i) {
+  const item = promptItems[Math.max(0, Math.min(i, promptItems.length - 1))];
+  if (!item) return;
+  messageList.scrollTo({ top: messageList.scrollTop + item.el.getBoundingClientRect().top - messageList.getBoundingClientRect().top - 16, behavior: 'smooth' });
+}
+
+// The question list opens on hover or keyboard focus, and closes after a
+// short delay so the pointer can cross the gap between the rail and the list.
+let promptNavCloseTimer = null;
+const openPromptNav = () => { clearTimeout(promptNavCloseTimer); promptNav.classList.add('open'); };
+const closePromptNav = () => {
+  clearTimeout(promptNavCloseTimer);
+  promptNavCloseTimer = setTimeout(() => { if (!promptNav.contains(document.activeElement)) promptNav.classList.remove('open'); }, 200);
+};
+promptNav.addEventListener('mouseenter', openPromptNav);
+promptNav.addEventListener('mouseleave', closePromptNav);
+promptNav.addEventListener('focusin', openPromptNav);
+promptNav.addEventListener('focusout', () => { clearTimeout(promptNavCloseTimer); promptNavCloseTimer = setTimeout(() => {
+  if (!promptNav.contains(document.activeElement) && !promptNav.matches(':hover')) promptNav.classList.remove('open');
+}, 200); });
+
+let promptScrollFrame = null;
+messageList.addEventListener('scroll', () => {
+  if (promptScrollFrame) return;
+  promptScrollFrame = requestAnimationFrame(() => { promptScrollFrame = null; updateActivePrompt(); });
+});
+// Rebuild when messages are added or the chat changes (not on every streamed token)
+new MutationObserver(() => {
+  clearTimeout(promptNavTimer);
+  promptNavTimer = setTimeout(buildPromptNav, 120);
+}).observe(messageList, { childList: true });
+
+document.addEventListener('keydown', (e) => {
+  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  if (chatView.classList.contains('hidden') || promptItems.length < 2) return;
+  e.preventDefault();
+  const i = currentPromptIndex();
+  const itemTop = promptItems[i].el.getBoundingClientRect().top - messageList.getBoundingClientRect().top;
+  if (e.key === 'ArrowUp') jumpToPrompt(itemTop < -40 ? i : i - 1); // inside an answer: back to its question first
+  else jumpToPrompt(i + 1);
+});
+
 // ── Sending messages ──────────────────────────────────────────────────────────
 async function sendMessage() {
   if (isStreaming || !activeSessionId) return;
@@ -1598,7 +1741,10 @@ function finishThoughtBox(bubble) {
 }
 
 // ── Import history ────────────────────────────────────────────────────────────
-importZone.addEventListener('click', () => fileInput.click());
+importZone.addEventListener('click', (e) => { if (e.target !== fileInput) fileInput.click(); });
+importZone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+});
 fileInput.addEventListener('change', (e) => handleImportFile(e.target.files[0]));
 importZone.addEventListener('dragover', (e) => { e.preventDefault(); importZone.style.borderColor = 'var(--accent)'; });
 importZone.addEventListener('dragleave', () => { importZone.style.borderColor = ''; });
@@ -1675,6 +1821,7 @@ function showMemoryView({ refresh = true } = {}) {
   emptyState.classList.add('hidden');
   chatView.classList.add('hidden');
   memoryView.classList.remove('hidden');
+  navMemoryBtn.classList.add('active');
   if (headerChatTitle) headerChatTitle.textContent = 'Memory';
   document.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
   if (refresh) {
@@ -2089,7 +2236,7 @@ memorySearchInput.addEventListener('keydown', (e) => {
 });
 memorySourceFilter.addEventListener('change', refreshMemoryResults);
 memoryLoadMore.addEventListener('click', () => loadMoreMemoryList());
-document.getElementById('openMemoryBtn').addEventListener('click', () => showMemoryView());
+document.getElementById('navMemoryBtn').addEventListener('click', () => showMemoryView());
 document.getElementById('emptyMemoryBtn').addEventListener('click', () => showMemoryView());
 
 // ── Memory profile ────────────────────────────────────────────────────────────
@@ -2258,6 +2405,7 @@ if (localStorage.getItem('sidebarCollapsed') === 'true' && appShell) {
 // ── View helpers ──────────────────────────────────────────────────────────────
 function showChatView() {
   memoryView.classList.add('hidden');
+  navMemoryBtn.classList.remove('active');
   emptyState.classList.add('hidden');
   chatView.classList.remove('hidden');
   updateHeaderModelDisplay();
@@ -2266,6 +2414,7 @@ function showChatView() {
 function showEmptyState() {
   if (sessionResourcesBar) sessionResourcesBar.classList.add('hidden');
   memoryView.classList.add('hidden');
+  navMemoryBtn.classList.remove('active');
   chatView.classList.add('hidden');
   emptyState.classList.remove('hidden');
   if (headerChatTitle) headerChatTitle.textContent = 'Athar';

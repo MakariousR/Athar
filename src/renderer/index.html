@@ -68,50 +68,44 @@
   <!-- SETTINGS MODAL (PRIVATE WINDOW) -->
   <div id="settingsModal" class="settings-modal hidden">
     <div class="settings-backdrop"></div>
-    <div class="settings-card">
+    <div class="settings-card" role="dialog" aria-labelledby="settingsTitle">
       <div class="settings-header">
-        <div class="settings-title-group">
-          <span class="settings-icon">⚙️</span>
-          <h2>Settings</h2>
-        </div>
-        <button id="closeSettingsBtn" class="icon-btn close-btn" title="Close settings">✕</button>
+        <h2 id="settingsTitle">Settings</h2>
+        <button id="closeSettingsBtn" class="icon-action" title="Close settings" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
       </div>
-      
-      <div class="settings-body">
-        <!-- Project Folder Section -->
-        <div class="settings-section">
-          <div class="section-header">
-            <h3>Project Folder</h3>
-            <p class="settings-desc">Let the assistant read a project folder and its Git history to answer questions about it. Read-only: it can never change your files.</p>
-          </div>
-          <div id="workspaceZone" class="workspace-zone" title="Choose a project folder (read-only)">
-            <span id="workspaceText">📁 Project folder</span>
-            <button id="clearWorkspaceBtn" class="clear-ws-btn hidden" title="Stop using this folder">✕</button>
-          </div>
-          <p id="workspaceNote" class="workspace-note hidden"></p>
-        </div>
 
-        <!-- Model Switcher Section -->
-        <div class="settings-section">
-          <div class="section-header">
-            <h3>AI Model Selector</h3>
-            <p class="settings-desc">Choose or download an Ollama model to run locally for your chats.</p>
-          </div>
+      <div class="settings-body">
+        <section class="settings-section">
+          <h3>Model</h3>
+          <p class="settings-desc">The AI that answers your chats. It runs on this computer with Ollama.</p>
           <div class="model-row">
             <select id="modelSelect" class="model-select" title="Choose model"></select>
-            
             <div id="sidebarCapCard" class="cap-card cap-card-sidebar hidden"></div>
-
             <div id="modelAction" class="model-action hidden">
-              <button id="modelDownloadBtn" class="primary-btn model-download-btn">⬇ Download Model</button>
-              <button id="modelDeleteBtn" class="secondary-btn model-delete-btn hidden">🗑️ Uninstall Model</button>
+              <button id="modelDownloadBtn" class="primary-btn model-download-btn">Download</button>
+              <button id="modelDeleteBtn" class="text-btn danger model-delete-btn hidden">Uninstall this model</button>
               <div id="modelDownloadProgress" class="model-dl-progress hidden">
                 <div class="progress-bar"><div class="progress-fill" id="modelDlFill"></div></div>
                 <span id="modelDlText" class="model-dl-text">0%</span>
               </div>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Project folder</h3>
+          <p class="settings-desc">Let the assistant read a folder and its Git history to answer questions about it. It can never change your files.</p>
+          <div id="workspaceZone" class="workspace-zone" role="button" tabindex="0" title="Choose a project folder (read-only)">
+            <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            <span id="workspaceText">Choose a folder…</span>
+            <button id="clearWorkspaceBtn" class="icon-action clear-ws-btn hidden" title="Stop using this folder" aria-label="Stop using this folder">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+          <p id="workspaceNote" class="workspace-note hidden"></p>
+        </section>
       </div>
     </div>
   </div>
@@ -120,39 +114,35 @@
 
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-top">
-        <div class="brand-group">
-          <span class="app-brand">Athar</span>
-        </div>
-        <button id="newChatBtn" class="icon-btn" title="New chat">＋</button>
+        <span class="app-brand">Athar</span>
       </div>
 
-      <!-- Sidebar tabs -->
-      <div class="sidebar-tabs">
-        <button class="sidebar-tab active" data-tab="chats">Chats</button>
-        <button class="sidebar-tab" data-tab="history">Memory</button>
-      </div>
+      <nav class="sidebar-nav">
+        <button id="newChatBtn" class="nav-item" title="Start a new chat">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          <span>New chat</span>
+        </button>
+        <button id="navMemoryBtn" class="nav-item" title="Search and browse your past conversations">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span>Memory</span>
+        </button>
+      </nav>
 
-      <!-- Chats tab -->
       <div id="tabChats" class="tab-panel">
         <ul id="sessionList" class="session-list"></ul>
       </div>
 
-      <!-- Memory tab -->
-      <div id="tabHistory" class="tab-panel hidden">
-        <button id="openMemoryBtn" class="primary-btn memory-open-btn">🔍 Search &amp; browse memory</button>
-        <div id="historyList" class="history-list">
-          <p class="history-empty">No history imported yet.<br/>Use the import button below.</p>
-        </div>
-      </div>
-
       <div class="sidebar-bottom">
-        <div id="importZone" class="import-zone">
-          <span id="importLabel" title="ChatGPT or Claude: conversations.json · Gemini: MyActivity.json from Google Takeout (JSON format)">＋ Import chat history</span>
+        <div id="importZone" class="nav-item import-zone" role="button" tabindex="0"
+             title="ChatGPT or Claude: conversations.json · Gemini: MyActivity.json from Google Takeout (JSON format). You can also drop the file here.">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <span id="importLabel">Import chat history</span>
           <input type="file" id="fileInput" accept=".json,application/json" class="hidden" />
         </div>
         <p id="importStatus" class="import-status hidden"></p>
-        <button id="sidebarSettingsBtn" class="sidebar-settings-link" title="Open Settings">
-          <span>⚙️ Settings & Models</span>
+        <button id="sidebarSettingsBtn" class="nav-item" title="Model and project folder">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <span>Settings</span>
         </button>
       </div>
     </aside>
@@ -171,7 +161,9 @@
             <span class="pill-dot"></span>
             <span id="headerModelName">Model: Qwen 2.5 7B</span>
           </button>
-          <button id="settingsBtn" class="icon-btn settings-trigger-btn" title="Open Settings">⚙️</button>
+          <button id="settingsBtn" class="icon-action settings-trigger-btn" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          </button>
         </div>
       </div>
 
@@ -292,6 +284,7 @@
           <div id="sessionResourcesList" class="session-resources-list"></div>
         </div>
         <div id="messageList" class="message-list"></div>
+        <nav id="promptNav" class="prompt-nav hidden" aria-label="Your questions in this chat"></nav>
 
         <!-- Shown in an empty chat: greeting + composer float in the middle -->
         <div id="chatWelcome" class="chat-welcome hidden">
