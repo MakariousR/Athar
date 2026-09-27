@@ -439,11 +439,13 @@ function setWorkspaceUI(folderPath) {
     workspaceZone.classList.remove('active');
     clearWorkspaceBtn.classList.add('hidden');
   }
+  if (typeof updateCapabilityUI === 'function' && modelLimits) updateCapabilityUI();
 }
 
 if (workspaceZone) {
   workspaceZone.addEventListener('click', async (e) => {
     if (e.target.closest('#clearWorkspaceBtn')) return;
+    if (!modelSupport().tools) { updateCapabilityUI(); return; } // note explains why it's off
     const res = await window.api.selectWorkspace();
     if (res.success && res.workspacePath) {
       setWorkspaceUI(res.workspacePath);
@@ -627,14 +629,79 @@ async function loadModelSelector() {
   }
 }
 
-function updateVisionCapability() {
-  const info = getModelInfo(activeModel);
-  if (info && info.vision) {
-    attachImgBtn.classList.remove('hidden');
-    attachImgBtn.title = `Attach image for ${info.label}`;
-  } else {
-    attachImgBtn.classList.add('hidden');
+// ── Model capabilities → which features are available ─────────────────────────
+// Decided from what Ollama reports for the selected model (/api/show
+// "capabilities"), so any model — including ones installed later — gets the
+// right features without a hand-maintained list.
+//   vision → images            tools → project folder, opening links,
+//                                       reading files on demand, deeper memory search
+// If Ollama doesn't report capabilities (older versions), assume tools work
+// and use the catalog's vision flag.
+
+function modelSupport(modelName = activeModel) {
+  const caps = installedCapabilities.get(modelName);
+  if (!caps) {
+    const info = getModelInfo(modelName);
+    return { known: false, vision: Boolean(info.vision), tools: true };
+  }
+  return { known: true, vision: caps.includes('vision'), tools: caps.includes('tools') };
+}
+
+const modelLimits    = document.getElementById('modelLimits');
+const composerNotice = document.getElementById('composerNotice');
+const workspaceNote  = document.getElementById('workspaceNote');
+let composerNoticeTimer = null;
+
+/** A short-lived message under the composer (e.g. "this model can't see images"). */
+function showComposerNotice(text) {
+  composerNotice.textContent = text;
+  composerNotice.classList.remove('hidden');
+  clearTimeout(composerNoticeTimer);
+  composerNoticeTimer = setTimeout(() => composerNotice.classList.add('hidden'), 6000);
+}
+
+function modelDisplayName(modelName = activeModel) {
+  return getModelInfo(modelName).label || modelName;
+}
+
+/** Applies the selected model's capabilities everywhere in the UI. Call after switching model. */
+function updateCapabilityUI() {
+  const support = modelSupport();
+  const name = modelDisplayName();
+
+  // Images need vision
+  attachImgBtn.classList.toggle('hidden', !support.vision);
+  attachImgBtn.title = `Attach an image for ${name}`;
+  if (!support.vision && attachedImages.length > 0) {
     clearAttachedImages();
+    showComposerNotice(`${name} can't see images, so the attached image was removed.`);
+  }
+
+  // Everything below needs tool calling
+  if (support.tools) {
+    modelLimits.classList.add('hidden');
+    modelLimits.innerHTML = '';
+  } else {
+    modelLimits.innerHTML =
+      `<span class="model-limits-text"><strong>${escapeHtml(name)}</strong> has limited features: ` +
+      'web search is automatic only (it can\'t open links), attached files are read as excerpts, ' +
+      'the project folder is off.</span> ' +
+      '<button type="button" class="model-limits-link">Change model</button>';
+    modelLimits.title = 'This model does not support tool calling. It still gets your memories, your profile ' +
+      'and automatic web research for up-to-date questions. For full features, choose a model marked with tool support.';
+    modelLimits.querySelector('.model-limits-link').addEventListener('click', openSettingsModal);
+    modelLimits.classList.remove('hidden');
+  }
+
+  // Project folder (in Settings)
+  workspaceZone.classList.toggle('disabled', !support.tools);
+  if (support.tools) {
+    workspaceNote.classList.add('hidden');
+  } else {
+    workspaceNote.textContent = activeWorkspaceDir
+      ? `Not used with ${name}: it can't read files (no tool support). Your folder stays selected for when you switch back.`
+      : `Not available with ${name}: it can't read files (no tool support). Choose a model with tool support to use a project folder.`;
+    workspaceNote.classList.remove('hidden');
   }
 }
 
@@ -668,7 +735,7 @@ function renderImagePreviews() {
     const chip = document.createElement('div');
     chip.className = 'image-preview-chip';
     chip.innerHTML = `
-      <img src="${img.dataUrl}" alt="Preview" />
+      <img src="${img.dataUrl}" alt="" />
       <div class="image-preview-info">
         <span class="image-preview-name">${escapeHtml(img.name)}</span>
       </div>
@@ -882,8 +949,8 @@ if (inputContainer) {
     if (!files || files.length === 0) return;
     for (const file of files) {
       if (file.type && file.type.startsWith('image/')) {
-        const info = getModelInfo(activeModel);
-        if (info && info.vision) addImageFile(file);
+        if (modelSupport().vision) addImageFile(file);
+        else showComposerNotice(`${modelDisplayName()} can't see images. Choose a vision model (marked "Vision + Text") in Settings to send images.`);
       } else {
         await addDocumentFile(file);
       }
@@ -917,7 +984,7 @@ function refreshModelAction() {
     modelDownloadBtn.textContent = '⬇ Download';
   }
 
-  updateVisionCapability();
+  updateCapabilityUI();
   updateHeaderModelDisplay();
 }
 

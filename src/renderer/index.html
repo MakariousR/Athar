@@ -76,6 +76,7 @@
             <span id="workspaceText">📁 Project folder</span>
             <button id="clearWorkspaceBtn" class="clear-ws-btn hidden" title="Stop using this folder">✕</button>
           </div>
+          <p id="workspaceNote" class="workspace-note hidden"></p>
         </div>
 
         <!-- Model Switcher Section -->
@@ -293,6 +294,9 @@
               </button>
             </div>
           </div>
+          <!-- What the selected model can't do (filled from the model's reported capabilities) -->
+          <div id="composerNotice" class="composer-notice hidden" role="status"></div>
+          <div id="modelLimits" class="model-limits hidden"></div>
         </div>
       </div>
     </main>

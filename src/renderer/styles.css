@@ -1850,3 +1850,27 @@ body {
 .message-text pre code { background: none; }
 .message-text blockquote { border-inline-start: 3px solid rgba(255, 255, 255, 0.12); }
 .source-chips-label { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+
+/* ── Model capability notices ── */
+.model-limits,
+.composer-notice {
+  max-width: 780px;
+  margin: 8px auto 0;
+  padding: 0 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+.model-limits strong { color: #c9d2e3; font-weight: 600; }
+.model-limits-link {
+  background: none; border: none; padding: 0;
+  color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline;
+}
+.composer-notice { color: #f5b544; }
+.chat-view.is-empty .model-limits { margin-top: 12px; }
+
+/* Project folder when the model can't use it */
+.workspace-zone.disabled { opacity: 0.5; cursor: not-allowed; }
+.workspace-zone.disabled:hover { border-color: var(--border); background: var(--bg); }
+.workspace-note { margin-top: 8px; font-size: 12px; line-height: 1.5; color: #f5b544; }

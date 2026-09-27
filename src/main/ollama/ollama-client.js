@@ -831,6 +831,16 @@ async function generate(
   const cutoff      = freshness.modelKnowledgeCutoff(modelName);
   const isProjectQuestion = Boolean(workspaceDir) && PROJECT_QUESTION.test(userText);
   const toolsAvailable = await supportsTools(modelName);
+
+  // Images only go to models that can see them (from this message or earlier
+  // turns) — a text-only model would error or silently ignore them.
+  const capabilities = await getModelCapabilities(modelName);
+  if (capabilities && !capabilities.includes('vision')) {
+    const hadImages = (images && images.length > 0);
+    images = [];
+    conversationHistory = (conversationHistory || []).map((m) => (m.images && m.images.length ? { ...m, images: undefined } : m));
+    if (hadImages) onStatus({ icon: 'ℹ️', text: `${modelName} can't see images, so the image wasn't sent. Choose a vision model to ask about images.` });
+  }
   if (!toolsAvailable && !toolNoticeShown.has(modelName)) {
     toolNoticeShown.add(modelName);
     onStatus({
