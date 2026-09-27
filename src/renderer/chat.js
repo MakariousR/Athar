@@ -1505,6 +1505,12 @@ const memoryBackBtn         = document.getElementById('memoryBackBtn');
 const memoryThreadTitle     = document.getElementById('memoryThreadTitle');
 const memoryThreadMeta      = document.getElementById('memoryThreadMeta');
 const memoryThreadMessages  = document.getElementById('memoryThreadMessages');
+const memoryFilePanel       = document.getElementById('memoryFilePanel');
+const memoryFilePanelName   = document.getElementById('memoryFilePanelName');
+const memoryFilePanelMeta   = document.getElementById('memoryFilePanelMeta');
+const memoryFilePanelBody   = document.getElementById('memoryFilePanelBody');
+const memoryFilePanelCopy   = document.getElementById('memoryFilePanelCopy');
+const memoryFilePanelClose  = document.getElementById('memoryFilePanelClose');
 const memoryAskBtn          = document.getElementById('memoryAskBtn');
 const memoryCopyBtn         = document.getElementById('memoryCopyBtn');
 
@@ -1528,6 +1534,7 @@ function showMemoryView({ refresh = true } = {}) {
 }
 
 function showMemoryList() {
+  closeFilePanel();
   memoryThreadPane.classList.add('hidden');
   memoryProfilePane.classList.add('hidden');
   memoryListPane.classList.remove('hidden');
@@ -1691,11 +1698,16 @@ async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
   memoryThreadMeta.textContent = `${SOURCE_LABELS[thread.source] || thread.sourceName} · ${date} · ${thread.messages.length} messages`;
   memoryAskBtn.disabled = false;
 
+  closeFilePanel();
   memoryThreadMessages.innerHTML = '';
   let firstHighlight = null;
   const end = msgEnd === null || msgEnd === undefined ? msgStart : msgEnd;
   thread.messages.forEach((m, i) => {
     const bubble = createMessageBubble(m.role, m.text, [], [], { markdown: true });
+    if (thread.source === 'claude') {
+      const textEl = bubble.querySelector('.message-text');
+      if (textEl) compactToolBlocks(textEl);
+    }
     if (msgStart !== null && msgStart !== undefined && i >= msgStart && i <= end) {
       bubble.classList.add('memory-highlight');
       if (!firstHighlight) firstHighlight = bubble;
@@ -1704,6 +1716,173 @@ async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
   });
   if (firstHighlight) firstHighlight.scrollIntoView({ block: 'center' });
   else memoryThreadMessages.scrollTop = 0;
+}
+
+// ── Compact commands and files in imported Claude conversations ──────────────
+// The Claude importer writes commands as a ```bash block (+ "Output:" block)
+// and created/edited files as "**Created `path`**" + a code block. Here they
+// become a collapsed command row and a small file card that opens the code in
+// a panel next to the conversation.
+
+const TOOL_ICONS = {
+  terminal: svgIcon('<path d="M5 17l5-5-5-5M12 18h7"/>'),
+  chevron: svgIcon('<path d="M9 6l6 6-6 6"/>')
+};
+const TOOL_NOTE_RE = /^(Viewed|Searched the web|Opened|Shared|Asked you|Used) /;
+
+/** The "_description_" paragraph the importer writes just above a command. */
+function toolDescriptionBefore(el) {
+  const prev = el.previousElementSibling;
+  if (!prev || prev.tagName !== 'P' || prev.children.length !== 1) return null;
+  const em = prev.firstElementChild;
+  if (em.tagName !== 'EM' || prev.textContent.trim() !== em.textContent.trim()) return null;
+  return TOOL_NOTE_RE.test(em.textContent) ? null : prev;
+}
+
+function compactToolBlocks(root) {
+  // Files: <p>[<em>desc</em><br>]<strong>Created|Edited <code>path</code></strong></p><pre>…</pre>
+  for (const strong of Array.from(root.querySelectorAll(':scope > p > strong'))) {
+    const m = /^(Created|Edited) (.+)$/.exec(strong.textContent.trim());
+    const p = strong.parentElement;
+    const pre = p.nextElementSibling;
+    if (!m || !strong.querySelector('code') || p.lastElementChild !== strong || !pre || pre.tagName !== 'PRE') continue;
+    const em = p.querySelector(':scope > em');
+    pre.remove();
+    p.replaceWith(createFileCard({ action: m[1], path: m[2], description: em ? em.textContent.trim() : '', pre }));
+  }
+
+  // Commands: [<p><em>desc</em></p>]<pre><code class="language-bash">…</code></pre>[<p>Output:|Error:</p><pre>…</pre>]
+  for (const code of Array.from(root.querySelectorAll(':scope > pre > code.language-bash'))) {
+    const pre = code.parentElement;
+    const desc = toolDescriptionBefore(pre);
+    let label = pre.nextElementSibling;
+    let output = null;
+    let isError = false;
+    if (label && label.tagName === 'P' && /^(Output|Error):$/.test(label.textContent.trim()) &&
+        label.nextElementSibling && label.nextElementSibling.tagName === 'PRE') {
+      isError = label.textContent.trim() === 'Error:';
+      output = label.nextElementSibling;
+    } else {
+      label = null;
+    }
+    const spot = document.createComment('');
+    pre.before(spot); // the row takes the <pre> inside itself
+    spot.replaceWith(createCommandRow({ description: desc ? desc.textContent.trim() : '', pre, label, output, isError }));
+    if (desc) desc.remove();
+  }
+}
+
+function createCommandRow({ description, pre, label, output, isError }) {
+  const row = document.createElement('div');
+  row.className = 'tool-command' + (isError ? ' is-error' : '');
+  const firstLine = pre.textContent.split('\n').find((l) => l.trim()) || 'Command';
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'tool-command-toggle';
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.title = 'Show the command' + (output ? ' and its output' : '');
+  toggle.innerHTML = `${TOOL_ICONS.terminal}<span class="tool-command-label${description ? '' : ' mono'}" dir="auto"></span>` +
+    (isError ? '<span class="tool-command-status">Error</span>' : '') +
+    `<span class="tool-command-chevron">${TOOL_ICONS.chevron}</span>`;
+  toggle.querySelector('.tool-command-label').textContent = description || firstLine;
+
+  const body = document.createElement('div');
+  body.className = 'tool-command-body';
+  body.hidden = true;
+  body.appendChild(pre);
+  if (output) {
+    label.className = 'tool-command-output-label';
+    body.appendChild(label);
+    body.appendChild(output);
+  }
+
+  toggle.addEventListener('click', () => {
+    body.hidden = !body.hidden;
+    toggle.setAttribute('aria-expanded', String(!body.hidden));
+    row.classList.toggle('open', !body.hidden);
+  });
+  row.appendChild(toggle);
+  row.appendChild(body);
+  return row;
+}
+
+const fileBaseName = (path) => path.split(/[\\/]/).filter(Boolean).pop() || path;
+
+function createFileCard({ action, path, description, pre }) {
+  const name = fileBaseName(path);
+  const ext = name.includes('.') ? '.' + name.split('.').pop().toLowerCase() : '';
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'tool-file-card';
+  card.title = `Open ${path}`;
+
+  let stats = '';
+  if (action === 'Edited') {
+    const lines = pre.textContent.split('\n');
+    const added = lines.filter((l) => l.startsWith('+ ')).length;
+    const removed = lines.filter((l) => l.startsWith('- ')).length;
+    stats = `<span class="tool-file-stat add">+${added}</span><span class="tool-file-stat del">−${removed}</span>`;
+  }
+  card.innerHTML = `<span class="tool-file-icon">${getDocumentIcon(ext)}</span>` +
+    '<span class="tool-file-text"><span class="tool-file-name"></span><span class="tool-file-action" dir="auto"></span></span>' + stats;
+  card.querySelector('.tool-file-name').textContent = name;
+  card.querySelector('.tool-file-action').textContent = description || (action === 'Created' ? 'Created file' : 'Edited file');
+
+  card.addEventListener('click', () => {
+    if (card.classList.contains('active')) { closeFilePanel(); return; }
+    openFilePanel({ card, action, path, pre });
+  });
+  return card;
+}
+
+function openFilePanel({ card, action, path, pre }) {
+  document.querySelectorAll('.tool-file-card.active').forEach((c) => c.classList.remove('active'));
+  card.classList.add('active');
+  memoryFilePanelName.textContent = fileBaseName(path);
+  memoryFilePanelName.title = path;
+  memoryFilePanelMeta.textContent = `${action} · ${path}`;
+  memoryFilePanelBody.innerHTML = '';
+  const copy = pre.cloneNode(true);
+  const code = copy.querySelector('code');
+  if (code && code.classList.contains('language-diff')) {
+    // colour the removed/added lines of an edit
+    const lines = code.textContent.replace(/\n$/, '').split('\n');
+    code.textContent = '';
+    for (const line of lines) {
+      const span = document.createElement('span');
+      span.className = line.startsWith('+ ') ? 'diff-add' : line.startsWith('- ') ? 'diff-del' : '';
+      span.textContent = line + '\n';
+      code.appendChild(span);
+    }
+  }
+  memoryFilePanelBody.appendChild(copy);
+  memoryFilePanel._code = pre.textContent;
+  memoryFilePanel.classList.remove('hidden');
+  memoryThreadPane.classList.add('has-file-panel');
+  memoryFilePanelBody.scrollTop = 0;
+}
+
+function closeFilePanel() {
+  if (!memoryFilePanel) return;
+  memoryFilePanel.classList.add('hidden');
+  memoryThreadPane.classList.remove('has-file-panel');
+  document.querySelectorAll('.tool-file-card.active').forEach((c) => c.classList.remove('active'));
+}
+
+if (memoryFilePanel) {
+  memoryFilePanelClose.innerHTML = ICONS.close;
+  memoryFilePanelClose.addEventListener('click', closeFilePanel);
+  memoryFilePanelCopy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(memoryFilePanel._code || '');
+      memoryFilePanelCopy.textContent = 'Copied';
+      setTimeout(() => { memoryFilePanelCopy.textContent = 'Copy'; }, 1500);
+    } catch { /* clipboard unavailable */ }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !memoryFilePanel.classList.contains('hidden')) closeFilePanel();
+  });
 }
 
 function conversationAsText(thread) {

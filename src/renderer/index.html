@@ -208,7 +208,20 @@
               <button id="memoryCopyBtn" class="secondary-btn" title="Copy the whole conversation as text">Copy</button>
             </div>
           </div>
-          <div id="memoryThreadMessages" class="message-list memory-thread-messages"></div>
+          <div class="memory-thread-body">
+            <div id="memoryThreadMessages" class="message-list memory-thread-messages"></div>
+            <aside id="memoryFilePanel" class="memory-file-panel hidden" aria-label="File">
+              <div class="memory-file-panel-header">
+                <div class="memory-file-panel-heading">
+                  <div id="memoryFilePanelName" class="memory-file-panel-name"></div>
+                  <div id="memoryFilePanelMeta" class="memory-file-panel-meta"></div>
+                </div>
+                <button id="memoryFilePanelCopy" class="secondary-btn" title="Copy the file's code">Copy</button>
+                <button id="memoryFilePanelClose" class="icon-action" title="Close" aria-label="Close"></button>
+              </div>
+              <div id="memoryFilePanelBody" class="memory-file-panel-body markdown"></div>
+            </aside>
+          </div>
         </div>
 
         <div id="memoryProfilePane" class="memory-pane hidden">

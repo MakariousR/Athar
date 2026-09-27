@@ -1880,3 +1880,61 @@ body {
 .message-text.markdown { white-space: normal; }
 .message-text.markdown pre { white-space: pre; }
 .message.user .message-text.markdown pre { max-width: 100%; overflow-x: auto; }
+
+/* ── Imported Claude commands and files (memory viewer) ── */
+.memory-thread-body { flex: 1; display: flex; gap: 16px; min-height: 0; }
+.memory-thread-body .memory-thread-messages { flex: 1; min-width: 0; }
+.memory-pane.has-file-panel { max-width: 1500px; }
+
+.tool-command { margin: 6px 0; border-radius: 10px; background: rgba(255, 255, 255, 0.03); max-width: 100%; }
+.tool-command-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px; border: none; background: transparent; color: var(--muted);
+  font: inherit; font-size: 13px; text-align: start; cursor: pointer; border-radius: 10px;
+}
+.tool-command-toggle:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+.tool-command-toggle .ui-icon { width: 15px; height: 15px; flex-shrink: 0; }
+.tool-command-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-command-label.mono { font-family: Consolas, 'Cascadia Code', monospace; font-size: 12.5px; direction: ltr; unicode-bidi: isolate; }
+.tool-command-status { font-size: 11px; color: var(--danger); background: rgba(244, 63, 94, 0.12); padding: 1px 7px; border-radius: 99px; }
+.tool-command-chevron { display: flex; transition: transform 0.15s; }
+.tool-command.open .tool-command-chevron { transform: rotate(90deg); }
+[dir=rtl] .tool-command-chevron, .message-text[dir=rtl] .tool-command-chevron { transform: scaleX(-1); }
+.tool-command-body { padding: 0 10px 8px; }
+.tool-command-body pre { margin: 4px 0; }
+.tool-command-output-label { font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+.tool-command.is-error .tool-command-body pre:last-child { color: #fda4af; }
+
+.tool-file-card {
+  display: flex; align-items: center; gap: 10px; width: fit-content; max-width: min(100%, 420px);
+  margin: 6px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03); color: var(--text); font: inherit; text-align: start; cursor: pointer;
+}
+.tool-file-card:hover { background: rgba(255, 255, 255, 0.06); }
+.tool-file-card.active { border-color: var(--accent); background: var(--accent-dim); }
+.tool-file-icon { display: flex; color: var(--muted); }
+.tool-file-icon .ui-icon { width: 22px; height: 22px; }
+.tool-file-text { display: flex; flex-direction: column; min-width: 0; }
+.tool-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-file-action { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-file-stat { font-size: 11.5px; font-family: Consolas, monospace; }
+.tool-file-stat.add { color: var(--success); }
+.tool-file-stat.del { color: var(--danger); }
+
+.memory-file-panel {
+  flex: 0 0 min(48%, 640px); display: flex; flex-direction: column; min-width: 0; margin-bottom: 16px;
+  border-radius: 14px; background: var(--panel); overflow: hidden;
+}
+.memory-file-panel-header { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--border); }
+.memory-file-panel-heading { flex: 1; min-width: 0; }
+.memory-file-panel-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-file-panel-meta { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: start; }
+.memory-file-panel-header .secondary-btn { padding: 5px 12px; font-size: 12.5px; }
+.memory-file-panel-body { flex: 1; overflow: auto; }
+.memory-file-panel-body pre { margin: 0; padding: 14px 16px; background: transparent; border: none; font-size: 12.5px; line-height: 1.55; white-space: pre; direction: ltr; text-align: left; }
+.memory-file-panel-body .diff-add { display: block; background: rgba(16, 185, 129, 0.12); color: #a7f3d0; }
+.memory-file-panel-body .diff-del { display: block; background: rgba(244, 63, 94, 0.12); color: #fecdd3; }
+@media (max-width: 900px) {
+  .memory-thread-body { position: relative; }
+  .memory-file-panel { position: absolute; inset: 0 0 16px 0; z-index: 5; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); }
+}
