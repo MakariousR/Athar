@@ -2084,3 +2084,6 @@ body {
 .doc-body.markdown table { border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
 .doc-body.markdown th, .doc-body.markdown td { border: 1px solid var(--border); padding: 6px 8px; text-align: start; vertical-align: top; }
 .doc-text { white-space: pre-wrap; word-break: break-word; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; line-height: 1.55; color: var(--text); background: none; border: none; padding: 0; margin: 0; }
+
+/* Start screen: the app icon */
+.empty-hero-logo { width: 72px; height: 72px; filter: drop-shadow(0 8px 24px rgba(0, 162, 255, 0.25)); user-select: none; -webkit-user-drag: none; }
