@@ -37,6 +37,46 @@ const SEM_MIN = 0.5;
 const KEYWORD_MIN_COVERAGE = 0.6;
 const MAX_PER_THREAD = 2;
 
+// Asking about one specific conversation. A question that refers to a chat
+// ("the chat about…", "summarize my conversation…", Arabic محادثة…) and names
+// most of a conversation's title gets that conversation alone.
+const CONVERSATION_CUE_RE = /\b(?:chats?|conversations?|convos?|threads?|discussions?|sessions?|talk(?:ed|ing)?|discuss(?:ed)?|said|summar(?:y|ize|ise|ized|ised))\b|محادث|دردش|شات|حوار|نقاش|ناقش|تحدث|لخص|ملخص/;
+// "my last chat", "the previous conversation", "my last Claude chat", "المحادثة السابقة"
+const RECENT_CHAT_RE = /\b(?:last|previous|latest|most recent|prior|earlier)\s+(?:\w+\s+)?(?:chat|conversation|convo|thread|session)\b|(?:المحادثه|الدردشه|الشات)\s+(?:السابقه|الاخيره|الماضيه)|اخر\s+(?:محادثه|دردشه)/;
+// Words that only say what to do with a chat, not what it was about
+const REQUEST_WORDS_RE = /\b(?:summar(?:y|ize|ise|ized|ised)|recap|remind|brief(?:ly)?|quick(?:ly)?|please|previous|latest|recent|prior|earlier|whole|entire|full)\b|[\u0600-\u06FF]*(?:لخص|ملخص|محادث|دردش|شات|السابق|الاخير|الماضي)[\u0600-\u06FF]*|(?<![\u0600-\u06FF])اخر(?![\u0600-\u06FF])/g;
+const TITLE_MIN_COVERAGE = 0.6;
+const FOCUS_MAX_CHARS = 10000; // fits the memory block (formatMemoryContext keeps ~12k)
+const FOCUS_MAX_PASSAGES = 8;
+
+/** The question without words that only say what to do with a chat (normalized, lowercase). */
+function stripRequestWords(text) {
+  return normalizeArabicText(String(text || '')).toLowerCase().replace(REQUEST_WORDS_RE, ' ');
+}
+
+/** How a question's topic words match a conversation title, or null for no match. */
+function titleMatch(queryTokens, title) {
+  const titleTokens = [...new Set(tokenize(title))];
+  if (titleTokens.length === 0) return null;
+  if (titleTokens.length === 1 && titleTokens[0].length < 4) return null; // "New chat", "Hi"
+  const inSet = (words) => (t) => words.includes(t) ||
+    (t.length >= 4 && words.some((w) => w.length >= 4 && (w.startsWith(t) || t.startsWith(w)))); // server/servers
+  const query = [...queryTokens];
+  const matched = titleTokens.filter(inSet(query)).length;
+  if (matched === 0) return null;
+  const titleCoverage = matched / titleTokens.length;
+  const queryCoverage = query.filter(inSet(titleTokens)).length / query.length;
+  // Two or more title words, covering most of the title or all of the question's topic
+  if (matched >= 2 && (titleCoverage >= TITLE_MIN_COVERAGE || queryCoverage >= 0.8)) {
+    return { weak: false, score: matched + Math.max(titleCoverage, queryCoverage) };
+  }
+  // One word ("the kabsa chat"): only counts if it is the question's whole topic
+  if (matched === 1 && (titleTokens.length === 1 || queryCoverage === 1)) {
+    return { weak: true, score: 1 + Math.max(titleCoverage, queryCoverage) };
+  }
+  return null;
+}
+
 const SOURCE_NAMES = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', app: 'This app', unknown: 'Imported' };
 
 function toSeconds(t) {
@@ -238,6 +278,7 @@ class MemoryIndex extends EventEmitter {
   /** Replaces the in-app segment from chat-store sessions (cheap: in-app chats are few). */
   syncAppSessions(sessions) {
     this.load();
+    const before = new Set(this.appThreads.keys());
     this.appThreads.clear();
     for (const s of sessions || []) {
       const messages = (s.messages || []).filter((m) => m.text && m.text !== '(no response)');
@@ -251,6 +292,8 @@ class MemoryIndex extends EventEmitter {
       }, 'app'));
     }
     this.rebuild('app');
+    // A deleted chat: drop its stored vectors now, even if indexing is paused
+    if ([...before].some((id) => !this.appThreads.has(id))) this.saveVectors();
     this.scheduleEmbedding();
   }
 
@@ -346,7 +389,36 @@ class MemoryIndex extends EventEmitter {
     const strictDate = dateRange && !dateRange.soft;
     // Search with the hint phrases ("in Claude", "last year") removed: they
     // never appear in the conversations and would only dilute the match.
-    const searchText = hints.text || query;
+    let searchText = hints.text || query;
+    // "Summarize the chat about X": search for X, not for "summarize the chat"
+    if (CONVERSATION_CUE_RE.test(normalizeArabicText(query).toLowerCase())) {
+      const topic = stripRequestWords(searchText).replace(/\s+/g, ' ').trim();
+      if (tokenize(topic).length > 0) searchText = topic;
+    }
+
+    // "What did we say in the bakery budget chat?" / "summarize my last
+    // conversation": answer from that ONE conversation, not a mix of several.
+    const focus = this.findFocusThread(query, searchText, { exclude: new Set(excludeThreadIds), sources });
+    if (focus) {
+      let focusVec = null;
+      if (this.vectors.size > 0 && tokenize(searchText).length > 0) {
+        try { focusVec = quantize((await this.embedTexts([normalizeArabicText(searchText)]))[0]); } catch { focusVec = null; }
+      }
+      const { passages, partial } = this.focusPassages(focus, focusVec);
+      if (passages.length) {
+        return {
+          passages,
+          hints: { sources, dateRange, text: searchText },
+          focus: { threadId: focus.id, title: focus.title },
+          note: `The user is asking about ONE conversation: "${focus.title}" (${SOURCE_NAMES[focus.source] || focus.source}, ` +
+            `${isoDate(focus.updateTime || focus.createTime) || 'unknown date'}, ${focus.messages.length} messages). ` +
+            (partial
+              ? 'It is long, so the excerpts are its beginning, its end and the parts closest to the question, in order. '
+              : 'The excerpts below are the whole conversation, in order. ') +
+            'Answer about this conversation only.'
+        };
+      }
+    }
 
     // "What did I talk about last month?" — only a filter, no topic: list
     // that period's / source's conversations instead of matching words.
@@ -385,6 +457,84 @@ class MemoryIndex extends EventEmitter {
       if (passages.length) note = `Nothing matched in ${sources.map((s) => SOURCE_NAMES[s] || s).join('/')}; these are from other sources.`;
     }
     return { passages, hints: { sources, dateRange, text: searchText }, note };
+  }
+
+  /** The conversation a question is about, if it clearly names one (or asks for the last one). */
+  findFocusThread(query, searchText, { exclude, sources }) {
+    const norm = normalizeArabicText(String(query || '')).toLowerCase();
+    const candidates = this.allThreads().filter((t) => !exclude.has(t.id) && (!sources || sources.includes(t.source)));
+    if (candidates.length === 0) return null;
+    const time = (t) => t.updateTime || t.createTime || 0;
+
+    // "summarize my last chat" names no topic → the most recent conversation
+    const topic = tokenize(stripRequestWords(searchText).replace(RECENT_CHAT_RE, ' '));
+    if (RECENT_CHAT_RE.test(norm) && topic.length === 0) {
+      return candidates.reduce((a, b) => (time(b) > time(a) ? b : a));
+    }
+    if (!CONVERSATION_CUE_RE.test(norm) || topic.length === 0) return null;
+
+    const queryTokens = new Set(topic);
+    const matches = candidates
+      .map((t) => ({ t, m: titleMatch(queryTokens, t.title) }))
+      .filter((x) => x.m)
+      .sort((a, b) => b.m.score - a.m.score || time(b.t) - time(a.t)); // same title: the more recent chat
+    if (matches.length === 0) return null;
+    // A one-word match is only trusted when no other chat title has that word
+    if (matches[0].m.weak && matches.length > 1) return null;
+    return matches[0].t;
+  }
+
+  /**
+   * Passages of one conversation, in order: all of it when it fits, else its
+   * beginning, its end and the parts closest to the question.
+   */
+  focusPassages(thread, queryVec) {
+    const chunks = [];
+    for (const seg of Object.values(this.segments)) for (const c of seg.chunks) if (c.threadId === thread.id) chunks.push(c);
+    chunks.sort((a, b) => a.index - b.index);
+    if (chunks.length === 0) return { passages: [], partial: false };
+
+    const total = chunks.reduce((n, c) => n + c.text.length, 0);
+    let chosen = chunks;
+    const partial = total > FOCUS_MAX_CHARS || chunks.length > FOCUS_MAX_PASSAGES;
+    if (partial) {
+      const order = [0, chunks.length - 1];
+      if (queryVec) {
+        const scored = chunks
+          .map((c, i) => { const v = this.vectors.get(c.key); return { i, sem: v ? cosineInt8(queryVec, v) : -1 }; })
+          .sort((a, b) => b.sem - a.sem);
+        for (const { i, sem } of scored) if (sem >= 0) order.push(i);
+      }
+      // Then evenly spread, so a summary sees the whole arc of the conversation
+      const step = chunks.length / FOCUS_MAX_PASSAGES;
+      for (let k = 1; k < FOCUS_MAX_PASSAGES; k++) order.push(Math.floor(k * step));
+
+      const picked = new Set();
+      let used = 0;
+      for (const i of order) {
+        if (picked.has(i) || picked.size >= FOCUS_MAX_PASSAGES) continue;
+        const len = Math.min(chunks[i].text.length, 1800);
+        if (used + len > FOCUS_MAX_CHARS && picked.size > 0) continue;
+        picked.add(i);
+        used += len;
+      }
+      chosen = [...picked].sort((a, b) => a - b).map((i) => chunks[i]);
+    }
+
+    return {
+      partial,
+      passages: chosen.map((c) => ({
+        threadId: thread.id,
+        title: thread.title,
+        source: thread.source,
+        sourceName: SOURCE_NAMES[thread.source] || thread.source,
+        date: isoDate(c.time || thread.createTime),
+        msgStart: c.msgStart,
+        msgEnd: c.msgEnd,
+        text: c.text,
+        score: 1
+      }))
+    };
   }
 
   /** Most recent conversations matching a source/date filter — first passage of each. */

@@ -1421,9 +1421,18 @@ function renderSourceChips(bubbleEl, sources) {
   label.textContent = 'From your memory';
   wrap.appendChild(label);
 
+  // One chip per conversation (a question about one chat brings many passages
+  // of it); cited if any of its passages was, opening at the first cited one.
+  const byThread = new Map();
+  for (const s of sources) {
+    const seen = byThread.get(s.threadId);
+    if (!seen) byThread.set(s.threadId, { ...s });
+    else if (s.cited && !seen.cited) byThread.set(s.threadId, { ...s });
+  }
+
   // Cited memories ([M1] in the answer) first; ones the answer didn't use are dimmed.
   const anyCitedInfo = sources.some((s) => typeof s.cited === 'boolean');
-  const ordered = [...sources].sort((a, b) => Number(Boolean(b.cited)) - Number(Boolean(a.cited)));
+  const ordered = [...byThread.values()].sort((a, b) => Number(Boolean(b.cited)) - Number(Boolean(a.cited)));
   for (const s of ordered) {
     const chip = document.createElement('button');
     chip.type = 'button';
