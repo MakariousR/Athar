@@ -206,21 +206,62 @@ const { runAgentLoop } = require('./agent-loop');
 const store = require('../store/chat-store');
 const { formatMemoryContext } = require('../memory/memory-index');
 const resourceTools = require('../tools/resource-tools');
+const modelProfiles = require('./model-profile');
 
 // ─── Context window ──────────────────────────────────────────────────────────
 // Ollama's default num_ctx is small (2k–4k tokens) and it silently truncates
 // anything beyond it — including tool results. Set it explicitly and derive
 // every content budget below from it (≈4 chars per token).
-// 16K fits a 7B Q4 model plus bge-m3 comfortably in 16 GB of RAM (~0.9 GB of
-// KV cache for qwen2.5-7B). Every request to the chat model MUST use this
-// same value: Ollama reloads the model whenever num_ctx changes.
-const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || 16384;
-const TOOL_OUTPUT_CHARS = Math.floor(NUM_CTX * 4 * 0.25);   // max size of ONE tool result
-const PRE_READ_CHARS    = Math.floor(NUM_CTX * 4 * 0.30);   // max auto-read resource text per turn
-const RANGE_READ_CHARS  = Math.floor(NUM_CTX * 4 * 0.50);   // explicit multi-page reads ("pages 1-6") may use up to half the window
-resourceTools.setOutputBudget(TOOL_OUTPUT_CHARS);
-resourceTools.setRangeBudget(RANGE_READ_CHARS);
-setReadBudget(TOOL_OUTPUT_CHARS);
+// The size is chosen per model (model-profile.js): as large as fits in this
+// computer's memory next to the model, up to 16K — e.g. 16K for a 7B model in
+// 16 GB of RAM (~0.9 GB of KV cache for qwen2.5-7B), less for bigger models.
+// Every request to one model MUST use the same value: Ollama reloads the model
+// whenever num_ctx changes (numCtxFor() gives it).
+const NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || modelProfiles.DEFAULT_CTX;
+let TOOL_OUTPUT_CHARS, PRE_READ_CHARS, RANGE_READ_CHARS, MEMORY_CONTEXT_CHARS;
+
+/** Content budgets for a context window (≈4 characters per token). */
+function applyContextBudgets(numCtx) {
+  TOOL_OUTPUT_CHARS    = Math.floor(numCtx * 4 * 0.25); // max size of ONE tool result
+  PRE_READ_CHARS       = Math.floor(numCtx * 4 * 0.30); // max auto-read resource text per turn
+  RANGE_READ_CHARS     = Math.floor(numCtx * 4 * 0.50); // explicit multi-page reads ("pages 1-6") may use up to half the window
+  MEMORY_CONTEXT_CHARS = Math.floor(numCtx * 4 * 0.20); // retrieved memories may use ~20% of the window
+  resourceTools.setOutputBudget(TOOL_OUTPUT_CHARS);
+  resourceTools.setRangeBudget(RANGE_READ_CHARS);
+  setReadBudget(TOOL_OUTPUT_CHARS);
+}
+applyContextBudgets(NUM_CTX);
+
+// ─── Model profiles (see model-profile.js) ───────────────────────────────────
+const profileCache = new Map();
+
+/** The model's profile: capabilities, helper level, context size. Cached once known. */
+async function getModelProfile(modelName) {
+  if (profileCache.has(modelName)) return profileCache.get(modelName);
+  let show = null;
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName, name: modelName })
+    });
+    if (res.ok) show = await res.json();
+  } catch { /* Ollama unreachable */ }
+  let sizeBytes = null;
+  try {
+    const m = (await listModels()).find((x) => x.name === modelName || x.name === `${modelName}:latest`);
+    if (m) sizeBytes = m.size;
+  } catch { /* unknown size */ }
+  const profile = modelProfiles.buildProfile(show, sizeBytes);
+  if (show) profileCache.set(modelName, profile); // don't cache "unknown" — retry next time
+  return profile;
+}
+
+/** The context size to use for every request to this model (the same one each time). */
+function numCtxFor(modelName) {
+  const p = profileCache.get(modelName);
+  return p ? p.numCtx : NUM_CTX;
+}
 
 // Temperature stays at Ollama's default unless OLLAMA_TEMPERATURE is set.
 // Measured on qwen2.5-coder:7b: 0.3 made arithmetic slightly more reliable
@@ -231,7 +272,7 @@ const CHAT_TEMPERATURE = process.env.OLLAMA_TEMPERATURE && Number.isFinite(Numbe
   : undefined;
 
 function createChatModel(modelName) {
-  const options = { num_ctx: NUM_CTX };
+  const options = { num_ctx: numCtxFor(modelName) };
   if (CHAT_TEMPERATURE !== undefined) options.temperature = CHAT_TEMPERATURE;
   return ollama(modelName, { options, keep_alive: KEEP_ALIVE });
 }
@@ -519,7 +560,7 @@ Otherwise respond with a short comma-separated list (max 3 items, each under 12 
       options: { temperature: 0, num_predict: 150 }
     });
     const data = await res.json();
-    const reply = (data.message?.content || '').trim();
+    const reply = modelProfiles.stripThinking(data.message?.content || '').trim();
     if (!reply || /^none\.?$/i.test(reply) || looksLikeStrayToolCallText(reply)) return null;
     return reply;
   })();
@@ -563,7 +604,7 @@ Write the corrected final answer now, nothing else:`;
       options: { temperature: 0.3, num_predict: 900 }
     });
     const data = await res.json();
-    const reply = (data.message?.content || '').trim();
+    const reply = modelProfiles.stripThinking(data.message?.content || '').trim();
     // FIX: this is the actual leak from the reported transcript — reply
     // becomes the user's WHOLE visible answer below if truthy, so a stray
     // tool-call-shaped reply here must be rejected, not returned. Returning
@@ -690,7 +731,6 @@ function buildResourceOverview(sessionId, resources, userText, documents) {
 }
 
 // ─── System prompt builder ────────────────────────────────────────────────────
-const MEMORY_CONTEXT_CHARS = Math.floor(NUM_CTX * 4 * 0.2); // retrieved memories may use ~20% of the window
 
 function buildMessages(userText, memory, conversationHistory, images = [], workspaceDir = null, documents = [], sessionId = null, preRead = '') {
   const messages = [];
@@ -831,7 +871,9 @@ async function ollamaChat(reqBody) {
   const body = {
     ...reqBody,
     keep_alive: KEEP_ALIVE,
-    options: { ...(reqBody.options || {}), num_ctx: NUM_CTX }
+    // Checks and rewrites don't need a thinking model's reasoning
+    ...(profileCache.get(reqBody.model) && profileCache.get(reqBody.model).thinking ? { think: false } : {}),
+    options: { ...(reqBody.options || {}), num_ctx: numCtxFor(reqBody.model) }
   };
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
@@ -850,6 +892,7 @@ async function ollamaChat(reqBody) {
  * isn't reloaded between these calls and normal chatting.
  */
 async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0.2, maxTokens = 600, signal } = {}) {
+  const profile = await getModelProfile(modelName);
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -859,12 +902,14 @@ async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0
       messages: [{ role: 'user', content: prompt }],
       stream: false,
       keep_alive: KEEP_ALIVE,
-      options: { temperature, num_predict: maxTokens, num_ctx: NUM_CTX }
+      // Short helper calls (checks, rewrites, translations) don't need a thinking model's reasoning
+      ...(profile.thinking ? { think: false } : {}),
+      options: { temperature, num_predict: maxTokens, num_ctx: numCtxFor(modelName) }
     })
   });
   if (!res.ok) throw new Error(`Ollama chat failed: ${await res.text().catch(() => res.status)}`);
   const data = await res.json();
-  return (data.message && data.message.content ? data.message.content : '').trim();
+  return modelProfiles.stripThinking(data.message && data.message.content ? data.message.content : '').trim();
 }
 
 /**
@@ -1014,6 +1059,11 @@ async function generate(
   const cutoff      = freshness.modelKnowledgeCutoff(modelName);
   const isProjectQuestion = Boolean(workspaceDir) && PROJECT_QUESTION.test(userText);
   const toolsAvailable = await supportsTools(modelName);
+  // The model's profile: its context size (budgets follow it) and how much the
+  // app should guide it — 'guided' for small models, 'light' for capable ones
+  const profile = await getModelProfile(modelName);
+  applyContextBudgets(profile.numCtx);
+  const capable = profile.level === 'light';
   // Attached files: overview of a file this message refers to, plus passages
   // from any attached file that match the question (every message).
   const preRead = await buildResourcePreRead(sessionId, userText, documents, { toolsAvailable, history: conversationHistory, onStatus });
@@ -1090,7 +1140,9 @@ async function generate(
   let offlineWhy = null; // 'offline' | 'search-failed' | 'disabled' → answer must say it's as of the training data
   const hasDocuments = Boolean(preRead) || (documents && documents.length > 0);
   const aboutOwnHistory = freshness.isPersonalMemoryQuestion(userText) || Boolean(memory && (memory.focus || memory.list));
-  turn.ownHistory = aboutOwnHistory; // the web tools refuse: this is answered from the user's memory
+  // Small models: the web tools refuse questions about the user's own chats (answered from memory).
+  // Capable models may mix memory and the web themselves.
+  turn.ownHistory = aboutOwnHistory && !capable;
   const hasLocalContext = Boolean(memory && memory.passages && memory.passages.length) || pagesOpened || hasDocuments || isProjectQuestion;
   const fresh = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, hasDocuments, isProjectQuestion });
   // Answered from memory alone, never checked against the web: a list of their
@@ -1098,7 +1150,8 @@ async function generate(
   // ("…and what's the gold price today?" still gets checked, for that part)
   const alsoTimeSensitive = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, includePersonal: true }).needed;
   const memoryOnly = Boolean(memory && memory.list) || (aboutOwnHistory && !alsoTimeSensitive);
-  const searchFirst = freshness.shouldSearchFirst(userText, { fresh, searchOn, hasLocalContext, hasDocuments, isProjectQuestion });
+  // A capable model with tools decides itself whether to search; a small one gets the web first for time-sensitive questions
+  const searchFirst = freshness.shouldSearchFirst(userText, { fresh, searchOn: searchOn && !(capable && toolsAvailable), hasLocalContext, hasDocuments, isProjectQuestion });
   if (!searchOn && fresh.needed) offlineWhy = 'disabled';
   // Checking the answer against the sources costs another model call; worth
   // it for current facts, not for e.g. code written while "Search" is on.
@@ -1136,14 +1189,16 @@ async function generate(
       offlineWhy = 'disabled';
     }
   } else if (!researched && !offlineWhy && !memoryOnly && !freshness.isSmallTalk(userText) && loopResult.text && loopResult.text.trim()) {
-    onStatus({ icon: '🔎', text: 'Checking whether the answer needs the web…' });
+    if (!capable) onStatus({ icon: '🔎', text: 'Checking whether the answer needs the web…' });
     const contextText = [
       memory && memory.passages && memory.passages.length ? formatMemoryContext(memory.passages, { maxChars: 3500 }) : '',
       linkedPages ? String(linkedPages).slice(0, 1500) : '',
       preRead ? String(preRead).slice(0, 1500) : '',
       (conversationHistory || []).slice(-3, -1).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.text || '').slice(0, 400)}`).join('\n')
     ].filter(Boolean).join('\n\n');
-    let verdict = await needsWebAfterAnswer(userText, loopResult.text, contextText, modelName);
+    // Small models: an extra check of what the answer is based on. Capable models already
+    // judged that themselves (they have the web tool); only the safety nets below apply.
+    let verdict = capable ? { search: false, query: null } : await needsWebAfterAnswer(userText, loopResult.text, contextText, modelName);
     // Whatever the checker said: an answer that hedges or has placeholders
     // ("[gold_price]"), or a question that asks for something current
     // ("…price today", "latest…"), is looked up
@@ -1239,7 +1294,8 @@ async function generate(
     onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
     // The linked page is already open: answering from it needs no tools, and a
     // small model given tools tends to try opening it again, then give up.
-    const useTools = toolsAvailable && !pagesOpened;
+    // (a capable model keeps its tools: it can still use them well with the page open)
+    const useTools = toolsAvailable && (capable || !pagesOpened);
     try {
       return await run(useTools);
     } catch (err) {

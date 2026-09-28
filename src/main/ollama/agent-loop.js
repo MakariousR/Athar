@@ -18,6 +18,7 @@
 const { streamText, tool, stepCountIs } = require('ai');
 const { ollama } = require('ai-sdk-ollama');
 const { z } = require('zod');
+const { createThinkFilter, stripThinking } = require('./model-profile');
 
 const SEARCH_TOOLS = new Set(['web_search', 'fetch_web_page']);
 // Only real web results count as research — not errors, and not the tools refusing
@@ -335,10 +336,10 @@ async function runAgentLoop({
   }, 6000);
 
   try {
-    for await (const part of result.textStream) {
+    const handleText = (part) => {
       if (streamFlushed) {
         onToken(part);
-        continue;
+        return;
       }
       streamBuffer += part;
       if (streamBuffer.length >= 40 || streamBuffer.includes('\n')) {
@@ -349,7 +350,15 @@ async function runAgentLoop({
           streamBuffer = '';
         }
       }
-    }
+    };
+    // A thinking model's inline reasoning (<think>…</think>) is not the answer
+    const think = createThinkFilter({
+      onText: handleText,
+      onThinking: () => onStatus({ icon: '💭', text: 'Thinking it through before answering…' }),
+      onDiscard: () => { onStatus({ type: 'reset' }); streamBuffer = ''; streamFlushed = false; }
+    });
+    for await (const part of result.textStream) think.push(part);
+    think.flush();
     if (!streamFlushed && streamBuffer && tryParseFallbackToolCalls(streamBuffer, ALL_KNOWN_TOOLS).length === 0) {
       onToken(streamBuffer);
     }
@@ -359,7 +368,7 @@ async function runAgentLoop({
 
   let finalText, stepMessages, toolCallsSoFar, toolResultsSoFar;
   try {
-    finalText = await result.text;
+    finalText = stripThinking(await result.text);
     stepMessages = await result.responseMessages;
     toolCallsSoFar = await result.toolCalls;
     toolResultsSoFar = await result.toolResults;

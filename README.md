@@ -43,7 +43,25 @@ search.
   pick one in Settings) — and the `bge-m3` embedding model. The app offers to
   download both on first start.
 - 16 GB RAM recommended for a 7B model with a 16K context.
-  `OLLAMA_NUM_CTX` and `OLLAMA_KEEP_ALIVE` environment variables override the defaults.
+
+### Switching models
+
+The app reads each model's description from Ollama (`src/main/ollama/model-profile.js`)
+and adapts, so any model works without a hard-coded list:
+
+- **Capabilities**: tools, images and "thinking" as Ollama reports them. Features a
+  model can't do are switched off and explained.
+- **Context size**: the largest of 16K / 8K / 4K that fits in this computer's memory
+  next to the model (from its size and memory per token), never more than the model
+  supports. A 7B model in 16 GB keeps 16K. Memory, file and tool budgets follow it.
+- **Helper level**: small models (under ~14B parameters) get full guidance — the app
+  checks whether an answer needs the web, and handles links and questions about the
+  user's chats itself. Capable models decide these themselves; the safety nets
+  (placeholders, hedging, wrong language) apply to both.
+- **Thinking models** (Qwen3, DeepSeek-R1…): inline `<think>` reasoning is hidden
+  while streaming and removed from answers; thinking is turned off for short helper calls.
+
+Overrides: `ATHAR_ASSIST=guided|light`, `OLLAMA_NUM_CTX=<tokens>`, `OLLAMA_KEEP_ALIVE`.
 
 ## Setup
 
