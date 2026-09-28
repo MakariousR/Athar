@@ -13,6 +13,7 @@ const ollama = require('./ollama/ollama-client');
 const ollamaInstaller = require('./ollama/ollama-installer');
 const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
+const { getLicense } = require('./license');
 const { tokenize } = require('./memory/bm25');
 const { buildProfile, toChatGptInstructions, profileContext } = require('./memory/profile');
 
@@ -169,6 +170,10 @@ function registerIpcHandlers() {
 
   ipcMain.handle('app:version', () => app.getVersion());
 
+  // Beta license: the activation screen asks for the status and activates keys
+  ipcMain.handle('license:status', () => getLicense().status());
+  ipcMain.handle('license:activate', (event, key) => getLicense().activate(String(key || '').slice(0, 2000)));
+
   // License, privacy policy and open-source notices shipped with the app (these three files only)
   const APP_DOCUMENTS = { license: 'LICENSE.txt', privacy: 'PRIVACY.md', notices: 'THIRD-PARTY-NOTICES.txt' };
   ipcMain.handle('app:document', (event, name) => {
@@ -242,6 +247,7 @@ function registerIpcHandlers() {
   setTimeout(syncAppMemory, 800);
 
   ipcMain.handle('memory:import', async (event, filePath) => {
+    if (!getLicense().isUsable()) return { success: false, error: 'Athar is not activated. Enter your beta key to continue.', notActivated: true };
     try {
       const threads = parseAnyExport(filePath);
       if (threads.length === 0) return { success: false, error: 'No conversations found in this file.' };
@@ -408,6 +414,7 @@ function registerIpcHandlers() {
   // workspace the tools may touch is the one the user picked in the native
   // folder dialog (workspace:select), tracked here in the main process.
   ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = [], options = {}) => {
+    if (!getLicense().isUsable()) return { success: false, error: 'Athar is not activated. Enter your beta key to continue.', notActivated: true };
     // Background memory indexing competes with the chat model for the GPU —
     // pause it while answering, resume (and index this chat) afterwards.
     memory.pause();

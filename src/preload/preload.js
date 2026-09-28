@@ -30,6 +30,12 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   appVersion: () => ipcRenderer.invoke('app:version'),
+  licenseStatus: () => ipcRenderer.invoke('license:status'),
+  licenseActivate: (key) => ipcRenderer.invoke('license:activate', key),
+  onLicenseChanged: (cb) => {
+    ipcRenderer.removeAllListeners('license:changed');
+    ipcRenderer.on('license:changed', (_e, status) => cb(status));
+  },
   appDocument: (name) => ipcRenderer.invoke('app:document', name),
   checkOllama: () => ipcRenderer.invoke('ollama:check'),
   findOllama: () => ipcRenderer.invoke('ollama:find'),

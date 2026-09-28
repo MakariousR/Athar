@@ -22,6 +22,7 @@ function moveDataFromOldName() {
 }
 moveDataFromOldName();
 const { registerIpcHandlers } = require('./ipc-handlers');
+const { getLicense } = require('./license');
 
 let mainWindow;
 
@@ -77,6 +78,15 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null); // remove File/Edit/View menu bar entirely
   registerIpcHandlers();
   createWindow();
+
+  // A key can run out while the app is open: re-check hourly, and show the
+  // activation screen again if it's no longer valid.
+  setInterval(() => {
+    const status = getLicense().status();
+    if (!['ok', 'dev'].includes(status.state) && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('license:changed', status);
+    }
+  }, 60 * 60 * 1000).unref();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

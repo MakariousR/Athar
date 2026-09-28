@@ -70,14 +70,41 @@ npm test            # offline (no Ollama or internet needed)
 npm run test:live   # also real-model memory relevance + live web checks
 ```
 
+## Beta license keys
+
+The packaged app asks for a license key before it runs (`npm start` skips
+this; set `ATHAR_LICENSE=1` to try it). Keys are checked offline: each one is
+the tester's name, computer ID and end date, signed with your private key.
+
+```bash
+npm run beta-key -- init        # once: creates your signing key pair
+npm run beta-key -- --name "Ahmed" --computer 7KQ2-M9XD --expires 2026-12-31
+npm run beta-key -- check <key> # what a key contains, and whether it's genuine
+npm run beta-key -- list        # keys you have made
+```
+
+The **private key** is saved outside the project, in `~/.athar-signing/`:
+keep it secret and back it up. The **public key** is written into
+`src/main/license/public-key.js`. A tester installs Athar, sends you the
+computer ID shown on the activation screen, and pastes the key you make for
+it. See `src/main/license/license.js`.
+
 ## Packaging
 
 ```bash
-npm run dist
+npm run release   # the installer to give out
 ```
 
-Uses `electron-builder` (see `build` in `package.json`) to produce a Windows
-NSIS installer, macOS DMG or Linux AppImage. It first regenerates
+Tests → copies the app into `release/app/` (git-ignored; your source files are
+never changed) → obfuscates the copy (strongly the license code, lightly the
+main process and preload) → checks the obfuscated license code with a real key
+→ builds the installer into `dist/` with Electron fuses on (the app refuses to
+start if its files are modified, and can't be run as plain Node) → starts the
+built app once to check it. Options: `--skip-tests`, `--keep-copy`,
+`--no-smoke`.
+
+`npm run dist` builds without obfuscation (for quick local checks only).
+Both use `electron-builder` (see `build` in `package.json`) and regenerate
 `THIRD-PARTY-NOTICES.txt` (`npm run notices`) from the shipped dependencies.
 
 The installer shows `LICENSE.txt` (the end-user license agreement) and must

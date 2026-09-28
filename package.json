@@ -12,7 +12,9 @@
     "test": "node tests/run.js",
     "test:live": "node tests/run.js --live",
     "dist": "npm run notices && electron-builder",
-    "notices": "node scripts/generate-notices.js"
+    "notices": "node scripts/generate-notices.js",
+    "beta-key": "node scripts/beta-key.js",
+    "release": "node scripts/build-release.js"
   },
   "build": {
     "appId": "com.makarious.athar",
@@ -46,11 +48,20 @@
     "linux": {
       "target": "AppImage",
       "icon": "assets/icon.png"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "enableCookieEncryption": true
     }
   },
   "devDependencies": {
     "electron": "^44.0.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "javascript-obfuscator": "^5.8.0"
   },
   "dependencies": {
     "ai": "^7.0.105",
