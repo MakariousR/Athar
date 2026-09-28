@@ -122,6 +122,19 @@ test('"how many chats do I have with ChatGPT?" / "كم محادثة عندي م�
   }
 });
 
+test('many ways of asking for your chats, or how many, get the full list and the total', async () => {
+  const mem = await makeIndex();
+  const n = corpus.filter((t) => t.source === 'chatgpt').length;
+  for (const q of ['what chats do I have with chatgpt?', 'what are the chats I imported from ChatGPT?', 'how many ChatGPT conversations did I import?',
+    'which topics did I talk about with ChatGPT?', 'كم عدد محادثاتي مع شات جي بي تي؟', 'اعرض محادثاتي مع شات جي بي تي',
+    'ما المواضيع التي تحدثت عنها مع شات جي بي تي؟']) {
+    const r = await mem.search(q);
+    assert(r.list && r.note.includes(`TOTAL: ${n} `), `${q}: ${r.note}`);
+  }
+  const all = await mem.search('what conversations do you remember?');
+  assert(all.list && all.note.includes(`TOTAL: ${corpus.length} `), all.note);
+});
+
 test('"which of my conversations were about X" lists each matching chat once', async () => {
   const mem = await makeIndex();
   const r = await mem.search('which of my conversations were about kubernetes?');

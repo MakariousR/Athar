@@ -53,9 +53,9 @@ const FOCUS_MAX_PASSAGES = 8;
 // titles with Claude", "which conversations were about docker", "how many
 // chats…", "عناوين محادثاتي", "كم محادثة". Answered from the conversation list,
 // not from excerpts that happen to contain words like "titles".
-const LIST_REQUEST_RE = /\b(?:recent|latest|last|previous|newest)\s+(?:\w+\s+)?(?:chats|conversations|convos|threads)\b|(?:اخر|احدث)\s+(?:محادثاتي|المحادثات|محادثات|دردشاتي)|\b(?:titles?|list|names?|how many|count|overview)\b.*\b(?:chats|conversations|convos|threads)\b|\b(?:chats|conversations|convos|threads)\b.*\b(?:titles?|list|names?)\b|\b(?:which|all (?:of )?(?:my|the))\s+(?:\w+\s+){0,2}(?:chats|conversations|convos|threads)\b|\blist (?:all|my|every)\b|عناوين|قائمه\s+(?:ب)?(?:ال)?محادثات|اسماء\s+(?:ال)?محادثات|كم\s+(?:محادثه|دردشه)|(?:اي|ما هي|ما)\s+(?:ال)?محادثات|كل\s+محادثاتي/;
+const LIST_REQUEST_RE = /\b(?:what|which)\s+(?:are\s+|were\s+)?(?:\w+\s+){0,2}(?:chats|conversations|convos|threads)\b|\b(?:topics|subjects)\b.*\b(?:talk|talked|discuss|discussed|chat|chats|conversations?)\b|\bwhat\s+(?:did|have)\s+(?:i|we)\s+(?:talk(?:ed)?|discuss(?:ed)?|chat(?:ted)?)\s+about\b|كم\s+(?:عدد\s+)?(?:محادثات|المحادثات|محادثاتي|محادثه|دردشات|دردشاتي)|عدد\s+(?:ال)?محادثات|(?:اعرض|عرض|اظهر|وريني|ورني|اسرد)\s+(?:لي\s+)?(?:كل\s+)?(?:محادثاتي|المحادثات|محادثات|دردشاتي)|(?:ال)?مواضيع\s+(?:التي|اللي)|\b(?:recent|latest|last|previous|newest)\s+(?:\w+\s+)?(?:chats|conversations|convos|threads)\b|(?:اخر|احدث)\s+(?:محادثاتي|المحادثات|محادثات|دردشاتي)|\b(?:titles?|list|names?|how many|count|overview)\b.*\b(?:chats|conversations|convos|threads)\b|\b(?:chats|conversations|convos|threads)\b.*\b(?:titles?|list|names?)\b|\b(?:which|all (?:of )?(?:my|the))\s+(?:\w+\s+){0,2}(?:chats|conversations|convos|threads)\b|\blist (?:all|my|every)\b|عناوين|قائمه\s+(?:ب)?(?:ال)?محادثات|اسماء\s+(?:ال)?محادثات|كم\s+(?:محادثه|دردشه)|(?:اي|ما هي|ما)\s+(?:ال)?محادثات|كل\s+محادثاتي/;
 // Words that only describe the list request, not a topic
-const LIST_WORDS_RE = /\b(?:titles?|list(?:ed)?|names?|main|all|every|which|between|how|many|count|overview|have|had|were|there|with|tell|show|give|recent|recently|latest|last|previous|newest|memory|memories)\b|[؀-ۿ]*(?:عناوين|عنوان|قائمه|اسماء|محادث|دردش)[؀-ۿ]*|(?<![\u0621-\u064A])(?:كم|كل|جميع|بين|بيني|ما|هي|اي|مع|عندي|لدي|اجريت|اجريتها|اجرينا|اخر|احدث|ذاكرتي|الذاكره)(?![\u0621-\u064A])/g;
+const LIST_WORDS_RE = /\b(?:titles?|list(?:ed)?|names?|main|all|every|which|between|how|many|count|overview|have|had|were|there|with|tell|show|give|recent|recently|latest|last|previous|newest|memory|memories|import|imported|saved|stored|topics?|subjects?|talk(?:ed)?|discuss(?:ed)?|chatted|remember|about|are)\b|[؀-ۿ]*(?:عناوين|عنوان|قائمه|اسماء|محادث|دردش)[؀-ۿ]*|(?<![\u0621-\u064A])(?:كم|كل|جميع|بين|بيني|ما|هي|اي|مع|عندي|لدي|اجريت|اجريتها|اجرينا|اخر|احدث|ذاكرتي|الذاكره|عدد|اعرض|عرض|اظهر|وريني|ورني|اسرد|لي|المواضيع|مواضيع|التي|اللي|تحدثت|تكلمت|عنها|عنه)(?![\u0621-\u064A])/g;
 const LIST_MAX = 40;        // conversations listed (newest first); the total is always given
 const LIST_TOPIC_MAX = 15;  // "which chats were about X": one excerpt per conversation
 
@@ -407,7 +407,9 @@ class MemoryIndex extends EventEmitter {
     }
 
     // "List my chats" / "which conversations were about X"
-    if (LIST_REQUEST_RE.test(normalizeArabicText(String(query || '')).toLowerCase())) {
+    // ("…in the previous conversation?" names ONE chat: that's step 2, not a list)
+    const normalizedQuery = normalizeArabicText(String(query || '')).toLowerCase();
+    if (LIST_REQUEST_RE.test(normalizedQuery) && !RECENT_CHAT_RE.test(normalizedQuery)) {
       const listed = await this.listConversations(searchText, {
         exclude: new Set(excludeThreadIds), sources, dateRange: strictDate ? dateRange : null
       });
