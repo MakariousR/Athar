@@ -1529,8 +1529,8 @@ function renderWebSearchToggle() {
   webSearchToggle.classList.toggle('active', webSearchAlways);
   webSearchToggle.setAttribute('aria-pressed', String(webSearchAlways));
   webSearchToggle.title = webSearchAlways
-    ? 'Search is on: the web is searched before every answer. Click to turn off.'
-    : 'Search the web before every answer (off: only when a question needs current information)';
+    ? 'Search is on: Athar may search the web and open links for your answers. Click to turn off.'
+    : 'Search is off: Athar does not go online. Click to let it search the web and open links.';
 }
 webSearchToggle.addEventListener('click', () => {
   webSearchAlways = !webSearchAlways;

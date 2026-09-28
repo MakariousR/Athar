@@ -15,19 +15,20 @@ All of this is stored in Athar's data folder (on Windows, `%APPDATA%\Athar`). Yo
 
 ## What Athar sends over the internet, and why
 
-Athar goes online only for the following. Each request goes directly from your computer to the service named; the author never receives it.
+**Nothing you type goes online unless you turn on Search.** Athar uses the web only while you have **Search** turned on in the message box (it is off by default). With Search off, Athar does not search the web or open links, and says so when a question needs current information.
+
+Each request goes directly from your computer to the service named; the author never receives it.
 
 | When | Sent to | What is sent |
 |---|---|---|
-| A question needs current information (news, prices, versions), or you ask to search | DuckDuckGo (duckduckgo.com) | The search words, based on your question |
-| You turn on **Search** in the message box (off by default) | DuckDuckGo (duckduckgo.com) | Search words based on each question you send while it is on — except greetings and questions about your own chats, attached files or project folder |
-| Reading search results, or a link you paste into a message | The website of that page | A normal request for the page, as a web browser would make |
-| A Wikipedia page is used | Wikipedia (wikipedia.org) | The name of the article |
-| Checking whether you are online | Microsoft (msftconnecttest.com), Google (gstatic.com), Cloudflare (1.1.1.1) | A tiny standard connectivity check with no personal data |
+| Search is on, and you send a question | DuckDuckGo (duckduckgo.com) | Search words based on your question — except greetings and questions about your own chats, attached files or project folder |
+| Search is on: reading search results, or a link you paste into a message | The website of that page | A normal request for the page, as a web browser would make |
+| Search is on, and a Wikipedia page is used | Wikipedia (wikipedia.org) | The name of the article |
+| Search is on: checking whether you are online before searching | Microsoft (msftconnecttest.com), Google (gstatic.com), Cloudflare (1.1.1.1) | A tiny standard connectivity check with no personal data |
 | You choose to install Ollama | ollama.com and GitHub | A download of the official Ollama installer |
 | You download an AI model | The Ollama model library, through Ollama | A download request for that model |
 
-These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Athar does not send your imported history, your chats, your memory profile or your files to any of them. The text of your question is used to build a search query only when a web search is needed, or for each question while you have Search turned on.
+These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Athar does not send your imported history, your chats, your memory profile or your files to any of them. The text of your question is used to build a search query only while you have Search turned on.
 
 ## Your control
 

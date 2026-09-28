@@ -85,15 +85,22 @@ test('offline note is in the user\'s language and names the cutoff', () => {
 });
 
 // ── The "Search" button: search before every answer, with exceptions ──
-const decide = (text, alwaysSearch, extra = {}) => f.shouldSearchFirst(text, {
-  fresh: f.needsFreshInfo(text, { cutoffYear: 2023, ...extra }), alwaysSearch, ...extra
+const decide = (text, searchOn, extra = {}) => f.shouldSearchFirst(text, {
+  fresh: f.needsFreshInfo(text, { cutoffYear: 2023, ...extra }), searchOn, ...extra
 });
 
-test('Search off: only questions that need current information are searched first', () => {
-  assert.deepStrictEqual(decide('what is the latest version of Node.js?', false), { search: true, reason: 'fresh' });
-  for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'make it shorter']) {
+test('Search off: nothing is searched, not even questions that need current information', () => {
+  for (const q of ['what is the latest version of Node.js?', 'what is the price of gold today?', 'write a python function that reverses a linked list', 'explain recursion', 'make it shorter']) {
     assert.strictEqual(decide(q, false).search, false, q);
   }
+});
+
+test('Search off: current-information questions get the "turn on Search" note, in the user\'s language', () => {
+  const en = f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023' });
+  assert(/web search is off/.test(en) && /Search/.test(en) && /late 2023/.test(en), en);
+  const ar = f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023', arabic: true });
+  assert(/البحث في الإنترنت متوقف/.test(ar) && /Search/.test(ar), ar);
+  assert(/turned OFF/.test(f.offlineInstruction({ why: 'disabled', cutoffLabel: 'late 2023' })));
 });
 
 test('Search on: every question is searched first…', () => {

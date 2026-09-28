@@ -105,17 +105,23 @@ function isArabic(text) {
 
 /**
  * The note shown when current information couldn't be fetched.
- * @param {'offline'|'search-failed'} why
+ * @param {'offline'|'search-failed'|'disabled'} why  'disabled': the user has web search (the Search button) turned off
  */
 function offlineNote({ why = 'offline', cutoffLabel = null, cutoffLabelAr = null, arabic = false } = {}) {
   if (arabic) {
     const label = cutoffLabelAr || cutoffLabel;
     const when = label ? `حتى حوالي ${label}` : 'حتى تاريخ تدريبي';
+    if (why === 'disabled') {
+      return `ملاحظة: البحث في الإنترنت متوقف، لذا هذه الإجابة مبنية على بيانات تدريبي (${when}) وقد لا تكون محدّثة. فعّل زر "Search" في مربع الرسالة لأبحث عنها في الإنترنت.`;
+    }
     return why === 'offline'
       ? `ملاحظة: لا يوجد اتصال بالإنترنت الآن، لذا هذه الإجابة مبنية على بيانات تدريبي (${when}) وقد لا تكون محدّثة.`
       : `ملاحظة: تعذّر الحصول على نتائج من الإنترنت الآن، لذا هذه الإجابة مبنية على بيانات تدريبي (${when}) وقد لا تكون محدّثة.`;
   }
   const when = cutoffLabel ? `up to around ${cutoffLabel}` : 'up to my training date';
+  if (why === 'disabled') {
+    return `Note: web search is off, so this is based on my training data (${when}) and may be out of date. Turn on **Search** in the message box to let me look it up online.`;
+  }
   return why === 'offline'
     ? `Note: there's no internet connection right now, so this is based on my training data (${when}) and may be out of date.`
     : `Note: I couldn't get web results just now, so this is based on my training data (${when}) and may be out of date.`;
@@ -126,8 +132,13 @@ function offlineNote({ why = 'offline', cutoffLabel = null, cutoffLabelAr = null
  */
 function offlineInstruction({ why = 'offline', cutoffLabel = null }) {
   const when = cutoffLabel ? `around ${cutoffLabel}` : 'your training date';
-  return `[${why === 'offline' ? 'There is NO internet connection right now' : 'Web search failed just now'}, so no current information is available. ` +
-    `Answer from your training knowledge and say clearly, in the user's language, that your information is as of ${when} and may have changed since.]`;
+  const reason = why === 'disabled'
+    ? 'The user has web search turned OFF (the "Search" button in the message box)'
+    : why === 'offline' ? 'There is NO internet connection right now' : 'Web search failed just now';
+  return `[${reason}, so no current information is available. ` +
+    `Answer from your training knowledge and say clearly, in the user's language, that your information is as of ${when} and may have changed since. ` +
+    `Never invent a current figure (price, score, rate…) or write a placeholder like "[price]": if you don't know it, say so` +
+    (why === 'disabled' ? '; they can turn on Search to let you look it up online.]' : '.]');
 }
 
 // Greetings, thanks, "ok": never worth a web search, even with "Search" turned on
@@ -138,20 +149,20 @@ function isSmallTalk(text) {
 }
 
 /**
- * Whether to search the web before the model answers:
- *   'fresh'  — the answer may be out of date (see needsFreshInfo)
- *   'always' — the user turned on "Search" in the message box: every question,
- *              except small talk and questions about their own chats, attached
- *              files or the project folder
+ * Whether to search the web before the model answers. Athar goes online only
+ * when the user turned on "Search" in the message box; then every question is
+ * searched first, except small talk and questions about their own chats,
+ * attached files or the project folder.
+ *   reason 'fresh'  — and the answer may be out of date (see needsFreshInfo)
+ *   reason 'always' — any other question
  * @returns {{ search: boolean, reason: 'fresh'|'always'|null }}
  */
-function shouldSearchFirst(text, { fresh, alwaysSearch = false, hasDocuments = false, isProjectQuestion = false } = {}) {
-  if (fresh && fresh.needed) return { search: true, reason: 'fresh' };
+function shouldSearchFirst(text, { fresh, searchOn = false, hasDocuments = false, isProjectQuestion = false } = {}) {
   const t = String(text || '').trim();
-  if (!alwaysSearch || !t || isSmallTalk(t) || isPersonalMemoryQuestion(t) || hasDocuments || isProjectQuestion) {
+  if (!searchOn || !t || isSmallTalk(t) || isPersonalMemoryQuestion(t) || hasDocuments || isProjectQuestion) {
     return { search: false, reason: null };
   }
-  return { search: true, reason: 'always' };
+  return { search: true, reason: fresh && fresh.needed ? 'fresh' : 'always' };
 }
 
 module.exports = {

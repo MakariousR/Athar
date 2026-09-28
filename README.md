@@ -4,8 +4,8 @@ _Athar_ is Arabic for "trace": what your conversations leave behind.
 
 One private memory for all your AI chats. Import your ChatGPT, Claude and Gemini
 history; a local model (via [Ollama](https://ollama.com)) remembers it, cites it,
-and helps you search it — nothing leaves your computer except the web searches
-you ask for.
+and helps you search it — nothing leaves your computer unless you turn on web
+search.
 
 ## What it does
 
@@ -21,8 +21,12 @@ you ask for.
 - **Portable memory profile.** A short summary of you (work, projects, tools,
   how you like answers) learned from your own messages. Review it, use it here,
   or copy it into ChatGPT's custom instructions or another assistant.
-- **Web research** (DuckDuckGo, no API key) with trusted sources ranked first
-  and a per-source figures table, so numbers come with sources and dates.
+- **Web research only when you turn it on.** The **Search** button in the
+  message box (off by default) lets Athar search the web (DuckDuckGo, no API
+  key) and open links; trusted sources are ranked first and figures come with
+  sources and dates. With Search off, Athar never goes online for an answer:
+  questions that need current information are answered from the model's
+  training data, with a note saying so and pointing to Search.
 - **Attach files** (PDFs, text, code) and let the model read them on demand.
 - **Project folder (read-only)**: let the model read a folder and its git
   history to answer questions about it. It can never change your files.

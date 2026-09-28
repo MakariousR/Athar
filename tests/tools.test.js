@@ -74,6 +74,18 @@ test('fetch_web_page on a URL from the user message does not ask (SSRF guard sti
   assert(/ERROR: .*(Local network|private)/i.test(out), out);
 });
 
+test('with Search off, the web tools refuse without going online', async () => {
+  const turn = createTurnState('what happened in the news today? https://example.com');
+  turn.webAllowed = false;
+  let asked = false;
+  for (const [name, args] of [['web_search', { query: 'news today' }], ['fetch_web_page', { url: 'https://example.com' }]]) {
+    const out = await exec(turn, name, args, async () => { asked = true; return true; });
+    assert(/turned OFF by the user/.test(out) && /Search/.test(out), out);
+  }
+  assert(!asked, 'no permission prompt either');
+  assert.strictEqual(turn.webBlocked, true, 'remembered, so the answer can say Search is off');
+});
+
 test('printed tool-call JSON is recognised and can be stripped from prose', () => {
   const names = ['web_search', 'read_file'];
   const text = 'Let me check.\n{"name": "web_search", "arguments": {"query": "x"}}\nDone.';
