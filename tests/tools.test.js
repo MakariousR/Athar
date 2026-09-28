@@ -86,6 +86,25 @@ test('with Search off, the web tools refuse without going online', async () => {
   assert.strictEqual(turn.webBlocked, true, 'remembered, so the answer can say Search is off');
 });
 
+test('web search follow-ups: messages that refer back are recognised (English and Arabic)', () => {
+  const { REFERS_BACK_RE } = client._internals;
+  for (const q of ['who is the owner of this company or online platform?', 'how much does it cost?', 'what did they announce?',
+    'من هو صاحب هذه الشركة؟', 'كم سعرها؟', 'ما هو الموقع الرسمي للشركة؟']) {
+    assert(REFERS_BACK_RE.test(q), q);
+  }
+  for (const q of ['what is the capital of Australia?', 'latest version of Node.js', 'ما هي عاصمة أستراليا؟', 'history of the Ottoman empire']) {
+    assert(!REFERS_BACK_RE.test(q), q);
+  }
+});
+
+test('web search follow-ups: a self-contained question, or one with no earlier turns, is searched as it is (no model call)', async () => {
+  const { standaloneWebQuery } = client._internals;
+  const history = [{ role: 'user', text: 'tell me about MystiEgypt' }, { role: 'assistant', text: 'A travel company.' }];
+  assert.strictEqual(await standaloneWebQuery('what is the capital of Australia?', history, 'none'), 'what is the capital of Australia?');
+  // first message of a chat: nothing to refer back to
+  assert.strictEqual(await standaloneWebQuery('who owns this company?', [{ role: 'user', text: 'who owns this company?' }], 'none'), 'who owns this company?');
+});
+
 test('printed tool-call JSON is recognised and can be stripped from prose', () => {
   const names = ['web_search', 'read_file'];
   const text = 'Let me check.\n{"name": "web_search", "arguments": {"query": "x"}}\nDone.';

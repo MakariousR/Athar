@@ -890,6 +890,43 @@ function buildWebQuery(userText, history) {
   return (prev ? `${prev.text.trim().slice(0, 200)} ${text}` : text).slice(0, 300);
 }
 
+// Words that point back to something said earlier ("who owns this company?",
+// "how much does it cost?", "من صاحب هذه الشركة؟") — searched as they are,
+// they mean nothing to a search engine.
+const REFERS_BACK_RE = /\b(this|that|these|those|it|its|they|them|their|he|she|him|her|his|the (company|site|website|platform|app|page|product|project|person|one|book|movie|game|tool|library))\b|(?:^|\s)(هذا|هذه|ذلك|تلك|هؤلاء|ذاك|عنه|عنها|له|لها|صاحبه|صاحبها|مالكه|مالكها|سعره|سعرها|الموقع|الشركة|المنصة|التطبيق)(?=$|[\s؟?.!،,])/i;
+
+/**
+ * The web search query for this message. A message that refers back to the
+ * conversation ("this company", "it", "هذه الشركة", or a very short
+ * follow-up) is first rewritten by the model into a standalone query using
+ * the last few turns — e.g. "MystiEgypt owner". Falls back to the simple query.
+ */
+async function standaloneWebQuery(userText, history, modelName, onStatus = () => {}) {
+  const text = String(userText || '').trim();
+  const turns = (history || []).filter((m) => m && (m.role === 'user' || m.role === 'assistant') && String(m.text || '').trim());
+  // The history may already end with this message
+  if (turns.length && turns[turns.length - 1].role === 'user' && String(turns[turns.length - 1].text).trim() === text) turns.pop();
+  const short = text.split(/\s+/).length < 5;
+  if (turns.length === 0 || (!short && !REFERS_BACK_RE.test(text))) return text.slice(0, 300);
+
+  const context = turns.slice(-6).map((m) => {
+    const body = String(m.text).replace(/\s+/g, ' ').trim();
+    return `${m.role === 'user' ? 'User' : 'Assistant'}: ${body.length > 500 ? `${body.slice(0, 500)}…` : body}`;
+  }).join('\n');
+  const prompt = `Conversation so far:\n${context}\n\nNew message from the user: "${text}"\n\n` +
+    'Write the web search query for the new message so that it makes sense on its own: replace words like "this", "it", ' +
+    '"that company", "هذه الشركة" with the actual name or thing they refer to in the conversation (for a website, use its name or domain). ' +
+    'Keep the language of the new message. Output only the query, at most 12 words, no quotes and no explanation.';
+  try {
+    onStatus({ icon: '🔎', text: 'Working out what to search for from the conversation…' });
+    const out = (await completeText(prompt, modelName, { temperature: 0, maxTokens: 40 }))
+      .split('\n').map((l) => l.trim()).find(Boolean) || '';
+    const query = out.replace(/^(search query|query)\s*[:：]\s*/i, '').replace(/^["'«“]+|["'»”]+$/g, '').trim();
+    if (query.length >= 3 && query.length <= 200 && !/^(i('m| am)?|sorry)\b/i.test(query)) return query;
+  } catch { /* fall back below */ }
+  return buildWebQuery(text, history);
+}
+
 // ─── Main generate function ───────────────────────────────────────────────────
 /**
  * @param {string} userText
@@ -937,10 +974,11 @@ async function generate(
     onStatus({
       icon: 'ℹ️',
       text: `${modelName} can't use tools, so it answers without searching on its own or reading files on demand. ` +
-        'Memory, your profile and automatic web research for up-to-date questions still work.'
+        'Memory, your profile and web research (when Search is on) still work.'
     });
   }
-  const searchQuery = buildWebQuery(userText, conversationHistory);
+  // Worked out on the first search only (it may cost a short model call)
+  let searchQuery = null;
 
   let online = null; // checked at most once per turn, only when needed
   const checkOnline = async () => {
@@ -948,6 +986,7 @@ async function generate(
     return online;
   };
   const webSearch = async () => {
+    if (searchQuery === null) searchQuery = await standaloneWebQuery(userText, conversationHistory, modelName, onStatus);
     const result = await executeTool('web_search', { query: searchQuery }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
     return isUsableResearch(result) ? result : null;
   };
@@ -1199,5 +1238,5 @@ module.exports = {
   completeText,
   generate,
   // exported for tests
-  _internals: { executeTool, createTurnState, normalizeToolArgs, buildResourcePreRead }
+  _internals: { executeTool, createTurnState, normalizeToolArgs, buildResourcePreRead, standaloneWebQuery, REFERS_BACK_RE }
 };
