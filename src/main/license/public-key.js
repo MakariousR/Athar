@@ -2,4 +2,4 @@
 // make them. Written by `npm run beta-key -- init` (the private half stays on
 // the developer's PC). null = not set up yet: a packaged build then refuses to
 // run, and `npm run release` refuses to build.
-module.exports = null;
+module.exports = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAZPQNFvpgWXyg02zqwokau4B5MV3GcnRjLZPqqAUrnVg=\n-----END PUBLIC KEY-----\n";
