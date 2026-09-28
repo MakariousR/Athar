@@ -1517,6 +1517,28 @@ function escapeHtml(str) {
 
 function scrollToBottom() { messageList.scrollTop = messageList.scrollHeight; }
 
+// ── "Search" button in the message box ───────────────────────────────────────
+// On: search the web before every answer. Off (default): only when a question
+// needs current information. Remembered between app starts.
+const webSearchToggle = document.getElementById('webSearchToggle');
+const WEB_SEARCH_KEY = 'athar.alwaysSearchWeb';
+let webSearchAlways = false;
+try { webSearchAlways = localStorage.getItem(WEB_SEARCH_KEY) === 'true'; } catch { /* storage unavailable */ }
+
+function renderWebSearchToggle() {
+  webSearchToggle.classList.toggle('active', webSearchAlways);
+  webSearchToggle.setAttribute('aria-pressed', String(webSearchAlways));
+  webSearchToggle.title = webSearchAlways
+    ? 'Search is on: the web is searched before every answer. Click to turn off.'
+    : 'Search the web before every answer (off: only when a question needs current information)';
+}
+webSearchToggle.addEventListener('click', () => {
+  webSearchAlways = !webSearchAlways;
+  try { localStorage.setItem(WEB_SEARCH_KEY, String(webSearchAlways)); } catch { /* storage unavailable */ }
+  renderWebSearchToggle();
+});
+renderWebSearchToggle();
+
 // ── Prompt navigation ─────────────────────────────────────────────────────────
 // A slim rail on the right of the chat: one mark per question you asked.
 // Hover it for the list of questions; click one to jump to it. The question
@@ -1670,7 +1692,8 @@ async function sendMessage() {
 
   scrollToBottom();
 
-  const result = await window.api.chatSend(activeSessionId, text, activeModel, currentImagesBase64, currentDocs);
+  const result = await window.api.chatSend(activeSessionId, text, activeModel, currentImagesBase64, currentDocs,
+    { alwaysSearchWeb: webSearchAlways });
 
   // The main process returns the final answer — the exact text it saved.
   // It can differ from the streamed tokens (a non-streamed fallback answer, an

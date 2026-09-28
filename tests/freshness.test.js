@@ -84,4 +84,35 @@ test('offline note is in the user\'s language and names the cutoff', () => {
   assert(f.isArabic('ما هو سعر الذهب؟') && !f.isArabic('gold price?'));
 });
 
+// ── The "Search" button: search before every answer, with exceptions ──
+const decide = (text, alwaysSearch, extra = {}) => f.shouldSearchFirst(text, {
+  fresh: f.needsFreshInfo(text, { cutoffYear: 2023, ...extra }), alwaysSearch, ...extra
+});
+
+test('Search off: only questions that need current information are searched first', () => {
+  assert.deepStrictEqual(decide('what is the latest version of Node.js?', false), { search: true, reason: 'fresh' });
+  for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'make it shorter']) {
+    assert.strictEqual(decide(q, false).search, false, q);
+  }
+});
+
+test('Search on: every question is searched first…', () => {
+  for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'ما هي عاصمة أستراليا؟']) {
+    assert.deepStrictEqual(decide(q, true), { search: true, reason: 'always' }, q);
+  }
+  assert.strictEqual(decide('what is the latest version of Node.js?', true).reason, 'fresh', 'still marked as a current-information question');
+});
+
+test('…except small talk, questions about your own chats, attached files and the project folder', () => {
+  for (const q of ['hi', 'Thanks a lot!', 'ok', 'thank you so much', 'شكرا جزيلا', 'صباح الخير', '']) {
+    assert.strictEqual(decide(q, true).search, false, `small talk: "${q}"`);
+  }
+  for (const q of ['summarize my chat about the bakery database', 'ماذا قلنا في محادثاتي عن التداول؟', 'what did we decide last time?']) {
+    assert.strictEqual(decide(q, true).search, false, `own chats: ${q}`);
+  }
+  assert.strictEqual(decide('what are the main risks?', true, { hasDocuments: true }).search, false, 'attached file');
+  assert.strictEqual(decide('how is the router set up?', true, { isProjectQuestion: true }).search, false, 'project folder');
+  assert.strictEqual(decide('ok, and what about Python 3.13?', true).search, true, 'a real question after "ok" is searched');
+});
+
 done();

@@ -895,7 +895,8 @@ async function generate(
   workspaceDir = null,
   onRequestPermission = null,
   documents  = [],
-  sessionId  = null
+  sessionId  = null,
+  options    = {}   // { alwaysSearchWeb }: the "Search" button in the message box
 ) {
   onStatus({ icon: '🧠', text: 'Analyzing request…' });
 
@@ -963,24 +964,39 @@ async function generate(
     }
   }
 
-  // 1. Time-sensitive question ("latest…", prices, who is the CEO, a year after
-  //    the model's training data…): get current information BEFORE answering,
-  //    instead of hoping a 7B model notices its knowledge is out of date.
+  // 1. Web research before answering:
+  //    - a time-sensitive question ("latest…", prices, who is the CEO, a year
+  //      after the model's training data…), instead of hoping a 7B model
+  //      notices its knowledge is out of date;
+  //    - or every question, when the user turned on "Search" in the message
+  //      box (except small talk and questions about their own chats, attached
+  //      files or the project folder).
   let webResearch = null;
   let offlineWhy = null; // 'offline' | 'search-failed' → answer must say it's as of the training data
-  const fresh = freshness.needsFreshInfo(userText, {
-    cutoffYear: cutoff.year,
-    hasDocuments: Boolean(preRead) || (documents && documents.length > 0),
-    isProjectQuestion
+  const hasDocuments = Boolean(preRead) || (documents && documents.length > 0);
+  const fresh = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, hasDocuments, isProjectQuestion });
+  const searchFirst = freshness.shouldSearchFirst(userText, {
+    fresh, alwaysSearch: Boolean(options.alwaysSearchWeb), hasDocuments, isProjectQuestion
   });
-  if (fresh.needed) {
+  // Checking the answer against the sources costs another model call; worth
+  // it for current facts, not for e.g. code written while "Search" is on.
+  let checkAgainstWeb = searchFirst.reason === 'fresh';
+
+  if (searchFirst.search) {
     if (await checkOnline()) {
-      onStatus({ icon: '🌐', text: `This may have changed since my training data${cutoff.label ? ` (around ${cutoff.label})` : ''} — searching the web first…` });
+      onStatus({
+        icon: '🌐',
+        text: fresh.needed
+          ? `This may have changed since my training data${cutoff.label ? ` (around ${cutoff.label})` : ''} — searching the web first…`
+          : 'Searching the web first (Search is on)…'
+      });
       webResearch = await webSearch();
-      if (!webResearch) offlineWhy = 'search-failed';
-    } else {
+      if (!webResearch && fresh.needed) offlineWhy = 'search-failed';
+    } else if (fresh.needed) {
       offlineWhy = 'offline';
       onStatus({ icon: '📴', text: `No internet connection — answering from my training data${cutoff.label ? ` (around ${cutoff.label})` : ''}.` });
+    } else {
+      onStatus({ icon: '📴', text: 'No internet connection — answering without a web search.' });
     }
   }
 
@@ -995,6 +1011,7 @@ async function generate(
     if (await checkOnline()) {
       onStatus({ icon: '🌐', text: 'My training data doesn\'t cover this — searching the web…' });
       webResearch = await webSearch();
+      checkAgainstWeb = true;
       if (webResearch) {
         const retry = await answerOnce({ webResearch, offlineWhy: null });
         if (typeof retry !== 'string') loopResult = retry;
@@ -1006,7 +1023,7 @@ async function generate(
     }
   }
 
-  const researchLog = [webResearch, ...(loopResult.researchLog || [])].filter(Boolean);
+  const researchLog = [checkAgainstWeb ? webResearch : null, ...(loopResult.researchLog || [])].filter(Boolean);
   let text = await finalizeAnswer(loopResult.text);
 
   // 2b. The answer came out in the wrong language (usually the language of the

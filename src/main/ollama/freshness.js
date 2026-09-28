@@ -130,9 +130,35 @@ function offlineInstruction({ why = 'offline', cutoffLabel = null }) {
     `Answer from your training knowledge and say clearly, in the user's language, that your information is as of ${when} and may have changed since.]`;
 }
 
+// Greetings, thanks, "ok": never worth a web search, even with "Search" turned on
+const SMALL_TALK_RE = /^(hi|hello|hey|hiya|howdy|sup|yo|good (morning|afternoon|evening|night)|thanks?|thank you|thx|ty|ok|okay|cool|great|nice|perfect|bye|goodbye|see you|مرحبا|أهلا|اهلا|السلام عليكم|صباح الخير|مساء الخير|شكرا|شكراً|تمام|حسنا|مع السلامة)(\s+(a lot|so much|very much|again|you|man|bro|جزيلا|جزيلاً))*[\s.!?,،؟]*$/i;
+
+function isSmallTalk(text) {
+  return SMALL_TALK_RE.test(String(text || '').trim());
+}
+
+/**
+ * Whether to search the web before the model answers:
+ *   'fresh'  — the answer may be out of date (see needsFreshInfo)
+ *   'always' — the user turned on "Search" in the message box: every question,
+ *              except small talk and questions about their own chats, attached
+ *              files or the project folder
+ * @returns {{ search: boolean, reason: 'fresh'|'always'|null }}
+ */
+function shouldSearchFirst(text, { fresh, alwaysSearch = false, hasDocuments = false, isProjectQuestion = false } = {}) {
+  if (fresh && fresh.needed) return { search: true, reason: 'fresh' };
+  const t = String(text || '').trim();
+  if (!alwaysSearch || !t || isSmallTalk(t) || isPersonalMemoryQuestion(t) || hasDocuments || isProjectQuestion) {
+    return { search: false, reason: null };
+  }
+  return { search: true, reason: 'always' };
+}
+
 module.exports = {
   modelKnowledgeCutoff,
   needsFreshInfo,
+  shouldSearchFirst,
+  isSmallTalk,
   isPersonalMemoryQuestion,
   looksUncertainOrDated,
   hasTrainingDisclaimer,

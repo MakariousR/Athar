@@ -67,8 +67,8 @@ contextBridge.exposeInMainWorld('api', {
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
   chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
   // The main process owns the memory and the project folder; only the message goes over IPC.
-  chatSend: (sessionId, userText, modelName, images = [], documents = []) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, null, modelName, images, null, documents),
+  chatSend: (sessionId, userText, modelName, images = [], documents = [], options = {}) =>
+    ipcRenderer.invoke('chat:send', sessionId, userText, null, modelName, images, null, documents, options),
 
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');

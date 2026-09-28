@@ -407,7 +407,7 @@ function registerIpcHandlers() {
   // `_workspaceDir` from the renderer is deliberately ignored: the only
   // workspace the tools may touch is the one the user picked in the native
   // folder dialog (workspace:select), tracked here in the main process.
-  ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = []) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = [], options = {}) => {
     // Background memory indexing competes with the chat model for the GPU —
     // pause it while answering, resume (and index this chat) afterwards.
     memory.pause();
@@ -520,7 +520,8 @@ function registerIpcHandlers() {
         effectiveWorkspace,
         onRequestPermission,
         documents,
-        sessionId
+        sessionId,
+        { alwaysSearchWeb: Boolean(options && options.alwaysSearchWeb) }
       );
 
       // generate()'s return value is the authoritative answer: it includes
