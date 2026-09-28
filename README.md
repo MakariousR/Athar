@@ -23,7 +23,9 @@ search.
   or copy it into ChatGPT's custom instructions or another assistant.
 - **Web research only when you turn it on.** The **Search** button in the
   message box (off by default) lets Athar search the web (DuckDuckGo, no API
-  key) and open links; trusted sources are ranked first and figures come with
+  key) and open links — and even then only when needed: it answers from your
+  memory, files and the conversation first, checks whether that answer relies
+  on outside facts they don't contain, and looks up only those; trusted sources are ranked first and figures come with
   sources and dates. With Search off, Athar never goes online for an answer:
   questions that need current information are answered from the model's
   training data, with a note saying so and pointing to Search.

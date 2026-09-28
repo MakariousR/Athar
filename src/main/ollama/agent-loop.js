@@ -20,6 +20,10 @@ const { ollama } = require('ai-sdk-ollama');
 const { z } = require('zod');
 
 const SEARCH_TOOLS = new Set(['web_search', 'fetch_web_page']);
+// Only real web results count as research — not errors, and not the tools refusing
+// (Search off, or a question about the user's own chats)
+const isWebResult = (text) => typeof text === 'string' && text.trim() &&
+  !/^(ERROR:|Web access is turned OFF|This question is about the user)/.test(text.trim());
 const ALL_KNOWN_TOOLS = [
   'search_memory', 'web_search', 'fetch_web_page', 'get_current_time',
   'list_chat_resources', 'read_chat_resource',
@@ -312,7 +316,7 @@ async function runAgentLoop({
     },
     onStepFinish: (step) => {
       for (const r of step.toolResults || []) {
-        if (SEARCH_TOOLS.has(r.toolName) && typeof r.output === 'string') researchLog.push(r.output);
+        if (SEARCH_TOOLS.has(r.toolName) && isWebResult(r.output)) researchLog.push(r.output);
       }
     }
   });
@@ -396,7 +400,7 @@ async function runAgentLoop({
     for (const fake of fakes) {
       const out = await executeTool(fake.name, fake.args, onStatus, workspaceDir, onRequestPermission, modelName, userText);
       const outText = typeof out === 'string' ? out : JSON.stringify(out);
-      if (SEARCH_TOOLS.has(fake.name)) researchLog.push(outText);
+      if (SEARCH_TOOLS.has(fake.name) && isWebResult(outText)) researchLog.push(outText);
       executed.push({ name: fake.name, result: outText });
     }
 

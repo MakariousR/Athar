@@ -21,7 +21,7 @@ Each request goes directly from your computer to the service named; the author n
 
 | When | Sent to | What is sent |
 |---|---|---|
-| Search is on, and you send a question | DuckDuckGo (duckduckgo.com) | Search words based on your question — except greetings and questions about your own chats, attached files or project folder |
+| Search is on, and a question needs information that your chats, files and the conversation don't have (for example a current price or recent news) | DuckDuckGo (duckduckgo.com) | Search words for just that information — never your own chats or files |
 | Search is on: reading search results, or a link you paste into a message | The website of that page | A normal request for the page, as a web browser would make |
 | Search is on, and a Wikipedia page is used | Wikipedia (wikipedia.org) | The name of the article |
 | Search is on: checking whether you are online before searching | Microsoft (msftconnecttest.com), Google (gstatic.com), Cloudflare (1.1.1.1) | A tiny standard connectivity check with no personal data |

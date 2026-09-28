@@ -40,7 +40,7 @@ const TIME_SENSITIVE_AR = /الآن|الان|حالياً|حاليا|اليوم|
 
 // Questions about the user's OWN past, attached files or project are answered
 // from memory/files — never by searching the web.
-const PERSONAL_RE = /\b(did (i|we|you)|have (i|we)|i (asked|said|told|mentioned|decided|wrote)|we (decided|discussed|talked)|you (told|advised|suggested|recommended|said to) me|(did|what did) (chatgpt|claude|gemini|it) (say|suggest|advise|recommend|tell)|my (last|previous|past|earlier|old) (chat|conversation|question)|(my|our) (chats?|conversations?|history)|last time|remember when|in (my|our) (chat|conversation|history|memory))\b|سألت|ناقشنا|ناقشت|تحدثنا|تحدثت|قلنا|قلت لك|قلت لي|نصحتني|اقترحت علي|أخبرتني|اخبرتني|محادثتي|محادثاتي|دردشتي|آخر مرة|اخر مرة/i;
+const PERSONAL_RE = /\b(did (i|we|you)|have (i|we)|i (asked|said|told|mentioned|decided|wrote)|we (decided|discussed|talked)|you (told|advised|suggested|recommended|said to) me|(did|what did) (chatgpt|claude|gemini|it) (say|suggest|advise|recommend|tell)|my (last|previous|past|earlier|old) (chat|conversation|question)|(my|our) (\w+ ){0,2}(chats?|conversations?|history|memory|memories)|(in|from) (my|the app's) memory|last time|remember when|in (my|our) (chat|conversation|history|memory))\b|سألت|ناقشنا|ناقشت|تحدثنا|تحدثت|قلنا|قلت لك|قلت لي|نصحتني|اقترحت علي|أخبرتني|اخبرتني|محادثتي|محادثاتي|دردشتي|ذاكرتي|في الذاكرة|آخر مرة|اخر مرة/i;
 
 function isPersonalMemoryQuestion(text) {
   return PERSONAL_RE.test(String(text || ''));
@@ -49,9 +49,16 @@ function isPersonalMemoryQuestion(text) {
 /**
  * @returns {{ needed: boolean, reason: string|null }}
  */
-function needsFreshInfo(userText, { cutoffYear = null, now = new Date(), hasDocuments = false, isProjectQuestion = false } = {}) {
-  const text = String(userText || '');
-  if (!text.trim() || isPersonalMemoryQuestion(text) || hasDocuments || isProjectQuestion) return { needed: false, reason: null };
+// "my latest chat", "what did I ask Claude recently", "آخر محادثة": time words
+// about the user's own chats, not about the world
+const OWN_CHAT_TIME_RE = /\b(latest|last|recent|previous|most recent|newest|earlier|prior)\s+(\w+\s+)?(chats?|conversations?|convos?|threads?|messages?|sessions?|questions?)\b|\b(recently|lately)\b|(اخر|آخر|احدث|أحدث)\s+(محادث|دردش|رسال|سؤال)\S*/gi;
+
+function needsFreshInfo(userText, { cutoffYear = null, now = new Date(), hasDocuments = false, isProjectQuestion = false, includePersonal = false } = {}) {
+  let text = String(userText || '');
+  if (includePersonal) text = text.replace(OWN_CHAT_TIME_RE, ' ');
+  // includePersonal: also look inside questions about the user's own chats
+  // ("in my trading chats, what lot size did I use, and what's the gold price today?")
+  if (!text.trim() || (!includePersonal && isPersonalMemoryQuestion(text)) || hasDocuments || isProjectQuestion) return { needed: false, reason: null };
 
   // A year after the model's cutoff (or last year / this year when the cutoff is unknown)
   const threshold = cutoffYear || now.getFullYear() - 1;
@@ -149,26 +156,56 @@ function isSmallTalk(text) {
 }
 
 /**
- * Whether to search the web before the model answers. Athar goes online only
- * when the user turned on "Search" in the message box; then every question is
- * searched first, except small talk and questions about their own chats,
- * attached files or the project folder.
- *   reason 'fresh'  — and the answer may be out of date (see needsFreshInfo)
- *   reason 'always' — any other question
- * @returns {{ search: boolean, reason: 'fresh'|'always'|null }}
+ * Whether to search the web BEFORE the model answers. Athar goes online only
+ * when the user turned on "Search" in the message box. Even then, most
+ * questions are answered from what is local first (memory, files, linked
+ * pages, the conversation) and checked afterwards (see needsWebAfterAnswer in
+ * ollama-client.js). Searching first is only a shortcut for time-sensitive
+ * questions ("latest…", prices, news) that nothing local covers.
+ * @returns {{ search: boolean, reason: 'fresh'|null }}
  */
-function shouldSearchFirst(text, { fresh, searchOn = false, hasDocuments = false, isProjectQuestion = false } = {}) {
+function shouldSearchFirst(text, { fresh, searchOn = false, hasLocalContext = false, hasDocuments = false, isProjectQuestion = false } = {}) {
   const t = String(text || '').trim();
-  if (!searchOn || !t || isSmallTalk(t) || isPersonalMemoryQuestion(t) || hasDocuments || isProjectQuestion) {
+  if (!searchOn || !t || !(fresh && fresh.needed) || isSmallTalk(t) || isPersonalMemoryQuestion(t) ||
+      hasLocalContext || hasDocuments || isProjectQuestion) {
     return { search: false, reason: null };
   }
-  return { search: true, reason: fresh && fresh.needed ? 'fresh' : 'always' };
+  return { search: true, reason: 'fresh' };
+}
+
+/**
+ * A placeholder the model wrote instead of a fact it doesn't have:
+ * "[gold_price]", "[current date]", "[السعر]". (Not citations like [M1] and
+ * not Markdown links.)
+ */
+const PLACEHOLDER_RE = /\[(?!M\d+\])[^\]\n]{0,25}(price|date|value|amount|number|rate|figure|name|year|time|سعر|السعر|تاريخ|التاريخ|قيمة|القيمة|رقم)[^\]\n]{0,25}\](?!\()/i;
+
+function hasPlaceholder(text) {
+  const prose = String(text || '').replace(/```[\s\S]*?(```|$)/g, ' ').replace(/`[^`\n]*`/g, ' ');
+  return PLACEHOLDER_RE.test(prose);
+}
+
+/**
+ * Reads the checker's one-line verdict: "NO" (the answer is based on the
+ * context, or needs no outside facts) or "SEARCH: <query>".
+ * @returns {{ search: boolean, query: string|null }}
+ */
+function parseWebVerdict(text) {
+  const line = String(text || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+  const m = line.match(/^\**\s*SEARCH\s*\**\s*[:：-]\s*(.+)$/i);
+  if (m) {
+    const query = m[1].replace(/^["'«“]+|["'»”]+$/g, '').trim();
+    return query.length >= 2 && query.length <= 200 ? { search: true, query } : { search: false, query: null };
+  }
+  return { search: false, query: null };
 }
 
 module.exports = {
   modelKnowledgeCutoff,
   needsFreshInfo,
   shouldSearchFirst,
+  parseWebVerdict,
+  hasPlaceholder,
   isSmallTalk,
   isPersonalMemoryQuestion,
   looksUncertainOrDated,

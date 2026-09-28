@@ -59,7 +59,9 @@ const COMMON_WORDS = {
   tr: 've bir bu ne nasıl ben sen benim için ile mi mı değil var çok neden hangi nerede',
   id: 'yang dan di ini itu apa bagaimana saya kamu untuk dengan tidak ada dari mengapa'
 };
-const COMMON = Object.fromEntries(Object.entries(COMMON_WORDS).map(([k, v]) => [k, new Set(v.split(' '))]));
+// One-letter words ("a", "o", "e", "y") are left out: "a" is English as much
+// as Portuguese, so they'd make "write a function that reverses a list" Portuguese.
+const COMMON = Object.fromEntries(Object.entries(COMMON_WORDS).map(([k, v]) => [k, new Set(v.split(' ').filter((w) => w.length > 1))]));
 const LETTER_HINTS = [
   ['es', /[ñ¿¡]/g], ['pt', /[ãõ]/g], ['de', /ß/g], ['tr', /[ığş]/g], ['fr', /[êëœ]|\bc'est\b|\bqu'/g]
 ];
@@ -102,7 +104,9 @@ function detectLanguage(text) {
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const [[best, top], [, second]] = ranked;
   if (top >= 2 && top > second) return LANGUAGES[best];
-  if (top >= 1 && second === 0 && latinWords.length <= 4) return LANGUAGES[best];
+  if (top >= 1 && second === 0) return LANGUAGES[best];
+  // Plain ASCII words with no sign of another language ("write python code to reverse list")
+  if (top === 0 && latinWords.length >= 3 && /^[\x00-\x7F]*$/.test(prose)) return LANGUAGES.en;
   return null;
 }
 

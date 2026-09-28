@@ -103,23 +103,55 @@ test('Search off: current-information questions get the "turn on Search" note, i
   assert(/turned OFF/.test(f.offlineInstruction({ why: 'disabled', cutoffLabel: 'late 2023' })));
 });
 
-test('Search on: every question is searched first…', () => {
+test('Search on: only time-sensitive questions that nothing local covers are searched BEFORE answering', () => {
+  assert.deepStrictEqual(decide('what is the latest version of Node.js?', true), { search: true, reason: 'fresh' });
+  assert.deepStrictEqual(decide('ok, and what is the latest version of Python?', true), { search: true, reason: 'fresh' });
+  // everything else is answered first from what's local, then checked (needsWebAfterAnswer)
   for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'ما هي عاصمة أستراليا؟']) {
-    assert.deepStrictEqual(decide(q, true), { search: true, reason: 'always' }, q);
+    assert.strictEqual(decide(q, true).search, false, q);
   }
-  assert.strictEqual(decide('what is the latest version of Node.js?', true).reason, 'fresh', 'still marked as a current-information question');
+  // something local may already answer it (memory excerpts, a linked page): answer first, then check
+  assert.strictEqual(decide('what is the latest version of Node.js?', true, { hasLocalContext: true }).search, false);
 });
 
-test('…except small talk, questions about your own chats, attached files and the project folder', () => {
+test('never searched first: small talk, questions about your own chats or memory, attached files, the project folder', () => {
   for (const q of ['hi', 'Thanks a lot!', 'ok', 'thank you so much', 'شكرا جزيلا', 'صباح الخير', '']) {
     assert.strictEqual(decide(q, true).search, false, `small talk: "${q}"`);
   }
-  for (const q of ['summarize my chat about the bakery database', 'ماذا قلنا في محادثاتي عن التداول؟', 'what did we decide last time?']) {
+  for (const q of ['summarize my chat about the bakery database', 'ماذا قلنا في محادثاتي عن التداول؟', 'what did we decide last time?',
+    'what were my recent conversations in the memory?', 'tell me about my latest chats', 'ما هي آخر محادثاتي في الذاكرة؟']) {
+    assert(f.isPersonalMemoryQuestion(q), `recognised as about your own history: ${q}`);
     assert.strictEqual(decide(q, true).search, false, `own chats: ${q}`);
   }
-  assert.strictEqual(decide('what are the main risks?', true, { hasDocuments: true }).search, false, 'attached file');
-  assert.strictEqual(decide('how is the router set up?', true, { isProjectQuestion: true }).search, false, 'project folder');
-  assert.strictEqual(decide('ok, and what about Python 3.13?', true).search, true, 'a real question after "ok" is searched');
+  assert.strictEqual(decide('what are the latest risks?', true, { hasDocuments: true }).search, false, 'attached file');
+  assert.strictEqual(decide('what is the latest router config?', true, { isProjectQuestion: true }).search, false, 'project folder');
+});
+
+test('questions about your own chats: time words about the chats are not "current information"', () => {
+  const inside = (q) => f.needsFreshInfo(q, { cutoffYear: 2023, includePersonal: true }).needed;
+  for (const q of ['summarize my latest chat', 'what did I say in my latest conversation about docker?', 'what did I ask Claude recently?', 'ما آخر محادثة لي عن التداول؟']) {
+    assert.strictEqual(inside(q), false, q);
+  }
+  for (const q of ['in my trading bot chats, what lot size was I using, and what is the gold price today?', 'ما قلته في محادثاتي عن الذهب، وما سعر الذهب اليوم؟']) {
+    assert.strictEqual(inside(q), true, `mixed: ${q}`);
+    assert.strictEqual(f.needsFreshInfo(q, { cutoffYear: 2023 }).needed, false, 'without includePersonal, own-chat questions are never "fresh"');
+  }
+});
+
+test('placeholders instead of facts ("[gold_price]") are caught; citations, links, lists and code are not', () => {
+  for (const t of ['the gold price is [gold_price] USD', 'as of [current date]', 'سعر الذهب اليوم هو [السعر] دولار']) assert(f.hasPlaceholder(t), t);
+  for (const t of ['see [M1] and [M2, M3]', '[the docs](https://x.y)', 'a list [1, 2, 3]', '```js\nconst d = rows[date];\n```', 'use `prices[date]` here']) {
+    assert(!f.hasPlaceholder(t), t);
+  }
+});
+
+test('the checker\'s verdict: NO, or SEARCH with the query to look up', () => {
+  assert.deepStrictEqual(f.parseWebVerdict('NO'), { search: false, query: null });
+  assert.deepStrictEqual(f.parseWebVerdict('no, the answer is based on the context'), { search: false, query: null });
+  assert.deepStrictEqual(f.parseWebVerdict('SEARCH: current CEO of OpenAI'), { search: true, query: 'current CEO of OpenAI' });
+  assert.deepStrictEqual(f.parseWebVerdict('**SEARCH**: "population of Egypt 2026"\nbecause…'), { search: true, query: 'population of Egypt 2026' });
+  assert.deepStrictEqual(f.parseWebVerdict('SEARCH: من يملك MystiEgypt'), { search: true, query: 'من يملك MystiEgypt' });
+  assert.deepStrictEqual(f.parseWebVerdict(''), { search: false, query: null });
 });
 
 done();

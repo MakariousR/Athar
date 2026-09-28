@@ -342,6 +342,10 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
       'Do not call web tools again. Answer from your own knowledge, say that your information may be out of date ' +
       '(it is as of your training data), and tell the user they can turn on Search to let you look it up.';
   }
+  if (toolName === 'web_search' && turn && turn.ownHistory) {
+    return 'This question is about the user\'s own past conversations: the web cannot know them. ' +
+      'Do not search the web — answer from the memory excerpts you were given (or call search_memory).';
+  }
   if (toolName === 'web_search') {
     onStatus({ icon: '🌐', text: `Searching web for: "${args.query}"` });
     const result = await searchWebTool(args.query, onStatus);
@@ -771,7 +775,7 @@ ${webRule}`;
       memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
       memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
       pagesBlock ? 'the app already opened the page(s) the user linked — answer from their text below, in the same language as the user\'s message, and never say you cannot access websites (if a page could not be opened, say that)' : null,
-      webBlock ? 'the web research is newer than your training data: base current facts on it (not on what you remember) and mention the source and date' : null,
+      webBlock ? 'the web research is newer than your training data: base facts about the outside world on it (not on what you remember) and mention the source and date — but for anything about the user (their chats, memories, files) use the context above, not the web; answer every part of the question' : null,
       memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
     const block = `[Context for this reply, provided by the Athar app — not written by the user. ` +
@@ -861,6 +865,60 @@ async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0
   if (!res.ok) throw new Error(`Ollama chat failed: ${await res.text().catch(() => res.status)}`);
   const data = await res.json();
   return (data.message && data.message.content ? data.message.content : '').trim();
+}
+
+/**
+ * After a first answer made from what's local (memory, files, linked pages,
+ * the conversation): does it rely on outside facts that the context doesn't
+ * give — i.e. on the model's own, possibly outdated, training data — or leave
+ * out something the user asked for? One short model call.
+ * @returns {Promise<{ search: boolean, query: string|null }>}
+ */
+async function needsWebAfterAnswer(userText, answer, contextText, modelName) {
+  const prompt = `You decide whether an assistant's answer needs to be checked on the web.
+
+CONTEXT the assistant had (the user's own past chats, files, pages and conversation):
+"""
+${contextText.slice(0, 6000) || '(none)'}
+"""
+
+USER'S QUESTION:
+"""
+${String(userText).slice(0, 1000)}
+"""
+
+ANSWER:
+"""
+${String(answer).slice(0, 3000)}
+"""
+
+Reply with exactly one line:
+- "NO" if everything factual in the answer comes from the CONTEXT, or the question is only about the user's own chats, memories, files or projects, or the answer needs no outside facts (code, writing, translation, math, general explanations, advice).
+- "SEARCH: <short web search query>" if the answer states facts about the outside world that the CONTEXT does not contain (people, companies, owners, products, prices, versions, dates, events, statistics, laws), if it says it doesn't know or that its information may be outdated, or if part of what the user asked is missing. If the question mixes the user's own chats with an outside-world fact (e.g. a current price), search only for the outside-world part. The query must name exactly what to look up.`;
+  try {
+    const out = await completeText(prompt, modelName, { temperature: 0, maxTokens: 40 });
+    return freshness.parseWebVerdict(out);
+  } catch {
+    return { search: false, query: null };
+  }
+}
+
+/**
+ * For a question that mixes the user's own chats with the outside world ("what
+ * lot size did I use, and what's the gold price today?"): a web query for only
+ * the outside-world part ("gold price today"). Falls back to the question.
+ */
+async function outsideWorldQuery(userText, modelName) {
+  const prompt = `This question may mix the user's own past chats with things about the outside world.\n` +
+    `Question: "${String(userText).slice(0, 600)}"\n\n` +
+    'Write a short web search query (at most 8 words) for ONLY the part about the outside world that needs current ' +
+    'information (prices, news, dates, people, products). Keep the language of the question. Output only the query.';
+  try {
+    const out = (await completeText(prompt, modelName, { temperature: 0, maxTokens: 30 })).split('\n').map((l) => l.trim()).find(Boolean) || '';
+    const query = out.replace(/^(search query|query)\s*[:：]\s*/i, '').replace(/^["'«“]+|["'»”]+$/g, '').trim();
+    if (query.length >= 3 && query.length <= 120) return query;
+  } catch { /* fall back */ }
+  return String(userText).slice(0, 200);
 }
 
 /** Translates an answer, keeping code, links, names and Markdown as they are. */
@@ -985,9 +1043,9 @@ async function generate(
     if (online === null) online = await isOnline();
     return online;
   };
-  const webSearch = async () => {
-    if (searchQuery === null) searchQuery = await standaloneWebQuery(userText, conversationHistory, modelName, onStatus);
-    const result = await executeTool('web_search', { query: searchQuery }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
+  const webSearch = async (query = null) => {
+    if (!query && searchQuery === null) searchQuery = await standaloneWebQuery(userText, conversationHistory, modelName, onStatus);
+    const result = await executeTool('web_search', { query: query || searchQuery }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
     return isUsableResearch(result) ? result : null;
   };
 
@@ -1021,16 +1079,26 @@ async function generate(
     }
   }
 
-  // 1. Web research before answering, only when the user has Search on:
-  //    every question, except small talk and questions about their own chats,
-  //    attached files or the project folder. With Search off, a question that
-  //    needs current information ("latest…", prices, a year after the model's
-  //    training data…) is answered from the training data and says so.
+  // 1. The web is used only when the user has Search on, and then as little
+  //    as needed: answer from what's local first (memory, files, linked pages,
+  //    the conversation), then check whether that answer relies on outside
+  //    facts the context doesn't give (step 2). Only a time-sensitive question
+  //    ("latest…", prices, news) that nothing local covers is searched first.
+  //    With Search off, a question that needs current information is answered
+  //    from the training data and says so.
   let webResearch = null;
   let offlineWhy = null; // 'offline' | 'search-failed' | 'disabled' → answer must say it's as of the training data
   const hasDocuments = Boolean(preRead) || (documents && documents.length > 0);
+  const aboutOwnHistory = freshness.isPersonalMemoryQuestion(userText) || Boolean(memory && (memory.focus || memory.list));
+  turn.ownHistory = aboutOwnHistory; // the web tools refuse: this is answered from the user's memory
+  const hasLocalContext = Boolean(memory && memory.passages && memory.passages.length) || pagesOpened || hasDocuments || isProjectQuestion;
   const fresh = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, hasDocuments, isProjectQuestion });
-  const searchFirst = freshness.shouldSearchFirst(userText, { fresh, searchOn, hasDocuments, isProjectQuestion });
+  // Answered from memory alone, never checked against the web: a list of their
+  // chats, or a question about their own history that asks nothing time-sensitive
+  // ("…and what's the gold price today?" still gets checked, for that part)
+  const alsoTimeSensitive = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, includePersonal: true }).needed;
+  const memoryOnly = Boolean(memory && memory.list) || (aboutOwnHistory && !alsoTimeSensitive);
+  const searchFirst = freshness.shouldSearchFirst(userText, { fresh, searchOn, hasLocalContext, hasDocuments, isProjectQuestion });
   if (!searchOn && fresh.needed) offlineWhy = 'disabled';
   // Checking the answer against the sources costs another model call; worth
   // it for current facts, not for e.g. code written while "Search" is on.
@@ -1057,26 +1125,47 @@ async function generate(
   let loopResult = await answerOnce({ webResearch, offlineWhy });
   if (typeof loopResult === 'string') return loopResult; // backend error message
 
-  // 2. The model says it doesn't know, or hedges with "as of my last update"
-  //    (not for questions about the user's own history): with Search on, look
-  //    it up and answer again; with Search off, say Search can look it up.
+  // 2. Search off: if the answer hedges, or the model wanted the web, say
+  //    Search can look it up. Search on: check what the answer is based on —
+  //    all from the context (or needs no outside facts) → keep it; facts from
+  //    the model's own training, or something asked for is missing → search
+  //    for exactly that and answer again with the web results.
   const researched = Boolean(webResearch) || (loopResult.researchLog || []).length > 0;
-  if (!searchOn && !offlineWhy && (turn.webBlocked ||
-      (!freshness.isPersonalMemoryQuestion(userText) && freshness.looksUncertainOrDated(loopResult.text)))) {
-    offlineWhy = 'disabled';
-  } else if (!researched && !offlineWhy && !freshness.isPersonalMemoryQuestion(userText) &&
-      freshness.looksUncertainOrDated(loopResult.text)) {
-    if (await checkOnline()) {
-      onStatus({ icon: '🌐', text: 'My training data doesn\'t cover this — searching the web…' });
-      webResearch = await webSearch();
+  if (!searchOn) {
+    if (!offlineWhy && (turn.webBlocked || (!aboutOwnHistory && freshness.looksUncertainOrDated(loopResult.text)))) {
+      offlineWhy = 'disabled';
+    }
+  } else if (!researched && !offlineWhy && !memoryOnly && !freshness.isSmallTalk(userText) && loopResult.text && loopResult.text.trim()) {
+    onStatus({ icon: '🔎', text: 'Checking whether the answer needs the web…' });
+    const contextText = [
+      memory && memory.passages && memory.passages.length ? formatMemoryContext(memory.passages, { maxChars: 3500 }) : '',
+      linkedPages ? String(linkedPages).slice(0, 1500) : '',
+      preRead ? String(preRead).slice(0, 1500) : '',
+      (conversationHistory || []).slice(-3, -1).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.text || '').slice(0, 400)}`).join('\n')
+    ].filter(Boolean).join('\n\n');
+    let verdict = await needsWebAfterAnswer(userText, loopResult.text, contextText, modelName);
+    // Whatever the checker said: an answer that hedges or has placeholders
+    // ("[gold_price]"), or a question that asks for something current
+    // ("…price today", "latest…"), is looked up
+    if (!verdict.search && (freshness.looksUncertainOrDated(loopResult.text) || freshness.hasPlaceholder(loopResult.text) || alsoTimeSensitive)) {
+      verdict = { search: true, query: null };
+    }
+    // Mixed with the user's own chats: search only for the outside-world part
+    if (verdict.search && !verdict.query && aboutOwnHistory) verdict.query = await outsideWorldQuery(userText, modelName);
+    if (!verdict.search) {
+      onStatus({ icon: '✅', text: 'No web search needed — answered from what I have.' });
+    } else if (await checkOnline()) {
+      onStatus({ icon: '🌐', text: verdict.query ? `Looking this up on the web: "${verdict.query}"` : 'Looking this up on the web…' });
+      turn.ownHistory = false; // the check found an outside-world part to look up (e.g. today's price)
+      webResearch = await webSearch(verdict.query);
       checkAgainstWeb = true;
       if (webResearch) {
         const retry = await answerOnce({ webResearch, offlineWhy: null });
         if (typeof retry !== 'string') loopResult = retry;
-      } else {
+      } else if (fresh.needed) {
         offlineWhy = 'search-failed';
       }
-    } else {
+    } else if (fresh.needed) {
       offlineWhy = 'offline';
     }
   }
