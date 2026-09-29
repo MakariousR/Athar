@@ -11,6 +11,7 @@ function indexInBackground(sessionId, resource) {
 }
 const ollama = require('./ollama/ollama-client');
 const ollamaInstaller = require('./ollama/ollama-installer');
+const downloads = require('./downloads');
 const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
 const { getLicense } = require('./license');
@@ -196,12 +197,21 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('ollama:install', async (event) => {
+    downloads.start('ollama', { kind: 'ollama', label: 'Ollama' }); // closing the app now asks first
     try {
       await ollamaInstaller.installOllama((progress) => {
+        downloads.update('ollama', {
+          phase: progress.phase,
+          percent: progress.phase === 'download' && progress.total ? Math.round((progress.received / progress.total) * 100) : 0
+        });
         if (!event.sender.isDestroyed()) event.sender.send('ollama:install-progress', progress);
       });
       return { success: true };
-    } catch (err) { return { success: false, error: err.message, cancelled: !!err.cancelled }; }
+    } catch (err) {
+      return { success: false, error: err.message, cancelled: !!err.cancelled };
+    } finally {
+      downloads.end('ollama');
+    }
   });
 
   ipcMain.handle('ollama:install-cancel', () => { ollamaInstaller.cancelInstall(); return { success: true }; });
@@ -214,13 +224,37 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('ollama:pull-model', async (event, modelName) => {
+    // Remembered until it finishes, so an interrupted download can be continued next time
+    downloads.addPending(modelName);
+    downloads.start(`model:${modelName}`, { kind: 'model', label: modelName });
     try {
       await ollama.pullModel(modelName, (status) => {
-        event.sender.send('ollama:pull-progress', { model: modelName, ...status });
+        if (status.total && status.completed) downloads.update(`model:${modelName}`, { percent: Math.round((status.completed / status.total) * 100) });
+        if (!event.sender.isDestroyed()) event.sender.send('ollama:pull-progress', { model: modelName, ...status });
       });
+      downloads.removePending(modelName);
       return { success: true };
-    } catch (err) { return { success: false, error: err.message }; }
+    } catch (err) {
+      return { success: false, error: err.message };
+    } finally {
+      downloads.end(`model:${modelName}`);
+    }
   });
+
+  // Model downloads that didn't finish last time (e.g. the app was closed) and aren't installed
+  ipcMain.handle('downloads:pending', async () => {
+    const pending = downloads.readPending();
+    if (pending.length === 0) return { success: true, models: [] };
+    try {
+      const installed = await ollama.listModels();
+      const isInstalled = (name) => installed.some((m) => m.name === name || m.name === `${name}:latest`);
+      for (const name of pending.filter(isInstalled)) downloads.removePending(name); // finished some other way
+      return { success: true, models: pending.filter((n) => !isInstalled(n)) };
+    } catch {
+      return { success: true, models: pending }; // Ollama not reachable: can't tell yet
+    }
+  });
+  ipcMain.handle('downloads:discard', (event, modelName) => { downloads.removePending(String(modelName)); return { success: true }; });
 
   ipcMain.handle('ollama:delete-model', async (event, modelName) => {
     try {

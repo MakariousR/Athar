@@ -311,6 +311,13 @@ async function checkSetup() {
 
   // If no chat model is installed, let the user choose default or another model
   if (!result.chatInstalled) {
+    // A chat model download was interrupted (the app was closed): just continue it
+    const [unfinished] = await unfinishedChatModels();
+    if (unfinished) {
+      startSetupInstall(unfinished);
+      setupStatus.textContent = `Continuing the download of ${getModelInfo(unfinished).label || unfinished} that didn't finish last time…`;
+      return;
+    }
     setupStatus.textContent = `No chat AI model found. Install the recommended default or pick a model from the list.` +
       (setupNeedsEmbed ? ` The search/embedding model (bge-m3, ${EMBED_MODEL_SIZE}) will be downloaded too.` : '');
     setupChoices.classList.remove('hidden');
@@ -533,6 +540,48 @@ async function pullSequentially(missing, index) {
   }
 }
 
+// ── Unfinished model downloads (the app was closed mid-download) ──────────────
+// Ollama keeps the part already downloaded, so continuing resumes from there.
+const resumeDownload     = document.getElementById('resumeDownload');
+const resumeDownloadText = document.getElementById('resumeDownloadText');
+
+async function unfinishedChatModels() {
+  try {
+    const res = await window.api.pendingDownloads();
+    return (res && res.models ? res.models : []).filter((m) => m !== EMBED_MODEL);
+  } catch {
+    return [];
+  }
+}
+
+/** In the app: "Qwen 3 8B didn't finish downloading" with Continue / Dismiss. */
+async function offerUnfinishedDownload() {
+  const [model] = await unfinishedChatModels();
+  if (!model) { resumeDownload.classList.add('hidden'); return; }
+  const label = getModelInfo(model).label || model;
+  resumeDownloadText.textContent = `${label} didn't finish downloading.`;
+  resumeDownload.classList.remove('hidden');
+  document.getElementById('resumeDownloadBtn').onclick = () => {
+    resumeDownload.classList.add('hidden');
+    openSettingsModal();
+    // Continue in Settings, with its progress bar (the download picks up where it stopped)
+    if (![...modelSelect.options].some((o) => o.value === model)) {
+      const opt = document.createElement('option');
+      opt.value = model;
+      opt.textContent = label;
+      modelSelect.appendChild(opt);
+    }
+    modelSelect.value = model;
+    modelSelect.dispatchEvent(new Event('change'));
+    modelDownloadBtn.click();
+  };
+  document.getElementById('resumeDownloadDismiss').onclick = async () => {
+    resumeDownload.classList.add('hidden');
+    await window.api.discardPendingDownload(model);
+    offerUnfinishedDownload(); // another one?
+  };
+}
+
 async function enterApp() {
   setupOverlay.classList.add('hidden');
   appShell.classList.remove('hidden');
@@ -541,6 +590,7 @@ async function enterApp() {
   await initSavedHistory();
   await initWorkspace();
   setupPermissionModal();
+  offerUnfinishedDownload();
 }
 
 async function initWorkspace() {

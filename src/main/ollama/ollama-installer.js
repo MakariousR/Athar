@@ -173,10 +173,13 @@ async function installOllama(onProgress = () => {}) {
   if (!canInstall()) throw new Error('Automatic install is only available on Windows.');
   if (current) throw new Error('Ollama is already being installed.');
   const controller = new AbortController();
-  current = { controller };
+  current = { controller, dir: null };
   const { signal } = controller;
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'athar-ollama-'));
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), TEMP_PREFIX));
   const file = path.join(dir, 'OllamaSetup.exe');
+  // Marks the folder as in use by this app, so cleanupLeftoverInstallers() never deletes a running download
+  current.dir = dir;
+  await fs.promises.writeFile(path.join(dir, 'owner.json'), JSON.stringify({ pid: process.pid, started: Date.now() }));
   try {
     onProgress({ phase: 'download', received: 0, total: 0 });
     await download(SETUP_URL, file, onProgress, signal);
@@ -205,7 +208,38 @@ function cancelInstall() {
   if (current) current.controller.abort();
 }
 
+const TEMP_PREFIX = 'athar-ollama-';
+const LEFTOVER_MIN_AGE_MS = 6 * 3600 * 1000; // a folder with no owner record is only removed after this
+
+function processIsRunning(pid) {
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
+}
+
+/**
+ * Removes installer downloads left behind when the app was closed mid-download
+ * (the next install starts a fresh download). Never touches a folder whose
+ * Athar process is still running, or a recent one without an owner record.
+ */
+async function cleanupLeftoverInstallers({ tempDir = os.tmpdir(), now = Date.now() } = {}) {
+  let removed = 0;
+  let names = [];
+  try { names = await fs.promises.readdir(tempDir); } catch { return 0; }
+  for (const name of names.filter((n) => n.startsWith(TEMP_PREFIX))) {
+    const dir = path.join(tempDir, name);
+    try {
+      if (current && current.dir === dir) continue;
+      let owner = null;
+      try { owner = JSON.parse(await fs.promises.readFile(path.join(dir, 'owner.json'), 'utf8')); } catch { /* none */ }
+      if (owner && Number.isInteger(owner.pid) && owner.pid !== process.pid && processIsRunning(owner.pid)) continue;
+      if (!owner && now - (await fs.promises.stat(dir)).mtimeMs < LEFTOVER_MIN_AGE_MS) continue;
+      await fs.promises.rm(dir, { recursive: true, force: true });
+      removed++;
+    } catch { /* in use or already gone */ }
+  }
+  return removed;
+}
+
 module.exports = {
-  canInstall, findOllama, installerSize, startOllama, installOllama, cancelInstall, DOWNLOAD_PAGE,
+  canInstall, findOllama, installerSize, startOllama, installOllama, cancelInstall, cleanupLeftoverInstallers, DOWNLOAD_PAGE,
   _internals: { verifySignature, download }
 };

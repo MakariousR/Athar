@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
   pullModel: (modelName) => ipcRenderer.invoke('ollama:pull-model', modelName),
+  pendingDownloads: () => ipcRenderer.invoke('downloads:pending'),
+  discardPendingDownload: (modelName) => ipcRenderer.invoke('downloads:discard', modelName),
   deleteModel: (modelName) => ipcRenderer.invoke('ollama:delete-model', modelName),
   onPullProgress: (cb) => {
     ipcRenderer.removeAllListeners('ollama:pull-progress');

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -23,6 +23,8 @@ function moveDataFromOldName() {
 moveDataFromOldName();
 const { registerIpcHandlers } = require('./ipc-handlers');
 const { getLicense } = require('./license');
+const downloads = require('./downloads');
+const { cleanupLeftoverInstallers } = require('./ollama/ollama-installer');
 
 let mainWindow;
 
@@ -70,6 +72,30 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
+  // A download or the Ollama install in progress: ask before closing
+  let closeConfirmed = false;
+  mainWindow.on('close', (event) => {
+    if (closeConfirmed) return;
+    const warning = downloads.closeWarning();
+    if (!warning) return;
+    event.preventDefault();
+    dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Athar',
+      message: warning.message,
+      detail: warning.detail,
+      buttons: ['Keep Athar open', 'Close anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    }).then(({ response }) => {
+      if (response === 1 && mainWindow && !mainWindow.isDestroyed()) {
+        closeConfirmed = true;
+        mainWindow.close();
+      }
+    });
+  });
+
   // Uncomment while developing:
   // mainWindow.webContents.openDevTools();
 }
@@ -78,6 +104,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null); // remove File/Edit/View menu bar entirely
   registerIpcHandlers();
   createWindow();
+  cleanupLeftoverInstallers(); // half-downloaded Ollama installers from a closed session
 
   // A key can run out while the app is open: re-check hourly, and show the
   // activation screen again if it's no longer valid.
