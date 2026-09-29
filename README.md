@@ -1,6 +1,4 @@
-# Athar (أثر)
-
-_Athar_ is Arabic for "trace": what your conversations leave behind.
+# Athar
 
 One private memory for all your AI chats. Import your ChatGPT, Claude and Gemini
 history; a local model (via [Ollama](https://ollama.com)) remembers it, cites it,
@@ -14,8 +12,7 @@ search.
   keywords for every message. Relevant memories are given to the model, which
   cites them like `[M1]`; unrelated questions get no memories at all.
 - **Understands how you ask.** "What did I ask Claude about salary last year?"
-  searches only Claude, only last year, for "salary". Works in English and
-  Arabic ("الشهر الماضي", "كلود").
+  searches only Claude, only last year, for "salary".
 - **Search & browse your history** in one place, filter by source, open any
   conversation at the matching passage, or start a new chat about it.
 - **Portable memory profile.** A short summary of you (work, projects, tools,
@@ -155,5 +152,4 @@ tests/                     test suites (npm test)
   memories they used so you can check, and the memory profile is meant to be
   reviewed before you use or share it.
 - DuckDuckGo may temporarily rate-limit heavy searching; the app tells you when.
-- The interface itself is English-only; Arabic text is fully supported in
-  chats, search and the profile.
+- The app is English-only; other languages are untested.

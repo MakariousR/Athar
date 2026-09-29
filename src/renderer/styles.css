@@ -1949,7 +1949,6 @@ body {
 .progress-bar.indeterminate .progress-fill { width: 35% !important; animation: progress-slide 1.2s ease-in-out infinite; }
 @keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 
-.setup-card h1 .app-name-ar { font-weight: 500; color: var(--muted); margin-inline-start: 6px; }
 
 .source-chip.source-chips-more { border-color: var(--border); color: var(--muted); }
 
