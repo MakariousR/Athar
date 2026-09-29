@@ -388,6 +388,8 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
       'Do not search the web — answer from the memory excerpts you were given (or call search_memory).';
   }
   if (toolName === 'web_search') {
+    // Small models often search with the user's whole sentence: search for the subject instead
+    if (turn && typeof turn.fixWebQuery === 'function') args.query = await turn.fixWebQuery(args.query);
     onStatus({ icon: '🌐', text: `Searching web for: "${args.query}"` });
     const result = await searchWebTool(args.query, onStatus);
     const text = typeof result === 'string' ? result : JSON.stringify(result);
@@ -817,7 +819,7 @@ ${webRule}`;
       memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
       memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
       pagesBlock ? 'the app already opened the page(s) the user linked — answer from their text below, in the same language as the user\'s message, and never say you cannot access websites (if a page could not be opened, say that)' : null,
-      webBlock && memory.explicitWeb ? 'the user asked you to search the web, and the app did: answer from these web results now — even if an earlier reply in this conversation already answered, do not repeat it; update or correct it where the results differ, and say what the web says' : null,
+      webBlock && memory.searchedMidChat ? 'answer the user\'s NEW message (the last one) using these web results — do not repeat your earlier reply in this conversation; if they ask to compare or choose ("which one is better?"), compare the options and give a clear pick with reasons; where the results differ from what you said before, correct it; if the results don\'t cover it, say so in one line and answer from your own knowledge' : null,
       webBlock ? 'the web research is newer than your training data: base facts about the outside world on it (not on what you remember) and mention the source and date — but for anything about the user (their chats, memories, files) use the context above, not the web; answer every part of the question' : null,
       memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
@@ -978,17 +980,21 @@ async function standaloneWebQuery(userText, history, modelName, onStatus = () =>
   const turns = (history || []).filter((m) => m && (m.role === 'user' || m.role === 'assistant') && String(m.text || '').trim());
   // The history may already end with this message
   if (turns.length && turns[turns.length - 1].role === 'user' && String(turns[turns.length - 1].text).trim() === text) turns.pop();
-  const short = text.split(/\s+/).length < 5;
-  if (turns.length === 0 || (!short && !REFERS_BACK_RE.test(text))) return text.slice(0, 300);
+  // First message of a chat: nothing to take the subject from. Later on, a
+  // follow-up often only makes sense with what came before ("which one is
+  // better?"), so it is always rewritten.
+  if (turns.length === 0) return text.slice(0, 300);
 
   const context = turns.slice(-6).map((m) => {
     const body = String(m.text).replace(/\s+/g, ' ').trim();
     return `${m.role === 'user' ? 'User' : 'Assistant'}: ${body.length > 500 ? `${body.slice(0, 500)}…` : body}`;
   }).join('\n');
   const prompt = `Conversation so far:\n${context}\n\nNew message from the user: "${text}"\n\n` +
-    'Write the web search query for the new message so that it makes sense on its own: replace words like "this", "it", ' +
-    '"that company", "هذه الشركة" with the actual name or thing they refer to in the conversation (for a website, use its name or domain). ' +
-    'Keep the language of the new message. Output only the query, at most 12 words, no quotes and no explanation.';
+    'Write the web search query for what the new message asks, the way you would type it into Google: the subject in a few keywords, ' +
+    'not the user\'s sentence. Fill in from the conversation whatever it refers to — "this", "it", "that company", "هذه الشركة", ' +
+    '"which one" (put the names of the options being compared in the query, e.g. "X vs Y vs Z") — using names or domains. Leave out filler like "okay", "tell me", "search for". ' +
+    `Write the query in ${freshness.isArabic(text) ? 'Arabic' : /^[\x00-\x7F]*$/.test(text) ? 'English' : 'the language of the new message'}. ` +
+    'Output only the query, at most 12 words, no quotes and no explanation.';
   try {
     onStatus({ icon: '🔎', text: 'Working out what to search for from the conversation…' });
     const out = (await completeText(prompt, modelName, { temperature: 0, maxTokens: 40 }))
@@ -1063,14 +1069,22 @@ async function generate(
     return online;
   };
   const webSearch = async (query = null) => {
-    if (!query && searchQuery === null) {
-      // "search the web for X" → X; "ok search it again" leaves too little, so the
-      // whole message goes to the rewrite, which takes the subject from the conversation
+    const result = await executeTool('web_search', { query: query || '' }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
+    return isUsableResearch(result) ? result : null;
+  };
+  // Any web search (the model's or the app's): a query that is just the user's
+  // message (or empty) becomes the subject, worked out from the conversation.
+  // "search the web for X" → X; "ok search it again" leaves too little, so the
+  // whole message goes to the rewrite, which takes the subject from the conversation.
+  const sameText = (a, b) => String(a || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() === String(b || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  turn.fixWebQuery = async (q) => {
+    const asked = String(q || '').trim();
+    if (asked && !sameText(asked, userText) && !sameText(asked, freshness.stripSearchCommand(userText))) return asked;
+    if (searchQuery === null) {
       const subject = freshness.stripSearchCommand(userText);
       searchQuery = await standaloneWebQuery(subject.split(/\s+/).length >= 3 ? subject : userText, conversationHistory, modelName, onStatus);
     }
-    const result = await executeTool('web_search', { query: query || searchQuery }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
-    return isUsableResearch(result) ? result : null;
+    return searchQuery;
   };
 
   // 0. A link in the user's message: with Search on, open it before answering
@@ -1229,7 +1243,8 @@ async function generate(
         cutoffLabel: cutoff.label,
         toolsAvailable: withTools,
         webResearch: research,
-        explicitWeb: explicitWeb && Boolean(research),
+        // Mid-conversation, a small model tends to repeat its last reply instead of using the new results
+        searchedMidChat: Boolean(research) && (conversationHistory || []).some((m) => m.role === 'assistant'),
         linkedPages,
         webAllowed: searchOn,
         replyLanguage: replyLang,
