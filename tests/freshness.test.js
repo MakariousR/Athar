@@ -187,6 +187,60 @@ test('a web query that lost the subject of the question is recognised', () => {
   assert(f.sharesSubject('anything', 'ok?'), 'nothing to judge by');
 });
 
+test('everyday and programming uses of "current", "stock", "population"… are not current-information questions', () => {
+  for (const q of [
+    'how do I get the current working directory in python?', 'what is electric current?', 'explain the population standard deviation formula',
+    'how to stock a pantry', 'filter rows where year = 2025 in pandas', 'how do I release a mutex lock?', 'what is a z-score?',
+    'explain price elasticity of demand', 'implement long polling in node', 'show the most recently used files list in `ls`'
+  ]) assert(!needs(q), q);
+  // …while the real ones still are
+  for (const q of ['what is the population of Egypt?', 'Apple stock price', 'when was the iPhone 17 released?', 'live scores of the match',
+    'what is the latest version of pandas?', 'is python 3.8 still supported?']) assert(needs(q), q);
+});
+
+test('questions about the world that mention "last time", "my … memory", "my … history" are not about your chats', () => {
+  for (const q of ['When was the last time Egypt qualified for the World Cup?', 'how much is my GPU memory bandwidth on an RTX 4090',
+    'my family history of diabetes: what are the risks?', 'آخر مرة فازت مصر بكأس أفريقيا', 'تحدثت الصحف عن الانتخابات']) {
+    assert(!f.isPersonalMemoryQuestion(q), q);
+  }
+  for (const q of ['last time we talked about docker, what did you suggest?', 'what is in your memory about me?', 'show my chat history about taxes',
+    'آخر مرة سألتك عن بايثون', 'what are my memories about the trip?']) {
+    assert(f.isPersonalMemoryQuestion(q), q);
+  }
+});
+
+test('"on", "دور" (role), "دوري" (league) and a mention of Google are not requests to search the web', () => {
+  for (const q of ['can you find the bug on line 12?', 'check on the status of my order script', 'look on the bright side',
+    'how does data travel on the internet?', 'Search algorithms: explain binary search', 'how does web search work?',
+    'ما دور الأمم المتحدة في الصراع؟', 'من فاز بالدوري الإنجليزي؟', 'دوري أبطال أوروبا', 'ما هي أرباح شركة جوجل؟', 'كيف تنتقل البيانات على الانترنت؟']) {
+    assert(!f.asksForWebSearch(q), q);
+  }
+  for (const q of ['search the web for gold prices', 'ابحث في جوجل عن سعر الدولار', 'دوري لي على أرخص رحلة', 'شوف على النت مين كسب']) {
+    assert(f.asksForWebSearch(q), q);
+  }
+});
+
+test('"online" stays in the subject unless it ends the command', () => {
+  assert.strictEqual(f.stripSearchCommand('search for best online courses for python'), 'best online courses for python');
+  assert.strictEqual(f.stripSearchCommand('how does data travel on the internet?'), 'how does data travel on the internet?');
+  assert.strictEqual(f.stripSearchCommand('find the cheapest flights to Cairo online'), 'the cheapest flights to Cairo');
+});
+
+test('a dated answer ("As of December 2023, …") counts as already saying so; "offline mode" does not', () => {
+  assert(f.hasTrainingDisclaimer('As of December 2023, the CEO is X.'));
+  assert(f.hasTrainingDisclaimer('This is as of late 2023.'));
+  assert(!f.hasTrainingDisclaimer('The app has an offline mode that syncs later.'));
+  assert(f.hasTrainingDisclaimer("I'm offline right now, so I can't check."));
+});
+
+test('the "turn on Search" hint is recognised; any sentence starting with "Search" is not', () => {
+  assert(f.mentionsSearchButton(f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023' })));
+  assert(f.mentionsSearchButton(f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023', arabic: true })));
+  assert(f.mentionsSearchButton('You can turn on Search to look it up.'));
+  assert(f.mentionsSearchButton('Use the **Search** button in the message box.'));
+  assert(!f.mentionsSearchButton('Search engines like Google rank pages by relevance.'));
+});
+
 test('Search on, model without tools: the app searches every question for it (with the same exceptions)', () => {
   const always = (q, extra = {}) => decide(q, true, { always: true, ...extra });
   for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'who owns MystiEgypt?']) {

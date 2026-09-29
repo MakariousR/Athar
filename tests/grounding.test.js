@@ -52,6 +52,32 @@ test('flagged: statements about what was asked with no real proof; not advice or
   assert.deepStrictEqual(g.unsupportedStatements(statements, g.parseEvidence('1. NONE'), RESEARCH, ASKED), [statements[0]]);
 });
 
+test('a quote\'s words must be close together, not scattered over the whole research', () => {
+  const research = `Gold was mentioned in paragraph one. ${'filler words about other topics here. '.repeat(40)}` +
+    `The price of silver rose. ${'more unrelated filler text follows. '.repeat(40)} Cairo markets opened late.`;
+  assert(!g.quoteInResearch('the price of gold in Cairo markets', research), 'words from different places');
+  assert(g.quoteInResearch('the price of silver rose', research));
+  assert(g.quoteInResearch('The price of silver has rose', research), 'near-exact');
+});
+
+test('the checker sees the research that matches each statement, even from the last sources', () => {
+  const sources = [];
+  for (let i = 1; i <= 7; i++) {
+    sources.push(`--- [${i}] Source ${i} (site${i}.com) ---\nURL: https://site${i}.com/\n` +
+      `${`General filler paragraph number ${i} about nothing in particular at all. `.repeat(20)}\n\n` +
+      (i === 7 ? 'Harmash launched a new Arabic course on data science in 2026.' : `Other fact ${i} about unrelated things.`));
+  }
+  const research = sources.join('\n\n');
+  assert(research.length > 7000);
+  const statements = ['Harmash launched an Arabic data science course in 2026.'];
+  const seen = g.researchForCheck(research, statements, 3000);
+  assert(seen.length <= 3200, `too long: ${seen.length}`);
+  assert(seen.includes('Harmash launched a new Arabic course'), 'the 7th source\'s fact is shown');
+  assert(seen.includes('--- [7] Source 7'), 'with its source header');
+  assert(g.evidencePrompt(statements, research, 3000).includes('Harmash launched a new Arabic course'));
+  assert.strictEqual(g.researchForCheck('short', statements, 3000), 'short');
+});
+
 test('the prompt numbers the statements and asks for exact words', () => {
   const p = g.evidencePrompt(['A is B.', 'C is D.'], RESEARCH);
   assert(/1\. A is B\.\n2\. C is D\./.test(p) && /copy the exact words/.test(p) && /N\. NONE/.test(p));

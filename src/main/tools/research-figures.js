@@ -14,16 +14,27 @@
  * Pure string processing — no model calls, no network.
  */
 
+const { normalizeArabicText } = require('../utils/text-normalizer');
+
+// Arabic words are listed in their normalized spelling (ا for أ/إ/آ, ه for ة, ي for ى)
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'is', 'are', 'was', 'were',
   'be', 'it', 'its', 'this', 'that', 'with', 'as', 'by', 'from', 'what', 'which', 'who', 'how',
   'do', 'does', 'did', 'about', 'much', 'many', 'current', 'currently', 'now', 'today', 'latest',
-  'tell', 'me', 'please', 'give', 'find', 'search', 'show', 'whats', 'what\'s'
+  'tell', 'me', 'please', 'give', 'find', 'search', 'show', 'whats', 'what\'s',
+  'ما', 'ماذا', 'من', 'في', 'على', 'عن', 'الي', 'الى', 'هل', 'هو', 'هي', 'هم', 'كم', 'كيف', 'متي', 'اين', 'لماذا',
+  'هذا', 'هذه', 'ذلك', 'تلك', 'التي', 'الذي', 'الذين', 'او', 'ثم', 'مع', 'كل', 'بعض', 'اي', 'انا', 'انت', 'لي',
+  'عند', 'بين', 'الان', 'اليوم', 'حاليا', 'احدث', 'ابحث', 'قل', 'اعطني'
 ]);
+
+/** Lowercase, and one spelling for Arabic letter variants (أ/إ/آ, ة/ه, ى/ي), so page and query words match. */
+function normalizeForMatch(text) {
+  return normalizeArabicText(String(text || '').toLowerCase());
+}
 
 function queryTerms(query) {
   return [...new Set(
-    (String(query || '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
+    (normalizeForMatch(query).match(/[\p{L}\p{N}]+/gu) || [])
       .filter((t) => t.length >= 2 && !STOPWORDS.has(t))
   )];
 }
@@ -43,7 +54,7 @@ function selectRelevant(fullText, query, maxChars = 2200) {
   const paras = text.split(/\n{2,}|\n(?=[-|#])/).map((p) => p.trim()).filter(Boolean);
   if (terms.length === 0 || paras.length <= 1) return `${text.slice(0, maxChars)}…`;
 
-  const scored = paras.map((p, i) => ({ i, p, score: countTermHits(p.toLowerCase(), terms) }));
+  const scored = paras.map((p, i) => ({ i, p, score: countTermHits(normalizeForMatch(p), terms) }));
   const keep = new Set();
   let used = 0;
 
@@ -183,7 +194,7 @@ function extractFigure(page, query, now = new Date()) {
   for (const sentence of splitSentences(page.fullText || page.text)) {
     const amounts = parseAmounts(sentence).filter((a) => a.kind === kind);
     if (amounts.length === 0) continue;
-    const lower = sentence.toLowerCase();
+    const lower = normalizeForMatch(sentence);
     const hits = countTermHits(lower, terms);
     if (terms.length > 0 && hits === 0) continue;
 

@@ -113,6 +113,38 @@ test('printed tool-call JSON is recognised and can be stripped from prose', () =
   assert.strictEqual(agentLoop.tryParseFallbackToolCalls('{"name": "write_file", "arguments": {}}', names).length, 0);
 });
 
+test('links in a message: parentheses inside the URL are kept, trailing punctuation is not', () => {
+  const { extractUrls } = client._internals;
+  assert.deepStrictEqual(extractUrls('read https://en.wikipedia.org/wiki/Mercury_(planet).'), ['https://en.wikipedia.org/wiki/Mercury_(planet)']);
+  assert.deepStrictEqual(extractUrls('(see https://example.com/a)'), ['https://example.com/a']);
+  assert.deepStrictEqual(extractUrls('links: https://a.com/x, https://b.com/y!'), ['https://a.com/x', 'https://b.com/y']);
+});
+
+test('research is usable by how it starts: a query containing "timed out" is fine; "no results" is not', () => {
+  const { isUsableResearch } = client._internals;
+  const ok = `=== WEB RESEARCH RESULTS FOR: "why does my nginx request get timed out" ===\n${'x'.repeat(300)}`;
+  assert(isUsableResearch(ok));
+  assert(!isUsableResearch('Web search for "x" returned no results. Try a shorter or differently worded query.'));
+  assert(!isUsableResearch(`Web research for "x" timed out. ${'x'.repeat(300)}`));
+});
+
+test('failed searches and unreadable pages do not count as research', () => {
+  const web = require(path.join(ROOT, 'src/main/tools/web-search'));
+  for (const t of ['Could not extract content from: https://example.com/some/long/path', 'Web search for "x" returned no results.', 'Fetching https://x.com timed out.']) {
+    assert(!web.isSearchResult(t) && !web.isPageResult(t), t);
+  }
+});
+
+test('Stop cancels a web search right away', async () => {
+  const web = require(path.join(ROOT, 'src/main/tools/web-search'));
+  const ctrl = new AbortController();
+  ctrl.abort();
+  const started = Date.now();
+  const out = await web.searchWebTool('some uncached query 12345', () => {}, { signal: ctrl.signal });
+  assert(/cancelled/i.test(out), out);
+  assert(Date.now() - started < 1000);
+});
+
 test('project-question detection is narrow', () => {
   const q = client.PROJECT_QUESTION;
   assert(q.test('what does this project do?'));

@@ -579,7 +579,7 @@ function registerIpcHandlers() {
           onRequestPermission,
           documents,
           sessionId,
-          { alwaysSearchWeb: Boolean(options && options.alwaysSearchWeb), signal: controller.signal }
+          { alwaysSearchWeb: Boolean(options && options.alwaysSearchWeb), continuation: isContinuation, signal: controller.signal }
         );
       } catch (err) {
         if (!controller.signal.aborted) throw err;

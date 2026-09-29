@@ -26,8 +26,8 @@ const TRUSTED_DOMAINS = [
   'imf.org', 'oecd.org', 'ourworldindata.org', 'statista.com', 'arxiv.org',
   // markets & filings
   'sec.gov', 'nasdaq.com', 'nyse.com', 'marketwatch.com', 'finance.yahoo.com',
-  // technical documentation
-  'developer.mozilla.org', 'docs.python.org', 'nodejs.org', 'github.com',
+  // technical documentation (not github.com itself: anyone can publish a repository there)
+  'developer.mozilla.org', 'docs.python.org', 'nodejs.org', 'docs.github.com',
   'stackoverflow.com', 'learn.microsoft.com', 'developer.apple.com', 'python.org',
   'npmjs.com', 'pypi.org', 'rust-lang.org', 'go.dev', 'kernel.org'
 ];
@@ -52,6 +52,41 @@ function getDomain(url) {
   catch { return null; }
 }
 
+// Second-level labels under a country code: "bbc.co.uk", "youm7.com.eg", "moh.gov.eg"
+const COUNTRY_SLD = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'go', 'or', 'ne', 'gob', 'mil', 'nic', 'sch']);
+// Hosting platforms where each subdomain belongs to someone different
+const SHARED_HOSTS = ['github.io', 'blogspot.com', 'wordpress.com', 'substack.com', 'medium.com', 'tumblr.com',
+  'netlify.app', 'vercel.app', 'pages.dev', 'herokuapp.com', 'web.app', 'firebaseapp.com', 'wixsite.com', 'weebly.com'];
+
+/**
+ * The site a host belongs to: "edition.cnn.com" and "money.cnn.com" are both
+ * "cnn.com", so they count as one source, not two that happen to agree.
+ */
+function siteOf(domain) {
+  if (!domain) return domain;
+  const labels = String(domain).toLowerCase().split('.');
+  if (labels.length <= 2 || /^[\d.]+$/.test(domain) || domain.includes(':')) return domain;
+  const shared = SHARED_HOSTS.find((h) => domain === h || domain.endsWith(`.${h}`));
+  if (shared) return labels.slice(-(shared.split('.').length + 1)).join('.');
+  const n = labels[labels.length - 1].length === 2 && COUNTRY_SLD.has(labels[labels.length - 2]) ? 3 : 2;
+  return labels.slice(-n).join('.');
+}
+
+// Parameters that only track where a click came from; the same page with or without them is one page
+const TRACKING_PARAM_RE = /^(utm(_\w+)?|fbclid|gclid|dclid|msclkid|mc_\w+|ref|ref_src|ref_url|src|source|ocid|cmpid|igshid|spm|_ga)$/i;
+
+/** One key per page: scheme, "www.", fragment, tracking parameters and trailing slash don't matter. */
+function urlKey(url) {
+  try {
+    const u = new URL(url);
+    const params = [...u.searchParams.entries()].filter(([k]) => !TRACKING_PARAM_RE.test(k)).sort(([a], [b]) => a.localeCompare(b));
+    const query = params.length ? `?${new URLSearchParams(params).toString()}` : '';
+    return `${u.hostname.replace(/^www\./, '').toLowerCase()}${u.pathname.replace(/\/+$/, '')}${query}`;
+  } catch {
+    return String(url).replace(/#.*$/, '').replace(/\/+$/, '');
+  }
+}
+
 function matchesDomain(domain, entry) {
   return domain === entry || domain.endsWith(`.${entry}`);
 }
@@ -71,31 +106,33 @@ const TRUST_ORDER = { trusted: 0, normal: 1, low: 2 };
 /**
  * Orders search results by trust (stable: keeps the engine's order within a
  * tier), removes duplicate URLs, and keeps at most `perDomain` results per
- * site. Each returned item gets `domain` and `trust` fields.
+ * site. Each returned item gets `domain`, `site` and `trust` fields.
  */
 function rankByTrust(items, { perDomain = 2, limit = Infinity } = {}) {
   const seenUrls = new Set();
   const annotated = [];
   items.forEach((item, rank) => {
     if (!item || !item.url) return;
-    const key = item.url.replace(/[#?].*$/, '').replace(/\/+$/, '');
+    const key = urlKey(item.url);
     if (seenUrls.has(key)) return;
     seenUrls.add(key);
-    annotated.push({ ...item, rank, domain: getDomain(item.url), trust: sourceTrust(item.url, item.title) });
+    const domain = getDomain(item.url);
+    annotated.push({ ...item, rank, domain, site: siteOf(domain), trust: sourceTrust(item.url, item.title) });
   });
 
   annotated.sort((a, b) => (TRUST_ORDER[a.trust] - TRUST_ORDER[b.trust]) || (a.rank - b.rank));
 
-  const perDomainCount = new Map();
+  // The cap is per site, so one site's subdomains can't fill the list
+  const perSiteCount = new Map();
   const out = [];
   for (const item of annotated) {
-    const n = perDomainCount.get(item.domain) || 0;
+    const n = perSiteCount.get(item.site) || 0;
     if (n >= perDomain) continue;
-    perDomainCount.set(item.domain, n + 1);
+    perSiteCount.set(item.site, n + 1);
     out.push(item);
     if (out.length >= limit) break;
   }
   return out;
 }
 
-module.exports = { sourceTrust, rankByTrust, getDomain, TRUST_ORDER };
+module.exports = { sourceTrust, rankByTrust, getDomain, siteOf, urlKey, TRUST_ORDER };

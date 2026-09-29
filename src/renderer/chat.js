@@ -75,9 +75,9 @@ let lastImportNote       = '';   // summary of the most recent import, kept visi
 let attachedImages       = [];   // [{ name, dataUrl, base64 }]
 let attachedDocuments    = [];   // metadata only: [{ id, name, ext, size, pageCount, lineCount, charCount, noText, reused }] — text stays in the main process
 
-const CHAT_MODEL  = 'qwen2.5-coder:7b';
+const CHAT_MODEL  = 'qwen2.5:7b';
 const EMBED_MODEL = 'bge-m3';
-const CHAT_MODEL_LABEL  = 'Qwen 2.5 Coder 7B';
+const CHAT_MODEL_LABEL  = 'Qwen 2.5 7B';
 const CHAT_MODEL_SIZE   = '~4.7 GB';
 const EMBED_MODEL_SIZE  = '~1.2 GB';
 const ACTIVE_MODEL_KEY  = 'activeModel';
@@ -112,8 +112,8 @@ const MODEL_CATALOG = [
   { name: 'gemma3:4b',            label: 'Gemma 3 · 4B',             sizeBytes:  3_338_801_804, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Google model with vision and 140+ languages. Reads images and screenshots.' },
   { name: 'mistral',              label: 'Mistral · 7B',             sizeBytes:  4_372_824_384, ram: '~6.5 GB', vision: false, thinking: false, desc: 'Classic 7B model. Solid writing and code.' },
   { name: 'deepseek-r1:7b',       label: 'DeepSeek R1 · 7B',         sizeBytes:  4_683_075_440, ram: '~7.0 GB', vision: false, thinking: true , desc: 'Reasoning model: thinks step by step (slower, strong at math and logic).' },
-  { name: 'qwen2.5:7b',           label: 'Qwen 2.5 · 7B',            sizeBytes:  4_683_087_332, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Strong 7B for coding and reasoning. Multilingual with tool calling.' },
-  { name: 'qwen2.5-coder:7b',     label: 'Qwen 2.5 Coder · 7B',      sizeBytes:  4_683_087_561, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Recommended default. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
+  { name: 'qwen2.5:7b',           label: 'Qwen 2.5 · 7B',            sizeBytes:  4_683_087_332, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Recommended default. Strong all-round 7B: multilingual (incl. Arabic) with reliable tool calling.' },
+  { name: 'qwen2.5-coder:7b',     label: 'Qwen 2.5 Coder · 7B',      sizeBytes:  4_683_087_561, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
   { name: 'llama3.1:8b',          label: 'Llama 3.1 · 8B',           sizeBytes:  4_920_753_328, ram: '~7.5 GB', vision: false, thinking: false, desc: 'Meta 8B model. Good reasoning and longer tasks.' },
   { name: 'deepseek-r1:8b',       label: 'DeepSeek R1 · 8B',         sizeBytes:  5_225_376_047, ram: '~8.0 GB', vision: false, thinking: true , desc: 'Reasoning model on a Qwen 3 base: thinks step by step (slower, stronger on hard problems).' },
   { name: 'qwen3:8b',             label: 'Qwen 3 · 8B',              sizeBytes:  5_225_388_164, ram: '~8.0 GB', vision: false, thinking: true , desc: 'Newer Qwen generation: tools, 100+ languages, thinks before hard answers. Best all-rounder for 16 GB RAM.' },

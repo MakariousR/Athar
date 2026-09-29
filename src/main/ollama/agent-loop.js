@@ -20,11 +20,14 @@ const { ollama } = require('ai-sdk-ollama');
 const { z } = require('zod');
 const { createThinkFilter, stripThinking } = require('./model-profile');
 
+const { isSearchResult, isPageResult } = require('../tools/web-search');
+
 const SEARCH_TOOLS = new Set(['web_search', 'fetch_web_page']);
-// Only real web results count as research — not errors, and not the tools refusing
-// (Search off, or a question about the user's own chats)
-const isWebResult = (text) => typeof text === 'string' && text.trim() &&
-  !/^(ERROR:|Web access is turned OFF|This question is about the user)/.test(text.trim());
+// Only real web results count as research — not errors, "no results", timeouts,
+// pages that couldn't be read, and not the tools refusing (Search off, or a
+// question about the user's own chats). Otherwise the app thinks it searched
+// and never searches again or says the search failed.
+const isWebResult = (text) => isSearchResult(text) || isPageResult(text);
 const ALL_KNOWN_TOOLS = [
   'search_memory', 'web_search', 'fetch_web_page', 'get_current_time',
   'list_chat_resources', 'read_chat_resource',
@@ -417,10 +420,12 @@ async function runAgentLoop({
 
     const progressWithFakes = [...progressLog, ...executed.map((e) => summarizeToolResult(e.name, e.result))];
     const resultsSummary = executed.map((e) => `Result of ${e.name}:\n${e.result}`).join('\n\n');
+    // Said as the app, not the user: worded as a complaint, it made the model
+    // start its answer with "I apologize for that oversight".
     const retryResult = await retry(
-      `That was printed as plain text, not a real tool call. I ran it for you — here are the actual results:\n\n` +
-      `${resultsSummary}\n\nNow answer the user's request: "${userText}" clearly and directly using these results. ` +
-      `If you truly need another tool, call it properly.`,
+      `[Note from the Athar app, not from the user: your tool call came out as plain text, so the app ran it. The user did not see it. Results:]\n\n` +
+      `${resultsSummary}\n\n[Now answer the user's request: "${userText}" clearly and directly using these results. ` +
+      `Do not apologize or mention tool calls. If you truly need another tool, call it properly.]`,
       { fallbackRetriesLeft: fallbackRetriesLeft - 1, progressLogSoFar: progressWithFakes }
     );
     return { text: retryResult.text, researchLog: [...researchLog, ...retryResult.researchLog] };

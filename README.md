@@ -39,7 +39,7 @@ search.
   it (it downloads the official installer, checks that it is signed by Ollama Inc.,
   and installs it without an admin prompt). If it is installed but not running,
   the app starts it.
-- A chat model — default `qwen2.5-coder:7b` (any installed chat model works;
+- A chat model — default `qwen2.5:7b` (any installed chat model works;
   pick one in Settings) — and the `bge-m3` embedding model. The app offers to
   download both on first start.
 - 16 GB RAM recommended for a 7B model with a 16K context.

@@ -433,6 +433,7 @@ module.exports = {
   parseTextContent,
   parseTextFile,
   parsePdfFile,
+  parsePdfBuffer,
   toMetadata,
   cleanExtractedText,
   cleanPdfText,
