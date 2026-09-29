@@ -186,6 +186,7 @@ async function embedText(text) {
 
 // ─── Web tools ───────────────────────────────────────────────────────────────
 const { searchWebTool, fetchPageTool, isOnline } = require('../tools/web-search');
+const grounding = require('./grounding');
 const freshness = require('./freshness');
 const language = require('./language');
 
@@ -534,42 +535,30 @@ function looksLikeStrayToolCallText(text) {
   return /"name"\s*:\s*"[a-zA-Z0-9_]+"/.test(trimmed) && /"(arguments|parameters)"\s*:/.test(trimmed);
 }
 
-async function checkAnswerGrounding(answerText, researchText, modelName) {
+async function checkAnswerGrounding(answerText, researchText, modelName, { userText = '', timeoutMs = 20000 } = {}) {
   if (!answerText || !researchText || researchText.length < 200) return null;
+  const statements = grounding.answerStatements(answerText);
+  if (statements.length === 0) return null;
 
-  const prompt = `You are a fact-grounding checker. Compare the ANSWER to the RESEARCH it was supposed to be based on.
-
-RESEARCH:
-"""
-${researchText.slice(0, 7000)}
-"""
-
-ANSWER:
-"""
-${answerText.slice(0, 2500)}
-"""
-
-Identify ONLY specific factual claims in the ANSWER (names, numbers, dates, statuses, events) that are NOT supported anywhere in the RESEARCH, or that contradict it. Ignore phrasing, summarizing, or reasonable inference — only flag claims that are genuinely absent or contradicted.
-
-If every specific claim in the ANSWER is supported by the RESEARCH, respond with exactly: NONE
-Otherwise respond with a short comma-separated list (max 3 items, each under 12 words) of the unsupported claims — nothing else, no preamble.`;
-
+  // Asked "is this supported?", a small model says yes to everything; asked to
+  // copy the proof, it writes NONE when there is none (see grounding.js)
   const call = (async () => {
     const res = await ollamaChat({
       model: modelName,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: grounding.evidencePrompt(statements, researchText) }],
       stream: false,
-      options: { temperature: 0, num_predict: 150 }
+      options: { temperature: 0, num_predict: 60 + statements.length * 40 }
     });
     const data = await res.json();
     const reply = modelProfiles.stripThinking(data.message?.content || '').trim();
-    if (!reply || /^none\.?$/i.test(reply) || looksLikeStrayToolCallText(reply)) return null;
-    return reply;
+    if (!reply || looksLikeStrayToolCallText(reply)) return null;
+    const flagged = grounding.unsupportedStatements(statements, grounding.parseEvidence(reply), researchText, userText);
+    return flagged.length ? flagged.map((s) => `"${s.slice(0, 160)}"`).join('; ') : null;
   })();
 
   // Fail-open: if the check itself errors or times out, don't block or
   // falsely flag the answer — just skip the note.
-  return withLocalTimeout(call, 12000, null);
+  return withLocalTimeout(call, timeoutMs, null);
 }
 
 /**
@@ -580,7 +569,7 @@ Otherwise respond with a short comma-separated list (max 3 items, each under 12 
  * falls back to the warning-footer behavior in that case).
  */
 async function reviseAnswerForGrounding(userText, originalAnswer, unsupportedNote, researchText, modelName) {
-  const prompt = `You previously answered a user's question, but a fact-check pass found that some claims in your answer aren't actually supported by the research you had available. Revise the answer: remove or correct ONLY the specific unsupported/incorrect claims listed below, using ONLY what the research below actually supports. Keep everything else from the original answer that IS supported, and keep the same language, tone, and formatting style as the original. Do not mention this revision process, the fact-check, or the research to the user — just output the corrected final answer directly, as if it were your first response.
+  const prompt = `You previously answered a user's question, but a fact-check pass found that some claims in your answer aren't actually supported by the research you had available. Revise the answer: correct ONLY the specific unsupported/incorrect claims listed below, using ONLY what the research below actually says. Where the research says something different, say what it says. Where the research says nothing about it and it answers part of the user's question, say plainly that you couldn't confirm it (e.g. "I couldn't find anything showing that X offers Arabic content") instead of guessing; otherwise remove it. Keep everything else from the original answer that IS supported, and keep the same language, tone, and formatting style as the original. Do not mention this revision process or the fact-check — just output the corrected final answer directly, as if it were your first response.
 
 ORIGINAL USER QUESTION: "${userText}"
 
@@ -820,7 +809,7 @@ ${webRule}`;
       memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
       pagesBlock ? 'the app already opened the page(s) the user linked — answer from their text below, in the same language as the user\'s message, and never say you cannot access websites (if a page could not be opened, say that)' : null,
       webBlock && memory.searchedMidChat ? 'answer the user\'s NEW message (the last one) using these web results — do not repeat your earlier reply in this conversation; if they ask to compare or choose ("which one is better?"), compare the options and give a clear pick with reasons; where the results differ from what you said before, correct it; if the results don\'t cover it, say so in one line and answer from your own knowledge' : null,
-      webBlock ? 'the web research is newer than your training data: base facts about the outside world on it (not on what you remember) and mention the source and date — but for anything about the user (their chats, memories, files) use the context above, not the web; answer every part of the question' : null,
+      webBlock ? 'the web research is newer than your training data: base facts about the outside world on it (not on what you remember) and mention the source and date; if it doesn\'t say something the user asked (e.g. whether a site has content in some language), say you couldn\'t confirm it — never guess or fill the gap — but for anything about the user (their chats, memories, files) use the context above, not the web; answer every part of the question' : null,
       memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
     const block = `[Context for this reply, provided by the Athar app — not written by the user. ` +
@@ -1317,7 +1306,7 @@ async function generate(
     if (researchLog.length > 0 && text) {
       onStatus({ icon: '🧾', text: 'Checking the answer against sources…' });
       const combinedResearch = researchLog.join('\n\n');
-      const unsupported = await checkAnswerGrounding(text, combinedResearch, modelName);
+      const unsupported = await checkAnswerGrounding(text, combinedResearch, modelName, { userText });
 
       if (unsupported) {
         onStatus({ icon: '🛠️', text: 'Found unverified details — correcting the answer…' });
@@ -1380,5 +1369,5 @@ module.exports = {
   completeText,
   generate,
   // exported for tests
-  _internals: { executeTool, createTurnState, normalizeToolArgs, buildResourcePreRead, standaloneWebQuery, REFERS_BACK_RE }
+  _internals: { checkAnswerGrounding, reviseAnswerForGrounding, executeTool, createTurnState, normalizeToolArgs, buildResourcePreRead, standaloneWebQuery, REFERS_BACK_RE }
 };
