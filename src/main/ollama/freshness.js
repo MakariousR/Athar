@@ -25,6 +25,9 @@ const MODEL_CUTOFFS = [
   ['llama3.1', { label: 'December 2023', labelAr: 'ديسمبر 2023', year: 2023 }],
   ['gemma3', { label: 'August 2024', labelAr: 'أغسطس 2024', year: 2024 }],
   ['phi4', { label: 'June 2024', labelAr: 'يونيو 2024', year: 2024 }],
+  ['deepseek-r1', { label: '2024', labelAr: '2024', year: 2024 }],
+  ['gpt-oss', { label: 'June 2024', labelAr: 'يونيو 2024', year: 2024 }],
+  ['mistral-small', { label: '2024', labelAr: '2024', year: 2024 }],
   ['mistral', { label: '2023', labelAr: '2023', year: 2023 }]
 ];
 

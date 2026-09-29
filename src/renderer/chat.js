@@ -101,26 +101,44 @@ let setupNeedsEmbed = false;
 
 // Curated catalog of popular Ollama chat models with rich capability metadata.
 const MODEL_CATALOG = [
-  { name: 'qwen2.5:0.5b',      label: 'Qwen 2.5 · 0.5B',        sizeBytes:   397_000_000, ram: '~1.5 GB', vision: false, desc: 'Ultra-fast & lightweight. Best for quick answers on low-spec hardware.' },
-  { name: 'gemma3:1b',         label: 'Gemma 3 · 1B',           sizeBytes:   815_000_000, ram: '~2.0 GB', vision: false, desc: 'Google lightweight model. Fast response, low resource footprint.' },
-  { name: 'qwen2.5:1.5b',      label: 'Qwen 2.5 · 1.5B',       sizeBytes:   986_000_000, ram: '~2.2 GB', vision: false, desc: 'Great balance of speed and multilingual comprehension.' },
-  { name: 'llama3.2:1b',       label: 'Llama 3.2 · 1B',         sizeBytes: 1_321_000_000, ram: '~2.5 GB', vision: false, desc: 'Meta lightweight model. Quick summary and chat completion.' },
-  { name: 'qwen2.5:3b',        label: 'Qwen 2.5 · 3B',          sizeBytes: 1_900_000_000, ram: '~3.5 GB', vision: false, desc: 'Strong multilingual reasoning, tool calling & history search on modest hardware.' },
-  { name: 'qwen2.5vl:3b',      label: 'Qwen 2.5 VL · 3B',       sizeBytes: 3_200_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Compact vision model: understands images and screenshots.' },
-  { name: 'llama3.2:3b',       label: 'Llama 3.2 · 3B',         sizeBytes: 2_020_000_000, ram: '~4.0 GB', vision: false, desc: 'Meta efficient model. Good instruction following & text generation.' },
-  { name: 'phi4-mini',         label: 'Phi 4 Mini · 3.8B',      sizeBytes: 2_500_000_000, ram: '~4.5 GB', vision: false, desc: 'Microsoft compact reasoning model. Strong math & logic abilities.' },
-  { name: 'gemma3:4b',         label: 'Gemma 3 · 4B',           sizeBytes: 3_300_000_000, ram: '~5.0 GB', vision: true,  desc: '🖼️ Includes Vision & 140+ languages. Can analyze uploaded images & screenshots.' },
-  { name: 'mistral',           label: 'Mistral · 7B',            sizeBytes: 4_100_000_000, ram: '~7.0 GB', vision: false, desc: 'Classic 7B benchmark model. Excellent code & text writing.' },
-  { name: 'llama3.1:8b',       label: 'Llama 3.1 · 8B',         sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Meta flagship 8B model. Deep reasoning & complex task handling.' },
-  { name: 'qwen2.5:7b',        label: 'Qwen 2.5 · 7B',          sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'World-class 7B coding & reasoning. Exceptional multilingual & tool calling.' },
-  { name: 'qwen2.5-coder:7b',  label: 'Qwen 2.5 Coder · 7B',    sizeBytes: 4_700_000_000, ram: '~8.0 GB', vision: false, desc: 'Recommended default. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
-  { name: 'qwen2.5vl:7b',      label: 'Qwen 2.5 VL · 7B',       sizeBytes: 5_970_000_000, ram: '~9.0 GB', vision: true,  desc: '🖼️ Stronger vision model: image understanding, document reading and reasoning.' },
-  { name: 'llama3.2-vision:11b', label: 'Llama 3.2 Vision · 11B', sizeBytes: 7_900_000_000, ram: '~11 GB',  vision: true,  desc: '🖼️ Meta flagship vision model. High-res image understanding, document OCR & tools.' },
-  { name: 'gemma3:12b',        label: 'Gemma 3 · 12B',          sizeBytes: 8_100_000_000, ram: '~12 GB',  vision: true,  desc: '🖼️ Powerful multimodal model. Deep reasoning, coding & visual document analysis.' },
-  { name: 'qwen2.5:14b',       label: 'Qwen 2.5 · 14B',         sizeBytes: 9_000_000_000, ram: '~14 GB',  vision: false, desc: 'High-tier reasoning & long-document analysis for powerful PCs.' },
-  { name: 'phi4',              label: 'Phi 4 · 14B',             sizeBytes: 9_100_000_000, ram: '~14 GB',  vision: false, desc: 'Microsoft flagship 14B logic & math model.' },
-  { name: 'llama3.3:70b',      label: 'Llama 3.3 · 70B',        sizeBytes: 43_000_000_000, ram: '~48 GB',  vision: false, desc: 'Enterprise-grade 70B model. Requires high-end GPU / VRAM workstation.' },
-  { name: 'qwen2.5:72b',       label: 'Qwen 2.5 · 72B',         sizeBytes: 47_000_000_000, ram: '~52 GB',  vision: false, desc: 'Top-of-the-line 72B model. Maximum capability for workstation hardware.' }
+  { name: 'qwen3:0.6b',           label: 'Qwen 3 · 0.6B',            sizeBytes:    522_653_767, ram: '~2.0 GB', vision: false, thinking: true , desc: 'Tiny model for very old or low-memory PCs. Thinks before answering; limited knowledge.' },
+  { name: 'gemma3:1b',            label: 'Gemma 3 · 1B',             sizeBytes:    815_319_791, ram: '~2.5 GB', vision: false, thinking: false, desc: 'Google lightweight model. Fast, low resource use; basic answers.' },
+  { name: 'qwen2.5:1.5b',         label: 'Qwen 2.5 · 1.5B',          sizeBytes:    986_061_892, ram: '~2.5 GB', vision: false, thinking: false, desc: 'Good balance of speed and multilingual understanding for small PCs.' },
+  { name: 'deepseek-r1:1.5b',     label: 'DeepSeek R1 · 1.5B',       sizeBytes:  1_117_322_768, ram: '~3.0 GB', vision: false, thinking: true , desc: 'Small reasoning model: thinks step by step before answering (slower replies).' },
+  { name: 'llama3.2:1b',          label: 'Llama 3.2 · 1B',           sizeBytes:  1_321_098_329, ram: '~3.0 GB', vision: false, thinking: false, desc: 'Meta lightweight model. Quick summaries and simple chat.' },
+  { name: 'qwen3:1.7b',           label: 'Qwen 3 · 1.7B',            sizeBytes:  1_359_293_444, ram: '~3.0 GB', vision: false, thinking: true , desc: 'Small Qwen 3: tools, multilingual, can think before answering.' },
+  { name: 'qwen3-vl:2b',          label: 'Qwen 3 VL · 2B',           sizeBytes:  1_889_519_687, ram: '~4.0 GB', vision: true , thinking: false, desc: 'Smallest Qwen 3 vision model: reads images and screenshots.' },
+  { name: 'qwen2.5:3b',           label: 'Qwen 2.5 · 3B',            sizeBytes:  1_929_912_432, ram: '~4.0 GB', vision: false, thinking: false, desc: 'Multilingual reasoning, tool calling and history search on modest hardware.' },
+  { name: 'llama3.2:3b',          label: 'Llama 3.2 · 3B',           sizeBytes:  2_019_393_189, ram: '~4.0 GB', vision: false, thinking: false, desc: 'Meta efficient model. Good instruction following and writing.' },
+  { name: 'phi4-mini',            label: 'Phi 4 Mini · 3.8B',        sizeBytes:  2_491_876_774, ram: '~4.5 GB', vision: false, thinking: false, desc: 'Microsoft compact model. Strong at math and logic.' },
+  { name: 'qwen3:4b',             label: 'Qwen 3 · 4B',              sizeBytes:  2_497_293_931, ram: '~4.5 GB', vision: false, thinking: true , desc: 'Capable small model: tools, 100+ languages, thinks before hard answers. Good for 8 GB RAM.' },
+  { name: 'qwen2.5vl:3b',         label: 'Qwen 2.5 VL · 3B',         sizeBytes:  3_200_627_168, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Compact vision model: understands images and screenshots.' },
+  { name: 'qwen3-vl:4b',          label: 'Qwen 3 VL · 4B',           sizeBytes:  3_295_636_135, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Qwen 3 vision model: images, screenshots and documents.' },
+  { name: 'gemma3:4b',            label: 'Gemma 3 · 4B',             sizeBytes:  3_338_801_804, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Google model with vision and 140+ languages. Reads images and screenshots.' },
+  { name: 'mistral',              label: 'Mistral · 7B',             sizeBytes:  4_372_824_384, ram: '~6.5 GB', vision: false, thinking: false, desc: 'Classic 7B model. Solid writing and code.' },
+  { name: 'deepseek-r1:7b',       label: 'DeepSeek R1 · 7B',         sizeBytes:  4_683_075_440, ram: '~7.0 GB', vision: false, thinking: true , desc: 'Reasoning model: thinks step by step (slower, strong at math and logic).' },
+  { name: 'qwen2.5:7b',           label: 'Qwen 2.5 · 7B',            sizeBytes:  4_683_087_332, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Strong 7B for coding and reasoning. Multilingual with tool calling.' },
+  { name: 'qwen2.5-coder:7b',     label: 'Qwen 2.5 Coder · 7B',      sizeBytes:  4_683_087_561, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Recommended default. Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
+  { name: 'llama3.1:8b',          label: 'Llama 3.1 · 8B',           sizeBytes:  4_920_753_328, ram: '~7.5 GB', vision: false, thinking: false, desc: 'Meta 8B model. Good reasoning and longer tasks.' },
+  { name: 'deepseek-r1:8b',       label: 'DeepSeek R1 · 8B',         sizeBytes:  5_225_376_047, ram: '~8.0 GB', vision: false, thinking: true , desc: 'Reasoning model on a Qwen 3 base: thinks step by step (slower, stronger on hard problems).' },
+  { name: 'qwen3:8b',             label: 'Qwen 3 · 8B',              sizeBytes:  5_225_388_164, ram: '~8.0 GB', vision: false, thinking: true , desc: 'Newer Qwen generation: tools, 100+ languages, thinks before hard answers. Best all-rounder for 16 GB RAM.' },
+  { name: 'qwen2.5vl:7b',         label: 'Qwen 2.5 VL · 7B',         sizeBytes:  5_969_245_856, ram: '~8.5 GB', vision: true , thinking: false, desc: 'Stronger vision model: image understanding and document reading.' },
+  { name: 'qwen3-vl:8b',          label: 'Qwen 3 VL · 8B',           sizeBytes:  6_140_415_879, ram: '~9.0 GB', vision: true , thinking: false, desc: 'Qwen 3 vision model: images, charts and documents with better reasoning.' },
+  { name: 'llama3.2-vision:11b',  label: 'Llama 3.2 Vision · 11B',   sizeBytes:  7_816_589_186, ram: '~11 GB',  vision: true , thinking: false, desc: 'Meta vision model. Image understanding and document reading.' },
+  { name: 'gemma3:12b',           label: 'Gemma 3 · 12B',            sizeBytes:  8_149_190_253, ram: '~11 GB',  vision: true , thinking: false, desc: 'Powerful multimodal model. Reasoning, coding and visual document analysis.' },
+  { name: 'deepseek-r1:14b',      label: 'DeepSeek R1 · 14B',        sizeBytes:  8_988_112_209, ram: '~12 GB',  vision: false, thinking: true , desc: 'Stronger reasoning model: thinks step by step. Needs a powerful PC.' },
+  { name: 'qwen2.5:14b',          label: 'Qwen 2.5 · 14B',           sizeBytes:  8_988_124_069, ram: '~12 GB',  vision: false, thinking: false, desc: 'Higher-tier reasoning and long documents, for PCs with 16 GB+ of fast memory.' },
+  { name: 'qwen2.5-coder:14b',    label: 'Qwen 2.5 Coder · 14B',     sizeBytes:  8_988_124_298, ram: '~12 GB',  vision: false, thinking: false, desc: 'Stronger coding model with tool calling, for powerful PCs.' },
+  { name: 'phi4',                 label: 'Phi 4 · 14B',              sizeBytes:  9_053_116_391, ram: '~12 GB',  vision: false, thinking: false, desc: 'Microsoft 14B model for logic and math.' },
+  { name: 'qwen3:14b',            label: 'Qwen 3 · 14B',             sizeBytes:  9_276_198_565, ram: '~13 GB',  vision: false, thinking: true , desc: 'Capable Qwen 3: tools, multilingual, thinks before hard answers. For PCs with 24 GB+ RAM or a strong GPU.' },
+  { name: 'gpt-oss:20b',          label: 'GPT-OSS · 20B',            sizeBytes: 13_793_441_244, ram: '~18 GB',  vision: false, thinking: true , desc: 'OpenAI open-weight reasoning model with tools. For high-end PCs.' },
+  { name: 'mistral-small3.2:24b', label: 'Mistral Small 3.2 · 24B',  sizeBytes: 15_177_384_862, ram: '~20 GB',  vision: true , thinking: false, desc: 'Strong multilingual model with vision and tools. For high-end PCs.' },
+  { name: 'gemma3:27b',           label: 'Gemma 3 · 27B',            sizeBytes: 17_396_936_941, ram: '~22 GB',  vision: true , thinking: false, desc: 'Google flagship open model with vision. For high-end PCs / GPUs.' },
+  { name: 'qwen3:30b',            label: 'Qwen 3 · 30B (MoE)',       sizeBytes: 18_556_699_314, ram: '~24 GB',  vision: false, thinking: true , desc: 'Mixture-of-experts: runs faster than its size suggests. Needs a lot of memory.' },
+  { name: 'qwen3-coder:30b',      label: 'Qwen 3 Coder · 30B (MoE)', sizeBytes: 18_556_700_761, ram: '~24 GB',  vision: false, thinking: false, desc: 'Qwen 3 coding model with tools. Needs a lot of memory.' },
+  { name: 'qwen3:32b',            label: 'Qwen 3 · 32B',             sizeBytes: 20_201_253_829, ram: '~26 GB',  vision: false, thinking: true , desc: 'Top Qwen 3 dense model. Workstation hardware.' },
+  { name: 'llama3.3:70b',         label: 'Llama 3.3 · 70B',          sizeBytes: 42_520_413_916, ram: '~53 GB',  vision: false, thinking: false, desc: 'Enterprise-grade 70B model. Workstation with a large GPU.' },
+  { name: 'qwen2.5:72b',          label: 'Qwen 2.5 · 72B',           sizeBytes: 47_415_724_625, ram: '~58 GB',  vision: false, thinking: false, desc: 'Top-of-the-line 72B model. Workstation hardware.' }
 ];
 
 // What Ollama reports each INSTALLED model can do, e.g. ["completion","tools","vision"].
@@ -137,7 +155,7 @@ function getModelInfo(modelName) {
   };
   const caps = installedCapabilities.get(modelName);
   if (!caps) return info;
-  return { ...info, vision: caps.includes('vision'), tools: caps.includes('tools') };
+  return { ...info, vision: caps.includes('vision'), tools: caps.includes('tools'), thinking: caps.includes('thinking') || Boolean(info.thinking) };
 }
 
 function renderCapCard(modelName, containerEl) {
@@ -145,7 +163,7 @@ function renderCapCard(modelName, containerEl) {
   const info = getModelInfo(modelName);
   const toolsRow = info.tools === undefined ? '' : info.tools
     ? '<div class="cap-row"><span>Tools:</span> <span class="cap-val">✓ web search, memory search, files</span></div>'
-    : '<div class="cap-row cap-warn"><span>Tools:</span> <span class="cap-val">✗ not supported — can\'t search or read files on its own (memory and automatic web research still work)</span></div>';
+    : '<div class="cap-row cap-warn"><span>Tools:</span> <span class="cap-val">✗ not supported — can\'t search or read files on its own (memory, and web research when Search is on, still work)</span></div>';
   containerEl.innerHTML = `
     <div class="cap-title">
       <span>${escapeHtml(info.label)}</span>
@@ -153,6 +171,7 @@ function renderCapCard(modelName, containerEl) {
     </div>
     <div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>
     ${toolsRow}
+    ${info.thinking ? '<div class="cap-row"><span>Reasoning:</span> <span class="cap-val">thinks before answering (slower, better on hard questions)</span></div>' : ''}
     <div class="cap-desc">${escapeHtml(info.desc)}</div>
   `;
   containerEl.classList.remove('hidden');
