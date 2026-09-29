@@ -2112,3 +2112,11 @@ body {
 .resume-download-actions { display: flex; gap: 14px; margin-top: 6px; }
 .resume-download-actions .text-btn { padding: 0; font-size: 12.5px; }
 .resume-download-actions .text-btn:first-child { color: var(--accent); }
+
+/* Answers written in the background: markers in the chat list, and the Stop button */
+.session-item.generating::before, .session-item.has-new::before { content: ""; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; }
+.session-item.generating::before { background: var(--accent); animation: session-pulse 1.2s ease-in-out infinite; }
+.session-item.has-new::before { background: var(--success); }
+@keyframes session-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+.send-btn.is-stop { background: var(--text); color: var(--bg); }
+.send-btn.is-stop:hover { opacity: 0.85; }

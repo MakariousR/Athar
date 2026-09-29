@@ -19,6 +19,8 @@ const { tokenize } = require('./memory/bm25');
 const { buildProfile, toChatGptInstructions, profileContext } = require('./memory/profile');
 
 let activeWorkspacePath = null;
+// Answers being written, by chat — so the Stop button can stop one
+const activeRuns = new Map(); // sessionId → AbortController
 const pendingPermissions = new Map();
 
 // Every IPC route can read local files, run tools, or approve its own tool
@@ -447,6 +449,12 @@ function registerIpcHandlers() {
   // `_workspaceDir` from the renderer is deliberately ignored: the only
   // workspace the tools may touch is the one the user picked in the native
   // folder dialog (workspace:select), tracked here in the main process.
+  ipcMain.handle('chat:stop', (event, sessionId) => {
+    const controller = activeRuns.get(sessionId);
+    if (controller) controller.abort();
+    return { success: Boolean(controller) };
+  });
+
   ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = [], options = {}) => {
     if (!getLicense().isUsable()) return { success: false, error: 'Athar is not activated. Enter your beta key to continue.', notActivated: true };
     // Background memory indexing competes with the chat model for the GPU —
@@ -513,8 +521,14 @@ function registerIpcHandlers() {
         score: p.score
       }));
 
+      // Every update says which chat it's for: the answer keeps being written (and
+      // shown again) when the user switches to another chat and comes back.
+      const send = (channel, payload) => { if (!event.sender.isDestroyed()) event.sender.send(channel, { sessionId, ...payload }); };
       // Emit sources BEFORE generation so the UI can show them alongside the response
-      if (memorySources.length > 0) event.sender.send('chat:sources', memorySources);
+      if (memorySources.length > 0) send('chat:sources', { sources: memorySources });
+      const controller = new AbortController();
+      activeRuns.set(sessionId, controller);
+      const steps = []; // the "Thought process" steps, saved with the answer
 
       // Mirrors what the renderer is showing: tokens append, a `reset` status
       // clears (a new agent step started, so the earlier text wasn't the answer).
@@ -544,26 +558,42 @@ function registerIpcHandlers() {
         });
       };
 
-      const finalText = await ollama.generate(
-        effectiveUserText,
-        memoryResult,
-        activeHistory,
-        chosenModel,
-        (token) => {
-          visibleReply += token;
-          event.sender.send('chat:token', token);
-        },
-        (statusMessage) => {
-          if (statusMessage && statusMessage.type === 'reset') visibleReply = '';
-          event.sender.send('chat:status', statusMessage);
-        },
-        images,
-        effectiveWorkspace,
-        onRequestPermission,
-        documents,
-        sessionId,
-        { alwaysSearchWeb: Boolean(options && options.alwaysSearchWeb) }
-      );
+      let finalText = '';
+      try {
+        finalText = await ollama.generate(
+          effectiveUserText,
+          memoryResult,
+          activeHistory,
+          chosenModel,
+          (token) => {
+            visibleReply += token;
+            send('chat:token', { token });
+          },
+          (statusMessage) => {
+            if (statusMessage && statusMessage.type === 'reset') visibleReply = '';
+            else if (statusMessage && statusMessage.type !== 'progress' && statusMessage.text) steps.push(statusMessage.text);
+            send('chat:status', { status: statusMessage });
+          },
+          images,
+          effectiveWorkspace,
+          onRequestPermission,
+          documents,
+          sessionId,
+          { alwaysSearchWeb: Boolean(options && options.alwaysSearchWeb), signal: controller.signal }
+        );
+      } catch (err) {
+        if (!controller.signal.aborted) throw err;
+      } finally {
+        activeRuns.delete(sessionId);
+      }
+
+      // Stopped by the user: keep what was written so far
+      const stopped = controller.signal.aborted;
+      if (stopped) {
+        const partial = visibleReply.trim() || (typeof finalText === 'string' ? finalText.trim() : '');
+        finalText = partial ? `${partial}\n\n_Stopped._` : '_Stopped before answering._';
+        steps.push('Stopped by you.');
+      }
 
       // generate()'s return value is the authoritative answer: it includes
       // things that are never streamed as tokens (the no-tools fallback reply,
@@ -578,12 +608,12 @@ function registerIpcHandlers() {
       // Remember which memories were offered and which the answer actually
       // cited ([M1]…), so the source chips survive reopening the chat.
       const sources = memorySources.map((s) => ({ ...s, cited: new RegExp(`\\[${s.ref}\\]`).test(reply) }));
-      store.appendMessage(sessionId, 'assistant', reply, [], [], { sources });
+      store.appendMessage(sessionId, 'assistant', reply, [], [], { sources, steps, stopped });
 
       const updated = store.getSession(sessionId);
       event.sender.send('chat:session-updated', { id: sessionId, title: updated.title });
 
-      return { success: true, reply, sources };
+      return { success: true, reply, sources, steps, stopped };
     } catch (err) {
       console.error('chat:send error:', err);
       return { success: false, error: err.message };

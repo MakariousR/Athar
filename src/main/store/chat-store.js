@@ -363,6 +363,11 @@ function appendMessage(sessionId, role, text, images = [], documents = [], extra
     });
   }
   if (Array.isArray(extra.sources) && extra.sources.length > 0) message.sources = extra.sources;
+  // The "Thought process" steps shown while answering, so they're still there when the chat is reopened
+  if (Array.isArray(extra.steps) && extra.steps.length > 0) {
+    message.steps = extra.steps.filter((t) => typeof t === 'string' && t.trim()).slice(0, 80).map((t) => t.slice(0, 400));
+  }
+  if (extra.stopped) message.stopped = true;
   session.messages.push(message);
   session.updatedAt = Date.now();
 

@@ -72,11 +72,6 @@ let currentPermissionReqId = null;
 const permissionQueue    = [];   // requests waiting behind the one on screen (tools can run in parallel)
 let memoryStats          = null; // latest stats from the main process (counts per source, indexing progress)
 let lastImportNote       = '';   // summary of the most recent import, kept visible in the status line
-let isStreaming          = false;
-let currentAssistantEl   = null;
-let currentAssistantBubble = null;
-let currentStreamText    = '';
-let pendingSources       = null; // sources received before stream starts
 let attachedImages       = [];   // [{ name, dataUrl, base64 }]
 let attachedDocuments    = [];   // metadata only: [{ id, name, ext, size, pageCount, lineCount, charCount, noText, reused }] — text stays in the main process
 
@@ -182,31 +177,59 @@ const SOURCE_COLORS = { chatgpt: '#10a37f', claude: '#cc785c', gemini: '#4285f4'
 
 // ── Stable IPC listeners ──────────────────────────────────────────────────────
 
+// ── The answer being written ─────────────────────────────────────────────────
+// Kept here, not only on screen: the model keeps working when the user
+// switches to another chat, the Memory view or another window, and when they
+// come back to that chat the thinking steps and the text so far are rebuilt.
+// { sessionId, text, steps: [status], progress, sources, sourcesShown, bubble, textEl }
+let liveRun = null;
+const isLiveHere = () => Boolean(liveRun && liveRun.sessionId === activeSessionId);
+
 // FIX: rendering full markdown on every single token was O(n^2) over a long
 // response (re-parsing the whole accumulated string each time) and caused
 // visible jank on longer answers. Batch DOM updates to at most once per
 // animation frame instead of once per token — still feels live, far cheaper.
 let renderScheduled = false;
 function scheduleRender() {
-  if (renderScheduled || !currentAssistantEl) return;
+  if (renderScheduled || !liveRun || !liveRun.textEl) return;
   renderScheduled = true;
   requestAnimationFrame(() => {
     renderScheduled = false;
-    if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(stripCitations(currentStreamText));
-    scrollToBottom();
+    if (liveRun && liveRun.textEl) {
+      liveRun.textEl.innerHTML = renderMarkdown(stripCitations(liveRun.text));
+      scrollToBottom();
+    }
   });
 }
 
-window.api.onChatToken((token) => {
-  if (!currentAssistantEl) return;
-  currentAssistantBubble.classList.remove('typing-indicator');
-  currentStreamText += token;
-  scheduleRender();
+/** Shows the answer being written in the open chat (again, after coming back to it). */
+function mountLiveRun() {
+  if (!isLiveHere()) return;
+  const textEl = appendMessageBubble('assistant', '');
+  const bubble = textEl.closest('.message');
+  liveRun.bubble = bubble;
+  liveRun.textEl = textEl;
+  for (const step of liveRun.steps) addThoughtStep(bubble, step);
+  if (liveRun.progress) addThoughtStep(bubble, liveRun.progress);
+  if (liveRun.text) {
+    textEl.innerHTML = renderMarkdown(stripCitations(liveRun.text));
+    if (liveRun.sources) { renderSourceChips(bubble, liveRun.sources); liveRun.sourcesShown = true; }
+  } else {
+    bubble.classList.add('typing-indicator');
+  }
+  updateEmptyChatState();
+}
 
-  // Render source chips once the first token arrives
-  if (pendingSources) {
-    renderSourceChips(currentAssistantBubble, pendingSources);
-    pendingSources = null;
+window.api.onChatToken(({ sessionId, token }) => {
+  if (!liveRun || liveRun.sessionId !== sessionId) return;
+  liveRun.text += token;
+  if (!liveRun.bubble) return; // not on screen right now: kept for when the user comes back
+  liveRun.bubble.classList.remove('typing-indicator');
+  scheduleRender();
+  // Source chips once the first token arrives
+  if (liveRun.sources && !liveRun.sourcesShown) {
+    renderSourceChips(liveRun.bubble, liveRun.sources);
+    liveRun.sourcesShown = true;
   }
 });
 
@@ -216,38 +239,38 @@ window.api.onSessionUpdated(({ id, title }) => {
   if (item) item.textContent = title;
 });
 
-window.api.onChatSources((sources) => {
-  // Store until first token arrives so we can attach chips to the right bubble
-  pendingSources = sources;
+window.api.onChatSources(({ sessionId, sources }) => {
+  if (liveRun && liveRun.sessionId === sessionId) liveRun.sources = sources;
 });
 
-window.api.onChatStatus((statusData) => {
-  if (!currentAssistantBubble) return;
-
-  const info = typeof statusData === 'object'
-    ? statusData
-    : { icon: '⚡', text: statusData };
+window.api.onChatStatus(({ sessionId, status }) => {
+  if (!liveRun || liveRun.sessionId !== sessionId) return;
+  const info = typeof status === 'object' && status ? status : { icon: '⚡', text: String(status) };
 
   // FIX: the backend agent loop can run several internal steps before it has
   // a real final answer (e.g. a step that streams "let me search for that…"
-  // and then turns out to just be a tool call). Previously every step's
-  // tokens kept getting appended to the same `currentStreamText`, with
-  // nothing to say "that text wasn't the answer, throw it away." That let
-  // leftover thinking text and even raw fallback tool-call JSON get stuck in
-  // front of the real answer. The backend now emits `{ type: 'reset' }`
-  // right before each new step starts (and immediately once it detects a
-  // step ended in a tool call), and we clear the visible/accumulated text
-  // here in response.
+  // and then turns out to just be a tool call). The backend emits
+  // `{ type: 'reset' }` right before each new step starts (and immediately
+  // once it detects a step ended in a tool call): that text wasn't the answer.
   if (info.type === 'reset') {
-    currentStreamText = '';
-    if (currentAssistantEl) currentAssistantEl.innerHTML = '';
+    liveRun.text = '';
+    if (liveRun.textEl) liveRun.textEl.innerHTML = '';
     return;
   }
+  if (info.type === 'progress') liveRun.progress = info;
+  else { liveRun.progress = null; liveRun.steps.push(info); }
+  if (liveRun.bubble) {
+    addThoughtStep(liveRun.bubble, info);
+    scrollToBottom();
+  }
+});
 
-  const body = currentAssistantBubble.querySelector('.message-body');
+/** Adds one step (or the live "still generating…" row) to a bubble's "Thinking…" box. */
+function addThoughtStep(bubble, info) {
+  const body = bubble.querySelector('.message-body');
   if (!body) return;
 
-  let box = currentAssistantBubble.querySelector('.thought-box');
+  let box = bubble.querySelector('.thought-box');
   if (!box) {
     box = document.createElement('div');
     box.className = 'thought-box';
@@ -259,18 +282,16 @@ window.api.onChatStatus((statusData) => {
       <div class="thought-content">
         <ul class="thought-steps"></ul>
       </div>`;
-
     body.insertBefore(box, body.firstChild);
-
-    // Toggle collapse on click
-    const header = box.querySelector('.thought-header');
-    header.addEventListener('click', () => {
-      box.classList.toggle('collapsed');
-    });
+    box.querySelector('.thought-header').addEventListener('click', () => box.classList.toggle('collapsed'));
   }
 
   const stepsList = box.querySelector('.thought-steps');
   const progressItem = stepsList.querySelector('.thought-step-item.progress');
+  const countSteps = () => {
+    const n = stepsList.querySelectorAll('li:not(.progress)').length;
+    box.querySelector('.thought-count').textContent = `${n} step${n === 1 ? '' : 's'}`;
+  };
 
   // Live progress (e.g. the "still generating… 42s" heartbeat): one row, updated in place.
   if (info.type === 'progress') {
@@ -278,25 +299,17 @@ window.api.onChatStatus((statusData) => {
     item.className = 'thought-step-item progress';
     item.innerHTML = `<span class="thought-step-dot"></span><span class="thought-step-text">${escapeHtml(info.text)}</span>`;
     stepsList.appendChild(item); // (re)attach at the end
-    const steps = stepsList.querySelectorAll('li:not(.progress)').length;
-    box.querySelector('.thought-count').textContent = `${steps} step${steps === 1 ? '' : 's'}`;
-    scrollToBottom();
+    countSteps();
     return;
   }
   // A real step happened, so the live progress row is stale.
   if (progressItem) progressItem.remove();
-
-  const stepItem  = document.createElement('li');
+  const stepItem = document.createElement('li');
   stepItem.className = 'thought-step-item';
   stepItem.innerHTML = `<span class="thought-step-dot"></span><span class="thought-step-text">${escapeHtml(info.text)}</span>`;
   stepsList.appendChild(stepItem);
-
-  const countEl = box.querySelector('.thought-count');
-  const total = stepsList.querySelectorAll('li:not(.progress)').length;
-  countEl.textContent = `${total} step${total > 1 ? 's' : ''}`;
-
-  scrollToBottom();
-});
+  countSteps();
+}
 
 // ── Setup flow ────────────────────────────────────────────────────────────────
 async function checkSetup() {
@@ -1291,6 +1304,7 @@ function renderSessionList(sessions) {
     li.addEventListener('click', () => openSession(s.id));
     sessionList.appendChild(li);
   }
+  markGeneratingSession();
 }
 
 function sessionGroup(ms) {
@@ -1310,6 +1324,7 @@ async function createNewChat() {
 }
 
 async function deleteSession(id) {
+  if (liveRun && liveRun.sessionId === id) await window.api.chatStop(id); // its answer isn't needed any more
   await window.api.chatDelete(id);
   if (activeSessionId === id) { activeSessionId = null; showEmptyState(); }
   await loadSessionList();
@@ -1317,6 +1332,8 @@ async function deleteSession(id) {
 
 async function openSession(id) {
   activeSessionId = id;
+  sessionsWithNewAnswer.delete(id);
+  markGeneratingSession();
   document.querySelectorAll('.session-item').forEach((el) => {
     el.classList.toggle('active', el.dataset.id === id);
   });
@@ -1325,6 +1342,7 @@ async function openSession(id) {
     headerChatTitle.textContent = session.title || 'Athar';
   }
   renderMessages(session ? session.messages || [] : []);
+  updateSendState(); // Stop if this chat's answer is still being written, Send otherwise
   clearAttachedDocuments();
   clearAttachedImages();
   renderSessionResourcesUI(id);
@@ -1438,12 +1456,17 @@ function renderMarkdown(text) {
 
 function renderMessages(messages) {
   messageList.innerHTML = '';
+  if (liveRun) { liveRun.bubble = null; liveRun.textEl = null; } // its bubble was just removed
   for (const msg of messages) {
     const textEl = appendMessageBubble(msg.role, msg.text, msg.images || [], msg.documents || []);
-    if (msg.role === 'assistant' && msg.sources && msg.sources.length) {
-      renderSourceChips(textEl.closest('.message'), msg.sources);
+    const bubble = textEl.closest('.message');
+    if (msg.role === 'assistant' && Array.isArray(msg.steps) && msg.steps.length) {
+      for (const step of msg.steps) addThoughtStep(bubble, { text: step });
+      finishThoughtBox(bubble);
     }
+    if (msg.role === 'assistant' && msg.sources && msg.sources.length) renderSourceChips(bubble, msg.sources);
   }
+  mountLiveRun(); // this chat's answer is still being written
   updateEmptyChatState();
 }
 
@@ -1730,8 +1753,12 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── Sending messages ──────────────────────────────────────────────────────────
+const SEND_ICON = svgIcon('<path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/>');
+const STOP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>';
+const sessionsWithNewAnswer = new Set(); // finished while the user was in another chat
+
 async function sendMessage() {
-  if (isStreaming || !activeSessionId) return;
+  if (liveRun || !activeSessionId) return;
   const text = messageInput.value.trim();
   if (!text && attachedImages.length === 0 && attachedDocuments.length === 0) return;
 
@@ -1744,61 +1771,71 @@ async function sendMessage() {
   clearAttachedImages();
   clearAttachedDocuments();
 
-  isStreaming = true;
-  sendBtn.disabled = true;
-  pendingSources = null;
+  const sessionId = activeSessionId;
+  liveRun = { sessionId, text: '', steps: [], progress: null, sources: null, sourcesShown: false, bubble: null, textEl: null };
+  updateSendState();
+  markGeneratingSession();
 
   appendMessageBubble('user', text, currentImagesDataUrl, currentDocs);
   updateEmptyChatState();
-
-  const assistantTextEl = appendMessageBubble('assistant', '');
-  const assistantBubble = assistantTextEl.closest('.message');
-  assistantBubble.classList.add('typing-indicator');
-
-  currentAssistantEl     = assistantTextEl;
-  currentAssistantBubble = assistantBubble;
-  currentStreamText      = '';
-
+  mountLiveRun();
   scrollToBottom();
 
-  const result = await window.api.chatSend(activeSessionId, text, activeModel, currentImagesBase64, currentDocs,
+  const result = await window.api.chatSend(sessionId, text, activeModel, currentImagesBase64, currentDocs,
     { alwaysSearchWeb: webSearchAlways });
 
-  // The main process returns the final answer — the exact text it saved.
-  // It can differ from the streamed tokens (a non-streamed fallback answer, an
-  // appended warning, a recovered tool result), so it replaces them. This
-  // also paints the last throttled token batch before we detach the element.
-  if (result.success && typeof result.reply === 'string') currentStreamText = result.reply;
-  if (currentAssistantEl) currentAssistantEl.innerHTML = renderMarkdown(stripCitations(currentStreamText));
+  const run = liveRun;
+  liveRun = null;
 
-  currentAssistantEl     = null;
-  currentAssistantBubble = null;
-  assistantBubble.classList.remove('typing-indicator');
-  finishThoughtBox(assistantBubble);
-
-  // Final chips know which memories the answer actually cited
-  if (result.success && result.sources && result.sources.length) {
-    renderSourceChips(assistantBubble, result.sources);
-  } else if (pendingSources) {
-    renderSourceChips(assistantBubble, pendingSources); // error case: show what was found
+  if (run.bubble && run.sessionId === activeSessionId) {
+    // The main process returns the final answer — the exact text it saved.
+    // It can differ from the streamed tokens (a non-streamed fallback answer, an
+    // appended warning, a recovered tool result, "Stopped."), so it replaces them.
+    const bubble = run.bubble;
+    const textEl = run.textEl;
+    textEl.innerHTML = renderMarkdown(stripCitations(result.success && typeof result.reply === 'string' ? result.reply : run.text));
+    bubble.classList.remove('typing-indicator');
+    if (result.success && result.stopped) addThoughtStep(bubble, { text: 'Stopped by you.' });
+    finishThoughtBox(bubble);
+    // Final chips know which memories the answer actually cited
+    if (result.success && result.sources && result.sources.length) renderSourceChips(bubble, result.sources);
+    else if (run.sources) renderSourceChips(bubble, run.sources); // error case: show what was found
+    if (!result.success) {
+      textEl.textContent = `Error: ${result.error}`;
+      textEl.style.color = 'var(--danger)';
+    }
+    scrollToBottom();
+    renderSessionResourcesUI(sessionId);
+  } else if (result.success) {
+    sessionsWithNewAnswer.add(sessionId); // a dot in the chat list until it's opened
   }
-  pendingSources = null;
 
-  if (!result.success) {
-    assistantTextEl.textContent = `Error: ${result.error}`;
-    assistantTextEl.style.color = 'var(--danger)';
-  }
-
-  isStreaming = false;
+  markGeneratingSession();
   updateSendState();
-  messageInput.focus();
-  scrollToBottom();
-  renderSessionResourcesUI(activeSessionId);
+  if (run.sessionId === activeSessionId) messageInput.focus();
+}
+
+/** Chat list: which chat is being answered right now, and which has a new answer. */
+function markGeneratingSession() {
+  document.querySelectorAll('.session-item[data-id]').forEach((el) => {
+    el.classList.toggle('generating', Boolean(liveRun && liveRun.sessionId === el.dataset.id));
+    el.classList.toggle('has-new', sessionsWithNewAnswer.has(el.dataset.id));
+  });
+}
+
+/** Send, or Stop while this chat's answer is being written. */
+function onSendButton() {
+  if (isLiveHere()) {
+    sendBtn.disabled = true;
+    window.api.chatStop(liveRun.sessionId);
+    return;
+  }
+  sendMessage();
 }
 
 newChatBtn.addEventListener('click', createNewChat);
 emptyNewChatBtn.addEventListener('click', createNewChat);
-sendBtn.addEventListener('click', sendMessage);
+sendBtn.addEventListener('click', onSendButton);
 messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
@@ -1811,7 +1848,12 @@ messageInput.addEventListener('input', () => {
 /** Send is enabled only when there's something to send and no answer is in progress. */
 function updateSendState() {
   const hasContent = messageInput.value.trim() || attachedImages.length > 0 || attachedDocuments.length > 0;
-  sendBtn.disabled = isStreaming || !hasContent;
+  const stopMode = isLiveHere();
+  sendBtn.classList.toggle('is-stop', stopMode);
+  sendBtn.innerHTML = stopMode ? STOP_ICON : SEND_ICON;
+  sendBtn.title = stopMode ? 'Stop' : liveRun ? 'Wait — an answer is being written in another chat' : 'Send (Enter)';
+  sendBtn.setAttribute('aria-label', stopMode ? 'Stop' : 'Send');
+  sendBtn.disabled = stopMode ? false : Boolean(liveRun) || !hasContent;
 }
 
 /** An empty chat shows a greeting with the composer floating in the middle; it moves down once messages exist. */

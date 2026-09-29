@@ -1177,6 +1177,9 @@ async function generate(
 
   let loopResult = await answerOnce({ webResearch, offlineWhy });
   if (typeof loopResult === 'string') return loopResult; // backend error message
+  // Stopped by the user: no checks, searches or rewrites after this
+  const stopped = () => Boolean(options.signal && options.signal.aborted);
+  if (stopped()) return loopResult.text || '';
 
   // 2. Search off: if the answer hedges, or the model wanted the web, say
   //    Search can look it up. Search on: check what the answer is based on —
@@ -1225,12 +1228,13 @@ async function generate(
     }
   }
 
+  if (stopped()) return loopResult.text || '';
   const researchLog = [checkAgainstWeb ? webResearch : null, ...(loopResult.researchLog || [])].filter(Boolean);
   let text = await finalizeAnswer(loopResult.text);
 
   // 2b. The answer came out in the wrong language (usually the language of the
   //     memories or page it was given): translate it before it's shown for good.
-  if (replyLang && text && text.trim() && !language.matchesLanguage(text, replyLang)) {
+  if (!stopped() && replyLang && text && text.trim() && !language.matchesLanguage(text, replyLang)) {
     onStatus({ icon: '🌐', text: `Rewriting the answer in ${replyLang.name}…` });
     try {
       const translated = await translateText(text, replyLang, modelName);
@@ -1287,6 +1291,7 @@ async function generate(
         onRequestPermission,
         maxSteps: 40,
         maxTotalMs: 600000, // 10 minutes max for the whole agent loop
+        abortSignal: options.signal,
         needsWorkspaceRead: withTools && isProjectQuestion
       });
     };
@@ -1299,6 +1304,7 @@ async function generate(
     try {
       return await run(useTools);
     } catch (err) {
+      if (options.signal && options.signal.aborted) throw err; // stopped by the user: not an error to recover from
       if (!useTools) {
         onStatus({ icon: '⚠️', text: `Model error: ${err.message}` });
         return `Sorry — the model backend reported an error: ${err.message}`;

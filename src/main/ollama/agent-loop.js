@@ -280,7 +280,8 @@ async function runAgentLoop({
   onError = () => {},
   fallbackRetriesLeft = 3,    // retries for "printed a tool call as text"
   continueRetriesLeft = 1,    // nudges when a project question was answered without looking
-  progressLogSoFar = []       // "tool → result" recap across retries, fed back to the model
+  progressLogSoFar = [],      // "tool → result" recap across retries, fed back to the model
+  abortSignal = undefined     // the Stop button
 }) {
   const tools = useTools ? buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText }) : {};
   const toolNames = Object.keys(tools);
@@ -305,6 +306,7 @@ async function runAgentLoop({
     ...(useTools ? { tools } : {}),
     stopWhen: stepCountIs(maxSteps),
     timeout: maxTotalMs,
+    ...(abortSignal ? { abortSignal } : {}),
     onError: (event) => {
       streamError = (event && event.error) || event;
       onError(event);
@@ -389,7 +391,7 @@ async function runAgentLoop({
   const retry = (followUpContent, overrides) => runAgentLoop({
     modelName, systemContent, userText, workspaceDir, executeTool,
     onToken, onStatus, onRequestPermission, maxSteps, maxTotalMs, needsWorkspaceRead, useTools,
-    model, onError, fallbackRetriesLeft, continueRetriesLeft,
+    model, onError, fallbackRetriesLeft, continueRetriesLeft, abortSignal,
     messages: [...messages, ...stepMessages, { role: 'user', content: followUpContent }],
     ...overrides
   });

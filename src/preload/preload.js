@@ -78,9 +78,11 @@ contextBridge.exposeInMainWorld('api', {
   chatSend: (sessionId, userText, modelName, images = [], documents = [], options = {}) =>
     ipcRenderer.invoke('chat:send', sessionId, userText, null, modelName, images, null, documents, options),
 
+  chatStop: (sessionId) => ipcRenderer.invoke('chat:stop', sessionId),
+  // Streamed updates carry { sessionId, … } so they reach the right chat
   onChatToken: (cb) => {
     ipcRenderer.removeAllListeners('chat:token');
-    ipcRenderer.on('chat:token', (_e, token) => cb(token));
+    ipcRenderer.on('chat:token', (_e, data) => cb(data));
   },
   onSessionUpdated: (cb) => {
     ipcRenderer.removeAllListeners('chat:session-updated');
@@ -88,10 +90,10 @@ contextBridge.exposeInMainWorld('api', {
   },
   onChatSources: (cb) => {
     ipcRenderer.removeAllListeners('chat:sources');
-    ipcRenderer.on('chat:sources', (_e, sources) => cb(sources));
+    ipcRenderer.on('chat:sources', (_e, data) => cb(data));
   },
   onChatStatus: (cb) => {
     ipcRenderer.removeAllListeners('chat:status');
-    ipcRenderer.on('chat:status', (_e, status) => cb(status));
+    ipcRenderer.on('chat:status', (_e, data) => cb(data));
   }
 });

@@ -93,4 +93,21 @@ test('appendMessage stores images as refs; deleting the session removes them', (
   assert(!fs.existsSync(imgDir));
 });
 
+test('an answer keeps its thinking steps (and "stopped") when the chat is reopened', () => {
+  const s = store.createSession();
+  store.appendMessage(s.id, 'user', 'what is the gold price today?');
+  store.appendMessage(s.id, 'assistant', 'Partial answer…\n\n_Stopped._', [], [], {
+    steps: ['Analyzing request…', 'Searching the web first…', '', 'x'.repeat(1000), 'Stopped by you.'],
+    stopped: true
+  });
+  const saved = store.getSession(s.id).messages[1];
+  assert.deepStrictEqual(saved.steps.slice(0, 2), ['Analyzing request…', 'Searching the web first…']);
+  assert.strictEqual(saved.steps.length, 4, 'empty steps dropped');
+  assert.strictEqual(saved.steps[2].length, 400, 'long steps shortened');
+  assert.strictEqual(saved.stopped, true);
+  store.appendMessage(s.id, 'assistant', 'plain');
+  const plain = store.getSession(s.id).messages[2];
+  assert(!('steps' in plain) && !('stopped' in plain), 'nothing extra stored when there are no steps');
+});
+
 done();
