@@ -176,6 +176,42 @@ function shouldSearchFirst(text, { fresh, searchOn = false, hasLocalContext = fa
   return { search: true, reason: 'fresh' };
 }
 
+// The user explicitly asks for a web search: "search the web for…", "look it
+// up", "google it", "check online", "ابحث عن…", "دور على…", "من الإنترنت".
+// Mid-conversation the request is often short and follows a word or two
+// ("ok search it", "no, search again", "I told you to search").
+const EXPLICIT_WEB_EN = new RegExp([
+  String.raw`\b(search|look|google|browse|check|find)\b[^.?!\n]{0,20}\b(on(line)?|the web|the internet|google)\b`,
+  String.raw`^\s*((ok(ay)?|so|now|then|and|but|no|yes|yeah|just|well|please|pls)\b[,.!]?\s+){0,3}(can you\s+|could you\s+|would you\s+)?(search|google|look (it |this |that |them )?up|browse)\b`,
+  String.raw`\b(look (it|this|that|them) up|google (it|this|that)|search (for |about )?(it|this|that|them)|search again|search first)\b`,
+  String.raw`\b(told|asked) you to (search|google|look (it |this |that )?up|browse|check (online|the web|the internet))\b`,
+  String.raw`\b(use|check|try) the (web|internet)\b|\b(from|on) the (web|internet)\b|\bweb search\b`
+].join('|'), 'i');
+const EXPLICIT_WEB_AR = /(^|\s)(ابحث|ابحثي|دور|دوري|فتش|ابحثلي|دورلي|دوري لي)(\s|$)|(على|في|من) (ال)?(انترنت|نت|ويب)|(استخدم|استعمل) (ال)?(انترنت|نت|بحث)|جوجل|قوقل|غوغل/;
+// …but "search my chats / memory for X" is a memory search, not the web
+const OWN_SEARCH_RE = /\b(search|look|find)\b[^.?!\n]{0,25}\b(my|our)\s+(\w+\s+)?(chats?|conversations?|memory|memories|history|files?|notes?)\b|(ابحث|دور|فتش)\S*\s+(في\s+)?(محادثاتي|ذاكرتي|الذاكره|ملفاتي)/i;
+
+/** Did the user ask to search the web (as opposed to leaving it to the app)? */
+function asksForWebSearch(text) {
+  const t = String(text || '');
+  const norm = normalizeArabicText(t);
+  if (OWN_SEARCH_RE.test(t) || OWN_SEARCH_RE.test(norm)) return false;
+  return EXPLICIT_WEB_EN.test(t) || EXPLICIT_WEB_AR.test(norm);
+}
+
+/** The subject to search for, without "search the web for", "ابحث عن"… */
+function stripSearchCommand(text) {
+  const out = String(text || '')
+    .replace(/^\s*((ok(ay)?|so|now|then|and|but|no|yes|yeah|just|well|please|pls)\b[,.!]?\s+){0,3}(can you\s+|could you\s+|would you\s+)?(search|google|browse|look up|look for|find)(\s+(the\s+)?(web|internet|online|google))?(\s+(for|about|on))?\s+/i, '')
+    .replace(/\s*,?\s*(and\s+)?(please\s+)?(search|look|check)\s+(it|this|that)?\s*(up\s+)?(on(line)?|the web|the internet)?\s*[.!?]*$/i, '')
+    .replace(/\b(on|from) the (web|internet)\b|\bonline\b/gi, '')
+    .replace(/^\s*(ابحث|ابحثي|دور|فتش)(\s*لي)?(\s+(في|على)\s+(ال)?(انترنت|إنترنت|نت|ويب))?(\s+(عن|على))?\s+/, '')
+    .replace(/\s*(من|على|في)\s+(ال)?(انترنت|إنترنت|نت|ويب)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return out || String(text || '').trim();
+}
+
 /**
  * A placeholder the model wrote instead of a fact it doesn't have:
  * "[gold_price]", "[current date]", "[السعر]". (Not citations like [M1] and
@@ -208,6 +244,8 @@ module.exports = {
   needsFreshInfo,
   shouldSearchFirst,
   parseWebVerdict,
+  asksForWebSearch,
+  stripSearchCommand,
   hasPlaceholder,
   isSmallTalk,
   isPersonalMemoryQuestion,

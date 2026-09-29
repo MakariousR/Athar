@@ -145,6 +145,36 @@ test('placeholders instead of facts ("[gold_price]") are caught; citations, link
   }
 });
 
+test('an explicit request to search the web is recognised (English and Arabic)…', () => {
+  for (const q of ['search the web for the latest iPhone price', 'Search for the best laptops in 2026', 'look it up', 'can you google the population of Egypt?',
+    'check online who won the match', 'what is the weather in Cairo? search it online', 'ابحث عن سعر الذهب اليوم', 'ابحث في الانترنت عن أفضل هاتف', 'دور على أخبار مصر', 'هات لي المعلومة من الإنترنت']) {
+    assert(f.asksForWebSearch(q), q);
+  }
+});
+
+test('…including the short ways it is said in the middle of a chat', () => {
+  for (const q of ['ok search it', 'no, search again', 'I told you to search', 'I asked you to look it up', 'please search for that', 'use the internet',
+    'yes search first', 'do a web search', 'so can you search about them?', 'طيب ابحث عنها', 'استخدم الانترنت', 'دور عليه']) {
+    assert(f.asksForWebSearch(q), q);
+  }
+});
+
+test('…but not searching your own chats, or "search" as a topic', () => {
+  for (const q of ['search my chats for the database decision', 'find my conversation about docker', 'ابحث في محادثاتي عن التداول',
+    'explain binary search', 'write a search function in python', 'how do I search in vim?', 'what is the capital of Australia?']) {
+    assert(!f.asksForWebSearch(q), q);
+  }
+});
+
+test('the search is for the subject, not the command words', () => {
+  assert.strictEqual(f.stripSearchCommand('search the web for the latest iPhone price'), 'the latest iPhone price');
+  assert.strictEqual(f.stripSearchCommand('can you google the population of Egypt?'), 'the population of Egypt?');
+  assert.strictEqual(f.stripSearchCommand('what is the weather in Cairo? search it online'), 'what is the weather in Cairo?');
+  assert.strictEqual(f.stripSearchCommand('ابحث عن سعر الذهب اليوم'), 'سعر الذهب اليوم');
+  assert.strictEqual(f.stripSearchCommand('ابحث في الانترنت عن أفضل هاتف'), 'أفضل هاتف');
+  assert.strictEqual(f.stripSearchCommand('look it up'), 'look it up', 'kept: "it" is resolved from the conversation');
+});
+
 test('the checker\'s verdict: NO, or SEARCH with the query to look up', () => {
   assert.deepStrictEqual(f.parseWebVerdict('NO'), { search: false, query: null });
   assert.deepStrictEqual(f.parseWebVerdict('no, the answer is based on the context'), { search: false, query: null });

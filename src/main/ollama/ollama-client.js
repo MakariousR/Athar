@@ -815,6 +815,7 @@ ${webRule}`;
       memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
       memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
       pagesBlock ? 'the app already opened the page(s) the user linked — answer from their text below, in the same language as the user\'s message, and never say you cannot access websites (if a page could not be opened, say that)' : null,
+      webBlock && memory.explicitWeb ? 'the user asked you to search the web, and the app did: answer from these web results now — even if an earlier reply in this conversation already answered, do not repeat it; update or correct it where the results differ, and say what the web says' : null,
       webBlock ? 'the web research is newer than your training data: base facts about the outside world on it (not on what you remember) and mention the source and date — but for anything about the user (their chats, memories, files) use the context above, not the web; answer every part of the question' : null,
       memory && memory.offlineInstruction ? 'follow the note about missing internet access' : null
     ].filter(Boolean).join('; ');
@@ -1094,7 +1095,12 @@ async function generate(
     return online;
   };
   const webSearch = async (query = null) => {
-    if (!query && searchQuery === null) searchQuery = await standaloneWebQuery(userText, conversationHistory, modelName, onStatus);
+    if (!query && searchQuery === null) {
+      // "search the web for X" → X; "ok search it again" leaves too little, so the
+      // whole message goes to the rewrite, which takes the subject from the conversation
+      const subject = freshness.stripSearchCommand(userText);
+      searchQuery = await standaloneWebQuery(subject.split(/\s+/).length >= 3 ? subject : userText, conversationHistory, modelName, onStatus);
+    }
     const result = await executeTool('web_search', { query: query || searchQuery }, onStatus, workspaceDir, onRequestPermission, modelName, userText, sessionId, turn);
     return isUsableResearch(result) ? result : null;
   };
@@ -1150,24 +1156,34 @@ async function generate(
   // ("…and what's the gold price today?" still gets checked, for that part)
   const alsoTimeSensitive = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, includePersonal: true }).needed;
   const memoryOnly = Boolean(memory && memory.list) || (aboutOwnHistory && !alsoTimeSensitive);
-  // A capable model with tools decides itself whether to search; a small one gets the web first for time-sensitive questions
-  const searchFirst = freshness.shouldSearchFirst(userText, { fresh, searchOn: searchOn && !(capable && toolsAvailable), hasLocalContext, hasDocuments, isProjectQuestion });
-  if (!searchOn && fresh.needed) offlineWhy = 'disabled';
+  // The user explicitly asked for a web search ("search the web for…", "ابحث عن…"):
+  // with Search on it is always done first, whatever the model would decide;
+  // with Search off the answer says Search has to be turned on for that.
+  const explicitWeb = freshness.asksForWebSearch(userText);
+  // Otherwise: a capable model with tools decides itself whether to search; a
+  // small one gets the web first for time-sensitive questions
+  const searchFirst = searchOn && explicitWeb
+    ? { search: true, reason: 'explicit' }
+    : freshness.shouldSearchFirst(userText, { fresh, searchOn: searchOn && !(capable && toolsAvailable), hasLocalContext, hasDocuments, isProjectQuestion });
+  if (!searchOn && (fresh.needed || explicitWeb)) offlineWhy = 'disabled';
+  if (!searchOn && explicitWeb) onStatus({ icon: '🔒', text: 'You asked for a web search, but Search is off — answering without the web.' });
   // Checking the answer against the sources costs another model call; worth
   // it for current facts, not for e.g. code written while "Search" is on.
-  let checkAgainstWeb = searchFirst.reason === 'fresh';
+  let checkAgainstWeb = searchFirst.reason === 'fresh' || searchFirst.reason === 'explicit';
 
   if (searchFirst.search) {
     if (await checkOnline()) {
       onStatus({
         icon: '🌐',
-        text: fresh.needed
-          ? `This may have changed since my training data${cutoff.label ? ` (around ${cutoff.label})` : ''} — searching the web first…`
-          : 'Searching the web first (Search is on)…'
+        text: searchFirst.reason === 'explicit'
+          ? 'Searching the web, as you asked…'
+          : fresh.needed
+            ? `This may have changed since my training data${cutoff.label ? ` (around ${cutoff.label})` : ''} — searching the web first…`
+            : 'Searching the web first (Search is on)…'
       });
       webResearch = await webSearch();
-      if (!webResearch && fresh.needed) offlineWhy = 'search-failed';
-    } else if (fresh.needed) {
+      if (!webResearch && (fresh.needed || explicitWeb)) offlineWhy = 'search-failed';
+    } else if (fresh.needed || explicitWeb) {
       offlineWhy = 'offline';
       onStatus({ icon: '📴', text: `No internet connection — answering from my training data${cutoff.label ? ` (around ${cutoff.label})` : ''}.` });
     } else {
@@ -1262,6 +1278,7 @@ async function generate(
         cutoffLabel: cutoff.label,
         toolsAvailable: withTools,
         webResearch: research,
+        explicitWeb: explicitWeb && Boolean(research),
         linkedPages,
         webAllowed: searchOn,
         replyLanguage: replyLang,
