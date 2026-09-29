@@ -205,6 +205,9 @@ function asksForWebSearch(text) {
 /** The subject to search for, without "search the web for", "ابحث عن"… */
 function stripSearchCommand(text) {
   const out = String(text || '')
+    // Greetings in front of the question: "hi, which is better…", "مرحبا، ما هو…"
+    .replace(/^\s*(hi|hello|hey|good (morning|evening))\b[\s,.!]*/i, '')
+    .replace(/^\s*(مرحبا|اهلا|أهلا|السلام عليكم|صباح الخير|مساء الخير)[\s،,.!]*/, '')
     .replace(/^\s*((ok(ay)?|so|now|then|and|but|no|yes|yeah|just|well|please|pls)\b[,.!]?\s+){0,3}(can you\s+|could you\s+|would you\s+)?(search|google|browse|look up|look for|find)(\s+(the\s+)?(web|internet|online|google))?(\s+(for|about|on))?\s+/i, '')
     .replace(/\s*,?\s*(and\s+)?(please\s+)?(search|look|check)\s+(it|this|that)?\s*(up\s+)?(on(line)?|the web|the internet)?\s*[.!?]*$/i, '')
     .replace(/\b(on|from) the (web|internet)\b|\bonline\b/gi, '')
@@ -227,7 +230,39 @@ function hasPlaceholder(text) {
   return PLACEHOLDER_RE.test(prose);
 }
 
+// Words that say nothing about what is being searched for
+const QUERY_STOPWORDS = new Set(('the and for with from that this these those which what who whom whose when where why how are was were ' +
+  'is be been have has had not but you your our their them they its it can could would should will does did about into than then ' +
+  'there here any some more most best better good also only just very okay please tell show give search find look online web ' +
+  'internet google hi hello hey thanks one ones other others them each all both either offers offer ' +
+  'في من على عن الى إلى هل ما ماذا هذا هذه ذلك تلك التي الذي او أو ثم كل بعض اي أي مع انا أنت هو هي لي ابحث افضل أفضل احسن أحسن').split(/\s+/));
+
+function subjectWords(text) {
+  const words = normalizeArabicText(String(text || '').toLowerCase()).split(/[^\p{L}\p{N}.]+/u)
+    .map((w) => w.replace(/^\.+|\.+$/g, ''))
+    .filter((w) => w.length >= 3 && !QUERY_STOPWORDS.has(w));
+  return new Set(words);
+}
+
+/**
+ * Is a web search query still about what the user asked? It must share at
+ * least one subject word (a name, a topic) with the message and the last turns:
+ * "w3schools arabic" for "harmash or w3schools?" does, "web development
+ * resources" doesn't.
+ */
+function sharesSubject(query, reference) {
+  const ref = subjectWords(reference);
+  if (ref.size === 0) return true; // nothing to judge by
+  for (const w of subjectWords(query)) {
+    if (ref.has(w)) return true;
+    // "w3schools.com" vs "w3schools", "harmash" vs "harmash's"
+    for (const r of ref) if (w.length >= 5 && r.length >= 5 && (w.startsWith(r) || r.startsWith(w))) return true;
+  }
+  return false;
+}
+
 module.exports = {
+  sharesSubject,
   modelKnowledgeCutoff,
   needsFreshInfo,
   shouldSearchFirst,

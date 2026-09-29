@@ -980,19 +980,22 @@ async function standaloneWebQuery(userText, history, modelName, onStatus = () =>
   const turns = (history || []).filter((m) => m && (m.role === 'user' || m.role === 'assistant') && String(m.text || '').trim());
   // The history may already end with this message
   if (turns.length && turns[turns.length - 1].role === 'user' && String(turns[turns.length - 1].text).trim() === text) turns.pop();
-  // First message of a chat: nothing to take the subject from. Later on, a
-  // follow-up often only makes sense with what came before ("which one is
-  // better?"), so it is always rewritten.
+  // A follow-up often only makes sense with what came before ("which one is
+  // better?"), so mid-chat it is always rewritten. The first message of a chat
+  // is searched as written (a small model tends to drop names it doesn't know).
   if (turns.length === 0) return text.slice(0, 300);
 
   const context = turns.slice(-6).map((m) => {
     const body = String(m.text).replace(/\s+/g, ' ').trim();
     return `${m.role === 'user' ? 'User' : 'Assistant'}: ${body.length > 500 ? `${body.slice(0, 500)}…` : body}`;
   }).join('\n');
-  const prompt = `Conversation so far:\n${context}\n\nNew message from the user: "${text}"\n\n` +
+  const prompt = `${context ? `Conversation so far:\n${context}\n\n` : ''}New message from the user: "${text}"\n\n` +
     'Write the web search query for what the new message asks, the way you would type it into Google: the subject in a few keywords, ' +
-    'not the user\'s sentence. Fill in from the conversation whatever it refers to — "this", "it", "that company", "هذه الشركة", ' +
-    '"which one" (put the names of the options being compared in the query, e.g. "X vs Y vs Z") — using names or domains. Leave out filler like "okay", "tell me", "search for". ' +
+    'not the user\'s sentence. Keep every name the message mentions (sites, products, people, companies) exactly as written — ' +
+    'even names you don\'t recognise; they are what the user is asking about. ' +
+    (context ? 'Fill in from the conversation whatever it refers to — "this", "it", "that company", "هذه الشركة", ' +
+      '"which one" (put the names of the options being compared in the query, e.g. "X vs Y vs Z") — using names or domains. ' : '') +
+    'Leave out filler like "hi", "okay", "tell me", "search for". ' +
     `Write the query in ${freshness.isArabic(text) ? 'Arabic' : /^[\x00-\x7F]*$/.test(text) ? 'English' : 'the language of the new message'}. ` +
     'Output only the query, at most 12 words, no quotes and no explanation.';
   try {
@@ -1076,10 +1079,15 @@ async function generate(
   // message (or empty) becomes the subject, worked out from the conversation.
   // "search the web for X" → X; "ok search it again" leaves too little, so the
   // whole message goes to the rewrite, which takes the subject from the conversation.
+  // A query that shares no subject word with the message or the last turns
+  // ("web development resources" for "harmash or w3schools?") has lost the
+  // subject, and is replaced too.
   const sameText = (a, b) => String(a || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() === String(b || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const recentText = [userText, ...(conversationHistory || []).slice(-3).map((m) => m.text || '')].join(' ');
   turn.fixWebQuery = async (q) => {
     const asked = String(q || '').trim();
-    if (asked && !sameText(asked, userText) && !sameText(asked, freshness.stripSearchCommand(userText))) return asked;
+    if (asked && !sameText(asked, userText) && !sameText(asked, freshness.stripSearchCommand(userText)) &&
+        freshness.sharesSubject(asked, recentText)) return asked;
     if (searchQuery === null) {
       const subject = freshness.stripSearchCommand(userText);
       searchQuery = await standaloneWebQuery(subject.split(/\s+/).length >= 3 ? subject : userText, conversationHistory, modelName, onStatus);

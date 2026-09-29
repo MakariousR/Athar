@@ -173,6 +173,18 @@ test('the search is for the subject, not the command words', () => {
   assert.strictEqual(f.stripSearchCommand('ابحث عن سعر الذهب اليوم'), 'سعر الذهب اليوم');
   assert.strictEqual(f.stripSearchCommand('ابحث في الانترنت عن أفضل هاتف'), 'أفضل هاتف');
   assert.strictEqual(f.stripSearchCommand('look it up'), 'look it up', 'kept: "it" is resolved from the conversation');
+  assert.strictEqual(f.stripSearchCommand('hi, which is better harmash or w3schools'), 'which is better harmash or w3schools');
+  assert.strictEqual(f.stripSearchCommand('مرحبا، ما هو أفضل موقع حرمش ام الزيرو'), 'ما هو أفضل موقع حرمش ام الزيرو');
+});
+
+test('a web query that lost the subject of the question is recognised', () => {
+  const asked = 'hi, which is better harmash or w3schools and which of them offers arabic content';
+  assert(!f.sharesSubject('web development resources', asked));
+  assert(!f.sharesSubject('best website', asked));
+  for (const q of ['harmash vs w3schools', 'w3schools arabic', 'harmash.com arabic tutorials', 'W3Schools.com']) assert(f.sharesSubject(q, asked), q);
+  assert(f.sharesSubject('سعر الذهب اليوم', 'ما هو سعر الذهب؟'));
+  assert(!f.sharesSubject('أخبار مصر', 'ما هو سعر الذهب؟'));
+  assert(f.sharesSubject('anything', 'ok?'), 'nothing to judge by');
 });
 
 test('Search on, model without tools: the app searches every question for it (with the same exceptions)', () => {
