@@ -160,15 +160,18 @@ function isSmallTalk(text) {
 
 /**
  * Whether to search the web BEFORE the model answers. Athar goes online only
- * when the user turned on "Search" in the message box. Even then, most
- * questions are answered from what is local first (memory, files, linked
- * pages, the conversation) and checked afterwards (see needsWebAfterAnswer in
- * ollama-client.js). Searching first is only a shortcut for time-sensitive
- * questions ("latest…", prices, news) that nothing local covers.
- * @returns {{ search: boolean, reason: 'fresh'|null }}
+ * when the user turned on "Search" in the message box. A model with tools is
+ * told to search itself; for one without tools the app searches every
+ * question first (`always`). Otherwise only time-sensitive questions
+ * ("latest…", prices, news) that nothing local covers.
+ * @returns {{ search: boolean, reason: 'always'|'fresh'|null }}
  */
-function shouldSearchFirst(text, { fresh, searchOn = false, hasLocalContext = false, hasDocuments = false, isProjectQuestion = false } = {}) {
+function shouldSearchFirst(text, { fresh, searchOn = false, always = false, hasLocalContext = false, hasDocuments = false, isProjectQuestion = false } = {}) {
   const t = String(text || '').trim();
+  // always: every question (a model without tools, with Search on — it can't search itself)
+  if (always && searchOn && t && !isSmallTalk(t) && !isPersonalMemoryQuestion(t) && !hasDocuments && !isProjectQuestion) {
+    return { search: true, reason: 'always' };
+  }
   if (!searchOn || !t || !(fresh && fresh.needed) || isSmallTalk(t) || isPersonalMemoryQuestion(t) ||
       hasLocalContext || hasDocuments || isProjectQuestion) {
     return { search: false, reason: null };
@@ -224,26 +227,10 @@ function hasPlaceholder(text) {
   return PLACEHOLDER_RE.test(prose);
 }
 
-/**
- * Reads the checker's one-line verdict: "NO" (the answer is based on the
- * context, or needs no outside facts) or "SEARCH: <query>".
- * @returns {{ search: boolean, query: string|null }}
- */
-function parseWebVerdict(text) {
-  const line = String(text || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
-  const m = line.match(/^\**\s*SEARCH\s*\**\s*[:：-]\s*(.+)$/i);
-  if (m) {
-    const query = m[1].replace(/^["'«“]+|["'»”]+$/g, '').trim();
-    return query.length >= 2 && query.length <= 200 ? { search: true, query } : { search: false, query: null };
-  }
-  return { search: false, query: null };
-}
-
 module.exports = {
   modelKnowledgeCutoff,
   needsFreshInfo,
   shouldSearchFirst,
-  parseWebVerdict,
   asksForWebSearch,
   stripSearchCommand,
   hasPlaceholder,

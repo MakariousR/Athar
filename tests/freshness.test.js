@@ -175,13 +175,14 @@ test('the search is for the subject, not the command words', () => {
   assert.strictEqual(f.stripSearchCommand('look it up'), 'look it up', 'kept: "it" is resolved from the conversation');
 });
 
-test('the checker\'s verdict: NO, or SEARCH with the query to look up', () => {
-  assert.deepStrictEqual(f.parseWebVerdict('NO'), { search: false, query: null });
-  assert.deepStrictEqual(f.parseWebVerdict('no, the answer is based on the context'), { search: false, query: null });
-  assert.deepStrictEqual(f.parseWebVerdict('SEARCH: current CEO of OpenAI'), { search: true, query: 'current CEO of OpenAI' });
-  assert.deepStrictEqual(f.parseWebVerdict('**SEARCH**: "population of Egypt 2026"\nbecause…'), { search: true, query: 'population of Egypt 2026' });
-  assert.deepStrictEqual(f.parseWebVerdict('SEARCH: من يملك MystiEgypt'), { search: true, query: 'من يملك MystiEgypt' });
-  assert.deepStrictEqual(f.parseWebVerdict(''), { search: false, query: null });
+test('Search on, model without tools: the app searches every question for it (with the same exceptions)', () => {
+  const always = (q, extra = {}) => decide(q, true, { always: true, ...extra });
+  for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'who owns MystiEgypt?']) {
+    assert.deepStrictEqual(always(q), { search: true, reason: 'always' }, q);
+  }
+  for (const q of ['thanks!', 'summarize my chat about the bakery database']) assert.strictEqual(always(q).search, false, q);
+  assert.strictEqual(always('what are the risks?', { hasDocuments: true }).search, false, 'attached file');
+  assert.strictEqual(decide('explain recursion', false, { always: true }).search, false, 'Search off');
 });
 
 done();
