@@ -331,7 +331,19 @@ function addThoughtStep(bubble, info) {
 
 // ── Setup flow ────────────────────────────────────────────────────────────────
 async function checkSetup() {
+  // Gemini chosen and its key saved: no local AI needed
+  if (isGeminiModel(activeModel)) {
+    const gemini = await window.api.geminiStatus().catch(() => null);
+    if (gemini && gemini.hasKey) { enterApp(); return; }
+  }
   const result = await window.api.checkOllama();
+  if (result.running && result.chatInstalled && result.embedInstalled) { stopOllamaWatch(); setupOllama.classList.add('hidden'); enterApp(); return; }
+  // Nothing set up yet: first ask how to run Athar — on this computer, or Gemini.
+  // (Not when a local model's download was left unfinished: that one just continues.)
+  if (!setupPathChosen && (!result.running || !result.chatInstalled)) {
+    if ((await unfinishedChatModels()).length === 0) { showSetupPath(); return; }
+    setupPathChosen = true;
+  }
   if (!result.running) { showOllamaSetup(); return; }
   stopOllamaWatch();
   setupOllama.classList.add('hidden');
@@ -359,6 +371,56 @@ async function checkSetup() {
     renderSetupSteps([embedSetupStep()]);
   }
 }
+
+// ── First choice: a local model, or Gemini ───────────────────────────────────
+const setupPath        = document.getElementById('setupPath');
+const setupCloud       = document.getElementById('setupCloud');
+const setupGeminiKey   = document.getElementById('setupGeminiKey');
+const setupGeminiSave  = document.getElementById('setupGeminiSave');
+const setupGeminiNote  = document.getElementById('setupGeminiNote');
+let setupPathChosen = false; // "local" chosen: the Ollama + model setup follows
+
+function showSetupPath() {
+  setupStatus.textContent = 'How do you want Athar to answer you?';
+  setupCloud.classList.add('hidden');
+  setupPath.classList.remove('hidden');
+}
+
+document.getElementById('setupPathLocal').addEventListener('click', () => {
+  setupPathChosen = true;
+  setupPath.classList.add('hidden');
+  setupStatus.textContent = 'Checking your local AI engine…';
+  checkSetup();
+});
+document.getElementById('setupPathCloud').addEventListener('click', () => {
+  setupPath.classList.add('hidden');
+  setupCloud.classList.remove('hidden');
+  setupStatus.textContent = 'Use Gemini with your own free API key.';
+  setupGeminiKey.focus();
+});
+document.getElementById('setupCloudBack').addEventListener('click', showSetupPath);
+
+setupGeminiSave.addEventListener('click', async () => {
+  const key = setupGeminiKey.value.trim();
+  if (!key) { setupGeminiNote.textContent = 'Paste your API key first.'; setupGeminiNote.classList.remove('hidden'); return; }
+  setupGeminiSave.disabled = true;
+  setupGeminiSave.textContent = 'Checking…';
+  setupGeminiNote.classList.add('hidden');
+  const status = await window.api.geminiSetKey(key);
+  setupGeminiSave.disabled = false;
+  setupGeminiSave.textContent = 'Continue';
+  if (!status.success || !status.recommended) {
+    setupGeminiNote.textContent = status.error || 'No Gemini model is available for this key.';
+    setupGeminiNote.classList.remove('hidden');
+    return;
+  }
+  setupGeminiKey.value = '';
+  activeModel = status.recommended;
+  saveActiveModel(activeModel);
+  setupCloud.classList.add('hidden');
+  enterApp();
+});
+setupGeminiKey.addEventListener('keydown', (e) => { if (e.key === 'Enter') setupGeminiSave.click(); });
 
 // ── Getting Ollama: start it if installed, otherwise install it ──────────────
 const setupOllama             = document.getElementById('setupOllama');
@@ -2508,6 +2570,8 @@ window.api.onProfileProgress(({ done, total }) => {
 profileGenerateBtn.addEventListener('click', async () => {
   if (currentProfile && currentProfile.edited &&
       !confirm('Rebuilding replaces the profile, including your edits. Continue?')) return;
+  if (isGeminiModel(activeModel) && !confirm(`Building your profile with ${modelDisplayName(activeModel)} sends your messages from up to ${profileScope.value} past conversations to Google.\n\n` +
+    'To keep them on this computer, choose a local model in Settings first. Continue with Gemini?')) return;
   profileError.classList.add('hidden');
   profileProgressFill.style.width = '0%';
   profileProgressText.textContent = 'Starting…';

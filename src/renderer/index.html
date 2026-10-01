@@ -36,7 +36,36 @@
     <div class="setup-card">
       <h1>Athar</h1>
       <p class="setup-sub">Your personal AI that remembers your past conversations.</p>
-      <p id="setupStatus" class="setup-msg">Checking your local AI engine…</p>
+      <p id="setupStatus" class="setup-msg">Getting things ready…</p>
+
+      <div id="setupPath" class="setup-path hidden">
+        <button id="setupPathLocal" class="setup-path-card" type="button">
+          <span class="setup-path-title">💻 Local model</span>
+          <span class="setup-path-good">Private — nothing leaves your computer. Works offline. Free, no limits.</span>
+          <span class="setup-path-cost">Needs a ~6 GB download and a computer with 8–16 GB of memory. Slower answers.</span>
+        </button>
+        <button id="setupPathCloud" class="setup-path-card" type="button">
+          <span class="setup-path-title">☁️ Gemini (cloud)</span>
+          <span class="setup-path-good">Faster, smarter answers. Works on any computer. Free API key from Google.</span>
+          <span class="setup-path-cost">Your messages and the related parts of your memory go to Google. Needs internet; daily limits.</span>
+        </button>
+        <p class="setup-path-note">You can switch between them any time in Settings.</p>
+      </div>
+
+      <div id="setupCloud" class="setup-cloud hidden">
+        <ol class="setup-cloud-steps">
+          <li>Create a free API key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></li>
+          <li>Paste it here:</li>
+        </ol>
+        <div class="gemini-key-form">
+          <input id="setupGeminiKey" type="password" class="settings-input" placeholder="Your Gemini API key" autocomplete="off" spellcheck="false" />
+          <button id="setupGeminiSave" class="primary-btn" type="button">Continue</button>
+        </div>
+        <p id="setupGeminiNote" class="gemini-note hidden"></p>
+        <p class="settings-desc">Your past chats stay on this computer and are searched here; only the parts that match your question are sent with it.
+          On Google's free plan, Google may use what you send to improve its products.</p>
+        <button id="setupCloudBack" class="setup-link-btn" type="button">← Back</button>
+      </div>
 
       <div id="setupOllama" class="setup-ollama hidden">
         <button id="setupOllamaBtn" class="primary-btn setup-choice-btn">Install Ollama</button>

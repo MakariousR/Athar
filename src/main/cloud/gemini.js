@@ -183,7 +183,7 @@ function friendlyError(err, name = null) {
   const which = name ? `${modelId(name)} ` : 'This model ';
   if (/^No Gemini API key is set/.test(message)) return message;
   if (/API_KEY_INVALID|API key not valid|invalid api key/i.test(message) || status === 401) {
-    return 'The Gemini API key isn\'t valid. Check it in Settings (copy it again from aistudio.google.com/apikey).';
+    return 'The Gemini API key isn\'t valid. Copy it again from aistudio.google.com/apikey and paste the whole key.';
   }
   if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(message)) {
     if (/limit:\s*0\b|free_tier|FreeTier/i.test(message)) {
