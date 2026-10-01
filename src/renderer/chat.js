@@ -665,9 +665,7 @@ function showPermissionRequest(data) {
   currentPermissionReqId = requestId;
 
   const waiting = permissionQueue.length;
-  const baseSub = toolName === 'fetch_web_page'
-    ? 'The AI model wants to open a web address:'
-    : 'The AI model is asking for permission:';
+  const baseSub = 'The AI model is asking for permission:';
   permSub.textContent = waiting > 0 ? `${baseSub} (${waiting} more request${waiting > 1 ? 's' : ''} waiting)` : baseSub;
 
   permToolName.textContent = toolName;
@@ -1392,8 +1390,8 @@ async function renderHistoryTab() {
 
 // ── Message rendering ─────────────────────────────────────────────────────────
 
-// FIX: the model's context can include raw scraped web page content (from
-// the pre-research pipeline / web_search tool). If a page contained
+// FIX: the model's context can include raw text from attached files and
+// imported chats. If that text contained
 // something like an <img onerror=...> payload or a <script> tag and the
 // model echoed it back verbatim, `marked.parse` would happily pass that
 // straight through and it would execute as live HTML once written via
@@ -1609,28 +1607,6 @@ function escapeHtml(str) {
 
 function scrollToBottom() { messageList.scrollTop = messageList.scrollHeight; }
 
-// ── "Search" button in the message box ───────────────────────────────────────
-// On: search the web before every answer. Off (default): only when a question
-// needs current information. Remembered between app starts.
-const webSearchToggle = document.getElementById('webSearchToggle');
-const WEB_SEARCH_KEY = 'athar.alwaysSearchWeb';
-let webSearchAlways = false;
-try { webSearchAlways = localStorage.getItem(WEB_SEARCH_KEY) === 'true'; } catch { /* storage unavailable */ }
-
-function renderWebSearchToggle() {
-  webSearchToggle.classList.toggle('active', webSearchAlways);
-  webSearchToggle.setAttribute('aria-pressed', String(webSearchAlways));
-  webSearchToggle.title = webSearchAlways
-    ? 'Search is on: Athar may search the web and open links for your answers. Click to turn off.'
-    : 'Search is off: Athar does not go online. Click to let it search the web and open links.';
-}
-webSearchToggle.addEventListener('click', () => {
-  webSearchAlways = !webSearchAlways;
-  try { localStorage.setItem(WEB_SEARCH_KEY, String(webSearchAlways)); } catch { /* storage unavailable */ }
-  renderWebSearchToggle();
-});
-renderWebSearchToggle();
-
 // ── Prompt navigation ─────────────────────────────────────────────────────────
 // A slim rail on the right of the chat: one mark per question you asked.
 // Hover it for the list of questions; click one to jump to it. The question
@@ -1781,8 +1757,7 @@ async function sendMessage() {
   mountLiveRun();
   scrollToBottom();
 
-  const result = await window.api.chatSend(sessionId, text, activeModel, currentImagesBase64, currentDocs,
-    { alwaysSearchWeb: webSearchAlways });
+  const result = await window.api.chatSend(sessionId, text, activeModel, currentImagesBase64, currentDocs);
 
   const run = liveRun;
   liveRun = null;

@@ -67,15 +67,15 @@ test('detects answers that admit not knowing or hedge with the training date', (
   }
 });
 
-test('offline note is in the user\'s language and names the cutoff', () => {
-  const en = f.offlineNote({ why: 'offline', cutoffLabel: 'late 2023' });
-  assert(/no internet connection/.test(en) && /around late 2023/.test(en));
-  assert(/couldn't get web results/.test(f.offlineNote({ why: 'search-failed', cutoffLabel: null })));
-  const ar = f.offlineNote({ why: 'offline', cutoffLabel: 'late 2023', arabic: true });
-  assert(/لا يوجد اتصال بالإنترنت/.test(ar) && /late 2023/.test(ar));
+test('the "from my training data" note is in the user\'s language and names the cutoff', () => {
+  const en = f.offlineNote({ cutoffLabel: 'late 2023' });
+  assert.strictEqual(en, 'Note: this is from my training data (up to around late 2023) and may be out of date.');
+  assert(/up to my training date/.test(f.offlineNote({ cutoffLabel: null })));
+  const ar = f.offlineNote({ cutoffLabel: 'late 2023', cutoffLabelAr: 'أواخر 2023', arabic: true });
+  assert(/بيانات تدريبي/.test(ar) && /حتى حوالي أواخر 2023/.test(ar), ar);
   assert(f.hasTrainingDisclaimer(en) && f.hasTrainingDisclaimer(ar));
-  const arLabel = f.offlineNote({ why: 'offline', cutoffLabel: 'late 2023', cutoffLabelAr: 'أواخر 2023', arabic: true });
-  assert(/حتى حوالي أواخر 2023/.test(arLabel), arLabel);
+  assert(!/Search|internet|web/i.test(en), 'no mention of going online');
+  assert(/does not go online/.test(f.offlineInstruction({ cutoffLabel: 'late 2023' })) && /late 2023/.test(f.offlineInstruction({ cutoffLabel: 'late 2023' })));
   // the model already said it — don't add a second note
   assert(f.hasTrainingDisclaimer('My information is as of around late 2023, and it may have changed since.'));
   assert(!f.hasTrainingDisclaimer('Node.js 26.10.0 was released in September 2026.'));
@@ -84,47 +84,10 @@ test('offline note is in the user\'s language and names the cutoff', () => {
   assert(f.isArabic('ما هو سعر الذهب؟') && !f.isArabic('gold price?'));
 });
 
-// ── The "Search" button: search before every answer, with exceptions ──
-const decide = (text, searchOn, extra = {}) => f.shouldSearchFirst(text, {
-  fresh: f.needsFreshInfo(text, { cutoffYear: 2023, ...extra }), searchOn, ...extra
-});
-
-test('Search off: nothing is searched, not even questions that need current information', () => {
-  for (const q of ['what is the latest version of Node.js?', 'what is the price of gold today?', 'write a python function that reverses a linked list', 'explain recursion', 'make it shorter']) {
-    assert.strictEqual(decide(q, false).search, false, q);
-  }
-});
-
-test('Search off: current-information questions get the "turn on Search" note, in the user\'s language', () => {
-  const en = f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023' });
-  assert(/web search is off/.test(en) && /Search/.test(en) && /late 2023/.test(en), en);
-  const ar = f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023', arabic: true });
-  assert(/البحث في الإنترنت متوقف/.test(ar) && /Search/.test(ar), ar);
-  assert(/turned OFF/.test(f.offlineInstruction({ why: 'disabled', cutoffLabel: 'late 2023' })));
-});
-
-test('Search on: only time-sensitive questions that nothing local covers are searched BEFORE answering', () => {
-  assert.deepStrictEqual(decide('what is the latest version of Node.js?', true), { search: true, reason: 'fresh' });
-  assert.deepStrictEqual(decide('ok, and what is the latest version of Python?', true), { search: true, reason: 'fresh' });
-  // everything else is answered first from what's local, then checked (needsWebAfterAnswer)
-  for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'ما هي عاصمة أستراليا؟']) {
-    assert.strictEqual(decide(q, true).search, false, q);
-  }
-  // something local may already answer it (memory excerpts, a linked page): answer first, then check
-  assert.strictEqual(decide('what is the latest version of Node.js?', true, { hasLocalContext: true }).search, false);
-});
-
-test('never searched first: small talk, questions about your own chats or memory, attached files, the project folder', () => {
-  for (const q of ['hi', 'Thanks a lot!', 'ok', 'thank you so much', 'شكرا جزيلا', 'صباح الخير', '']) {
-    assert.strictEqual(decide(q, true).search, false, `small talk: "${q}"`);
-  }
-  for (const q of ['summarize my chat about the bakery database', 'ماذا قلنا في محادثاتي عن التداول؟', 'what did we decide last time?',
-    'what were my recent conversations in the memory?', 'tell me about my latest chats', 'ما هي آخر محادثاتي في الذاكرة؟']) {
-    assert(f.isPersonalMemoryQuestion(q), `recognised as about your own history: ${q}`);
-    assert.strictEqual(decide(q, true).search, false, `own chats: ${q}`);
-  }
-  assert.strictEqual(decide('what are the latest risks?', true, { hasDocuments: true }).search, false, 'attached file');
-  assert.strictEqual(decide('what is the latest router config?', true, { isProjectQuestion: true }).search, false, 'project folder');
+test('Gemini models: cutoffs Google documents, by model id (with or without the provider prefix)', () => {
+  assert.strictEqual(f.modelKnowledgeCutoff('gemini/gemini-2.5-flash').label, 'January 2025');
+  assert.strictEqual(f.modelKnowledgeCutoff('gemini-2.0-flash').year, 2024);
+  assert.strictEqual(f.modelKnowledgeCutoff('gemini/gemini-3.5-flash').label, null, 'unknown: no guess');
 });
 
 test('questions about your own chats: time words about the chats are not "current information"', () => {
@@ -136,55 +99,6 @@ test('questions about your own chats: time words about the chats are not "curren
     assert.strictEqual(inside(q), true, `mixed: ${q}`);
     assert.strictEqual(f.needsFreshInfo(q, { cutoffYear: 2023 }).needed, false, 'without includePersonal, own-chat questions are never "fresh"');
   }
-});
-
-test('placeholders instead of facts ("[gold_price]") are caught; citations, links, lists and code are not', () => {
-  for (const t of ['the gold price is [gold_price] USD', 'as of [current date]', 'سعر الذهب اليوم هو [السعر] دولار']) assert(f.hasPlaceholder(t), t);
-  for (const t of ['see [M1] and [M2, M3]', '[the docs](https://x.y)', 'a list [1, 2, 3]', '```js\nconst d = rows[date];\n```', 'use `prices[date]` here']) {
-    assert(!f.hasPlaceholder(t), t);
-  }
-});
-
-test('an explicit request to search the web is recognised (English and Arabic)…', () => {
-  for (const q of ['search the web for the latest iPhone price', 'Search for the best laptops in 2026', 'look it up', 'can you google the population of Egypt?',
-    'check online who won the match', 'what is the weather in Cairo? search it online', 'ابحث عن سعر الذهب اليوم', 'ابحث في الانترنت عن أفضل هاتف', 'دور على أخبار مصر', 'هات لي المعلومة من الإنترنت']) {
-    assert(f.asksForWebSearch(q), q);
-  }
-});
-
-test('…including the short ways it is said in the middle of a chat', () => {
-  for (const q of ['ok search it', 'no, search again', 'I told you to search', 'I asked you to look it up', 'please search for that', 'use the internet',
-    'yes search first', 'do a web search', 'so can you search about them?', 'طيب ابحث عنها', 'استخدم الانترنت', 'دور عليه']) {
-    assert(f.asksForWebSearch(q), q);
-  }
-});
-
-test('…but not searching your own chats, or "search" as a topic', () => {
-  for (const q of ['search my chats for the database decision', 'find my conversation about docker', 'ابحث في محادثاتي عن التداول',
-    'explain binary search', 'write a search function in python', 'how do I search in vim?', 'what is the capital of Australia?']) {
-    assert(!f.asksForWebSearch(q), q);
-  }
-});
-
-test('the search is for the subject, not the command words', () => {
-  assert.strictEqual(f.stripSearchCommand('search the web for the latest iPhone price'), 'the latest iPhone price');
-  assert.strictEqual(f.stripSearchCommand('can you google the population of Egypt?'), 'the population of Egypt?');
-  assert.strictEqual(f.stripSearchCommand('what is the weather in Cairo? search it online'), 'what is the weather in Cairo?');
-  assert.strictEqual(f.stripSearchCommand('ابحث عن سعر الذهب اليوم'), 'سعر الذهب اليوم');
-  assert.strictEqual(f.stripSearchCommand('ابحث في الانترنت عن أفضل هاتف'), 'أفضل هاتف');
-  assert.strictEqual(f.stripSearchCommand('look it up'), 'look it up', 'kept: "it" is resolved from the conversation');
-  assert.strictEqual(f.stripSearchCommand('hi, which is better harmash or w3schools'), 'which is better harmash or w3schools');
-  assert.strictEqual(f.stripSearchCommand('مرحبا، ما هو أفضل موقع حرمش ام الزيرو'), 'ما هو أفضل موقع حرمش ام الزيرو');
-});
-
-test('a web query that lost the subject of the question is recognised', () => {
-  const asked = 'hi, which is better harmash or w3schools and which of them offers arabic content';
-  assert(!f.sharesSubject('web development resources', asked));
-  assert(!f.sharesSubject('best website', asked));
-  for (const q of ['harmash vs w3schools', 'w3schools arabic', 'harmash.com arabic tutorials', 'W3Schools.com']) assert(f.sharesSubject(q, asked), q);
-  assert(f.sharesSubject('سعر الذهب اليوم', 'ما هو سعر الذهب؟'));
-  assert(!f.sharesSubject('أخبار مصر', 'ما هو سعر الذهب؟'));
-  assert(f.sharesSubject('anything', 'ok?'), 'nothing to judge by');
 });
 
 test('everyday and programming uses of "current", "stock", "population"… are not current-information questions', () => {
@@ -209,46 +123,11 @@ test('questions about the world that mention "last time", "my … memory", "my �
   }
 });
 
-test('"on", "دور" (role), "دوري" (league) and a mention of Google are not requests to search the web', () => {
-  for (const q of ['can you find the bug on line 12?', 'check on the status of my order script', 'look on the bright side',
-    'how does data travel on the internet?', 'Search algorithms: explain binary search', 'how does web search work?',
-    'ما دور الأمم المتحدة في الصراع؟', 'من فاز بالدوري الإنجليزي؟', 'دوري أبطال أوروبا', 'ما هي أرباح شركة جوجل؟', 'كيف تنتقل البيانات على الانترنت؟']) {
-    assert(!f.asksForWebSearch(q), q);
-  }
-  for (const q of ['search the web for gold prices', 'ابحث في جوجل عن سعر الدولار', 'دوري لي على أرخص رحلة', 'شوف على النت مين كسب']) {
-    assert(f.asksForWebSearch(q), q);
-  }
-});
-
-test('"online" stays in the subject unless it ends the command', () => {
-  assert.strictEqual(f.stripSearchCommand('search for best online courses for python'), 'best online courses for python');
-  assert.strictEqual(f.stripSearchCommand('how does data travel on the internet?'), 'how does data travel on the internet?');
-  assert.strictEqual(f.stripSearchCommand('find the cheapest flights to Cairo online'), 'the cheapest flights to Cairo');
-});
-
 test('a dated answer ("As of December 2023, …") counts as already saying so; "offline mode" does not', () => {
   assert(f.hasTrainingDisclaimer('As of December 2023, the CEO is X.'));
   assert(f.hasTrainingDisclaimer('This is as of late 2023.'));
   assert(!f.hasTrainingDisclaimer('The app has an offline mode that syncs later.'));
   assert(f.hasTrainingDisclaimer("I'm offline right now, so I can't check."));
-});
-
-test('the "turn on Search" hint is recognised; any sentence starting with "Search" is not', () => {
-  assert(f.mentionsSearchButton(f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023' })));
-  assert(f.mentionsSearchButton(f.offlineNote({ why: 'disabled', cutoffLabel: 'late 2023', arabic: true })));
-  assert(f.mentionsSearchButton('You can turn on Search to look it up.'));
-  assert(f.mentionsSearchButton('Use the **Search** button in the message box.'));
-  assert(!f.mentionsSearchButton('Search engines like Google rank pages by relevance.'));
-});
-
-test('Search on, model without tools: the app searches every question for it (with the same exceptions)', () => {
-  const always = (q, extra = {}) => decide(q, true, { always: true, ...extra });
-  for (const q of ['write a python function that reverses a linked list', 'explain recursion', 'who owns MystiEgypt?']) {
-    assert.deepStrictEqual(always(q), { search: true, reason: 'always' }, q);
-  }
-  for (const q of ['thanks!', 'summarize my chat about the bakery database']) assert.strictEqual(always(q).search, false, q);
-  assert.strictEqual(always('what are the risks?', { hasDocuments: true }).search, false, 'attached file');
-  assert.strictEqual(decide('explain recursion', false, { always: true }).search, false, 'Search off');
 });
 
 done();

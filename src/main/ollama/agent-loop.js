@@ -20,16 +20,8 @@ const { ollama } = require('ai-sdk-ollama');
 const { z } = require('zod');
 const { createThinkFilter, stripThinking } = require('./model-profile');
 
-const { isSearchResult, isPageResult } = require('../tools/web-search');
-
-const SEARCH_TOOLS = new Set(['web_search', 'fetch_web_page']);
-// Only real web results count as research — not errors, "no results", timeouts,
-// pages that couldn't be read, and not the tools refusing (Search off, or a
-// question about the user's own chats). Otherwise the app thinks it searched
-// and never searches again or says the search failed.
-const isWebResult = (text) => isSearchResult(text) || isPageResult(text);
 const ALL_KNOWN_TOOLS = [
-  'search_memory', 'web_search', 'fetch_web_page', 'get_current_time',
+  'search_memory', 'get_current_time',
   'list_chat_resources', 'read_chat_resource',
   'read_file', 'list_directory', 'search_files',
   'git_status', 'git_log', 'git_diff'
@@ -59,12 +51,6 @@ function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission
       'Search the user\'s own past conversations (imported ChatGPT/Claude/Gemini history and earlier chats in this app). ' +
       'Use when they ask what they discussed, decided, or asked before. Time and source hints in the query work, e.g. "database choice last spring" or "python tips in Claude".',
       { query: z.string().describe('What to look for, in a few words') }),
-    web_search: def('web_search',
-      'Search the internet for current facts, news, updates, and real-time data.',
-      { query: z.string().describe('Concise search query') }),
-    fetch_web_page: def('fetch_web_page',
-      'Fetch and read the full content of a specific web page URL.',
-      { url: z.string().describe('Full https:// URL of the page to fetch') }),
     get_current_time: def('get_current_time', 'Returns the current local date and time.', {}),
     list_chat_resources: def('list_chat_resources',
       'List the files attached to this chat (PDFs, text, code) with page counts and an outline of each.',
@@ -262,8 +248,7 @@ function stripToolCallJson(text, toolNames) {
 // ─── The loop ────────────────────────────────────────────────────────────────
 
 /**
- * @returns {Promise<{ text: string, researchLog: string[] }>} the final answer
- *   (callers run the grounding check on it) and raw web research gathered.
+ * @returns {Promise<{ text: string }>} the final answer
  */
 async function runAgentLoop({
   modelName,
@@ -288,7 +273,6 @@ async function runAgentLoop({
 }) {
   const tools = useTools ? buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText }) : {};
   const toolNames = Object.keys(tools);
-  const researchLog = [];
 
   // The SDK reports stream failures (e.g. Ollama's "model does not support
   // tools") only through onError and then a generic "No output generated".
@@ -319,11 +303,6 @@ async function runAgentLoop({
       streamBuffer = '';
       streamFlushed = false;
       return {};
-    },
-    onStepFinish: (step) => {
-      for (const r of step.toolResults || []) {
-        if (SEARCH_TOOLS.has(r.toolName) && isWebResult(r.output)) researchLog.push(r.output);
-      }
     }
   });
 
@@ -414,7 +393,6 @@ async function runAgentLoop({
     for (const fake of fakes) {
       const out = await executeTool(fake.name, fake.args, onStatus, workspaceDir, onRequestPermission, modelName, userText);
       const outText = typeof out === 'string' ? out : JSON.stringify(out);
-      if (SEARCH_TOOLS.has(fake.name) && isWebResult(outText)) researchLog.push(outText);
       executed.push({ name: fake.name, result: outText });
     }
 
@@ -428,7 +406,7 @@ async function runAgentLoop({
       `Do not apologize or mention tool calls. If you truly need another tool, call it properly.]`,
       { fallbackRetriesLeft: fallbackRetriesLeft - 1, progressLogSoFar: progressWithFakes }
     );
-    return { text: retryResult.text, researchLog: [...researchLog, ...retryResult.researchLog] };
+    return { text: retryResult.text };
   }
 
   // A question explicitly about the project folder answered without looking at
@@ -441,7 +419,7 @@ async function runAgentLoop({
       `Call list_directory, read_file or search_files now to read the actual files, then answer.`,
       { continueRetriesLeft: continueRetriesLeft - 1, progressLogSoFar: progressLog }
     );
-    return { text: retryResult.text, researchLog: [...researchLog, ...retryResult.researchLog] };
+    return { text: retryResult.text };
   }
 
   // Retry budget spent but the reply still contains printed tool calls:
@@ -449,12 +427,11 @@ async function runAgentLoop({
   if (tryParseFallbackToolCalls(finalText, ALL_KNOWN_TOOLS).length > 0) {
     const prose = stripToolCallJson(finalText, ALL_KNOWN_TOOLS);
     return {
-      text: prose || 'Sorry — I couldn\'t finish working this out. Please try asking again, a bit more specifically.',
-      researchLog
+      text: prose || 'Sorry — I couldn\'t finish working this out. Please try asking again, a bit more specifically.'
     };
   }
 
-  return { text: finalText, researchLog };
+  return { text: finalText };
 }
 
 module.exports = {

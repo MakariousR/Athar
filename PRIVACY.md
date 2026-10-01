@@ -15,20 +15,16 @@ All of this is stored in Athar's data folder (on Windows, `%APPDATA%\Athar`). Yo
 
 ## What Athar sends over the internet, and why
 
-**Nothing you type goes online unless you turn on Search.** Athar uses the web only while you have **Search** turned on in the message box (it is off by default). With Search off, Athar does not search the web or open links, and says so when a question needs current information.
+**Athar never goes online to answer you.** It doesn't search the web or open links: your questions are answered from your chats, your files and the AI model's own knowledge. When a question is about something that changes over time (prices, news, the latest version…), the answer says it comes from the model's training data and may be out of date.
 
-Each request goes directly from your computer to the service named; the author never receives it.
+Each request below goes directly from your computer to the service named; the author never receives it.
 
 | When | Sent to | What is sent |
 |---|---|---|
-| Search is on, and a question needs information that your chats, files and the conversation don't have (for example a current price or recent news) | DuckDuckGo (duckduckgo.com) | Search words for just that information — never your own chats or files |
-| Search is on: reading search results, or a link you paste into a message | The website of that page | A normal request for the page, as a web browser would make |
-| Search is on, and a Wikipedia page is used | Wikipedia (wikipedia.org) | The name of the article |
-| Search is on: checking whether you are online before searching | Microsoft (msftconnecttest.com), Google (gstatic.com), Cloudflare (1.1.1.1) | A tiny standard connectivity check with no personal data |
 | You choose to install Ollama | ollama.com and GitHub | A download of the official Ollama installer |
 | You download an AI model | The Ollama model library, through Ollama | A download request for that model |
 
-These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Athar does not send your imported history, your chats, your memory profile or your files to any of them. The text of your question is used to build a search query only while you have Search turned on.
+These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Athar does not send your imported history, your chats, your memory profile or your files to any of them.
 
 ## Your control
 

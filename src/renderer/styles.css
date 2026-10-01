@@ -2088,11 +2088,6 @@ body {
 .empty-hero-logo { width: 72px; height: 72px; filter: drop-shadow(0 8px 24px rgba(0, 162, 255, 0.25)); user-select: none; -webkit-user-drag: none; }
 
 /* "Search" toggle in the message box */
-.composer-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease; }
-.composer-chip .ui-icon { width: 16px; height: 16px; }
-.composer-chip:hover { color: var(--text); background: var(--sidebar-hover); }
-.composer-chip.active { color: var(--accent); border-color: rgba(0, 162, 255, 0.45); background: var(--accent-dim); }
-.composer-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Beta activation screen */
 .license-card { max-width: 480px; }

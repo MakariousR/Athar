@@ -2,8 +2,7 @@
 
 One private memory for all your AI chats. Import your ChatGPT, Claude and Gemini
 history; a local model (via [Ollama](https://ollama.com)) remembers it, cites it,
-and helps you search it — nothing leaves your computer unless you turn on web
-search.
+and helps you search it — nothing leaves your computer.
 
 ## What it does
 
@@ -18,14 +17,9 @@ search.
 - **Portable memory profile.** A short summary of you (work, projects, tools,
   how you like answers) learned from your own messages. Review it, use it here,
   or copy it into ChatGPT's custom instructions or another assistant.
-- **Web research only when you turn it on.** The **Search** button in the
-  message box (off by default) lets Athar search the web (DuckDuckGo, no API
-  key) and open links — and even then only when needed: it answers from your
-  memory, files and the conversation first, checks whether that answer relies
-  on outside facts they don't contain, and looks up only those; trusted sources are ranked first and figures come with
-  sources and dates. With Search off, Athar never goes online for an answer:
-  questions that need current information are answered from the model's
-  training data, with a note saying so and pointing to Search.
+- **No web access.** Athar never goes online for an answer. Questions about
+  things that change (prices, news, the latest version…) are answered from the
+  model's training data, with a note saying how old that is.
 - **Attach files** (PDFs, text, code) and let the model read them on demand.
 - **Project folder (read-only)**: let the model read a folder and its git
   history to answer questions about it. It can never change your files.
@@ -51,10 +45,8 @@ and adapts, so any model works without a hard-coded list:
 - **Context size**: the largest of 16K / 8K / 4K that fits in this computer's memory
   next to the model (from its size and memory per token), never more than the model
   supports. A 7B model in 16 GB keeps 16K. Memory, file and tool budgets follow it.
-- **Helper level**: small models (under ~14B parameters) get full guidance — the app
-  checks whether an answer needs the web, and handles links and questions about the
-  user's chats itself. Capable models decide these themselves; the safety nets
-  (placeholders, hedging, wrong language) apply to both.
+- **Helper level**: small models (under ~14B parameters) get full guidance; capable
+  models decide more themselves. The safety nets (hedging, wrong language) apply to both.
 - **Thinking models** (Qwen3, DeepSeek-R1…): inline `<think>` reasoning is hidden
   while streaming and removed from answers; thinking is turned off for short helper calls.
 
@@ -84,7 +76,7 @@ activity format and hasn't been verified against every account/language.
 
 ```bash
 npm test            # offline (no Ollama or internet needed)
-npm run test:live   # also real-model memory relevance + live web checks
+npm run test:live   # also real-model memory relevance checks
 ```
 
 ## Beta license keys
@@ -140,7 +132,7 @@ src/main/                  Electron main process (the backend)
   ollama/                  Ollama client, agent loop (read-only tools)
   parser/                  ChatGPT / Claude / Gemini exports, PDF & text documents
   store/chat-store.js      in-app chats (sessions.json + per-file images/resources)
-  tools/                   web research, project folder, git (read-only)
+  tools/                   attached files, project folder, git (read-only)
 src/preload/preload.js     the bridge exposed to the UI
 src/renderer/              UI (vanilla HTML/CSS/JS)
 tests/                     test suites (npm test)
@@ -151,5 +143,4 @@ tests/                     test suites (npm test)
 - A 7B local model sometimes mis-states or over-generalises. Answers cite the
   memories they used so you can check, and the memory profile is meant to be
   reviewed before you use or share it.
-- DuckDuckGo may temporarily rate-limit heavy searching; the app tells you when.
 - The app is English-only; other languages are untested.
