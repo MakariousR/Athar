@@ -92,6 +92,11 @@ function saveActiveModel(name) {
 // The model currently used for generation — remembered across launches, so a
 // model picked during setup (or later) stays selected.
 let activeModel = loadSavedModel() || CHAT_MODEL;
+// Gemini models (cloud, the user's own API key): "gemini/<model id>" — see the Gemini section below
+const GEMINI_PREFIX = 'gemini/';
+function isGeminiModel(name) { return String(name || '').startsWith('gemini/'); }
+let geminiModels = [];
+let geminiRecommended = null;
 let setupNeedsEmbed = false;
 
 // Curated catalog of popular Ollama chat models with rich capability metadata.
@@ -141,6 +146,17 @@ const MODEL_CATALOG = [
 const installedCapabilities = new Map();
 
 function getModelInfo(modelName) {
+  if (isGeminiModel(modelName)) {
+    const m = geminiModels.find((x) => x.name === modelName);
+    return {
+      name: modelName,
+      label: `${m ? m.label : modelName.slice(GEMINI_PREFIX.length)} ☁️`,
+      cloud: true,
+      vision: true,
+      tools: m ? m.tools : true,
+      desc: 'Runs on Google\'s servers with your API key. Your question, the conversation and related memory and file excerpts are sent to Google.'
+    };
+  }
   const info = MODEL_CATALOG.find((m) => m.name === modelName || m.name.startsWith(modelName + ':')) || {
     name: modelName,
     label: modelName,
@@ -157,14 +173,16 @@ function renderCapCard(modelName, containerEl) {
   if (!containerEl) return;
   const info = getModelInfo(modelName);
   const toolsRow = info.tools === undefined ? '' : info.tools
-    ? '<div class="cap-row"><span>Tools:</span> <span class="cap-val">✓ web search, memory search, files</span></div>'
-    : '<div class="cap-row cap-warn"><span>Tools:</span> <span class="cap-val">✗ not supported — can\'t search or read files on its own (memory, and web research when Search is on, still work)</span></div>';
+    ? '<div class="cap-row"><span>Tools:</span> <span class="cap-val">✓ memory search, files</span></div>'
+    : '<div class="cap-row cap-warn"><span>Tools:</span> <span class="cap-val">✗ not supported — can\'t search your memory or read files on its own (memory excerpts are still added)</span></div>';
   containerEl.innerHTML = `
     <div class="cap-title">
       <span>${escapeHtml(info.label)}</span>
       <span class="cap-badge ${info.vision ? 'vision' : ''}">${info.vision ? 'Images + text' : 'Text only'}</span>
     </div>
-    <div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>
+    ${info.cloud
+    ? '<div class="cap-row"><span>Runs on:</span> <span class="cap-val">Google\'s servers (needs internet)</span></div>'
+    : `<div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>`}
     ${toolsRow}
     ${info.thinking ? '<div class="cap-row"><span>Reasoning:</span> <span class="cap-val">thinks before answering (slower, better on hard questions)</span></div>' : ''}
     <div class="cap-desc">${escapeHtml(info.desc)}</div>
@@ -753,6 +771,63 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
+// ── Gemini (the user's own API key) ──────────────────────────────────────────
+// The key is saved by the main process (encrypted); this window only learns
+// whether one is set, and the models it can use.
+const geminiKeyForm   = document.getElementById('geminiKeyForm');
+const geminiKeyInput  = document.getElementById('geminiKeyInput');
+const geminiSaveBtn   = document.getElementById('geminiSaveBtn');
+const geminiKeySet    = document.getElementById('geminiKeySet');
+const geminiRemoveBtn = document.getElementById('geminiRemoveBtn');
+const geminiNote      = document.getElementById('geminiNote');
+
+function showGeminiNote(text, ok = false) {
+  geminiNote.textContent = text || '';
+  geminiNote.classList.toggle('ok', ok);
+  geminiNote.classList.toggle('hidden', !text);
+}
+
+function renderGeminiStatus(status) {
+  const hasKey = Boolean(status && status.hasKey);
+  geminiKeyForm.classList.toggle('hidden', hasKey);
+  geminiKeySet.classList.toggle('hidden', !hasKey);
+  geminiModels = (status && status.models) || [];
+  geminiRecommended = (status && status.recommended) || null;
+  if (status && !status.success && status.error) showGeminiNote(status.error);
+  else if (status && status.encryption === false) showGeminiNote('This computer can\'t store an API key securely, so Gemini can\'t be used here.');
+  else showGeminiNote('');
+}
+
+async function loadGeminiModels() {
+  try { renderGeminiStatus(await window.api.geminiStatus()); } catch { geminiModels = []; }
+}
+
+geminiSaveBtn.addEventListener('click', async () => {
+  const key = geminiKeyInput.value.trim();
+  if (!key) { showGeminiNote('Paste your API key first.'); return; }
+  geminiSaveBtn.disabled = true;
+  geminiSaveBtn.textContent = 'Checking…';
+  showGeminiNote('');
+  const status = await window.api.geminiSetKey(key);
+  geminiSaveBtn.disabled = false;
+  geminiSaveBtn.textContent = 'Save';
+  if (!status.success) { showGeminiNote(status.error || 'The key could not be saved.'); return; }
+  geminiKeyInput.value = '';
+  renderGeminiStatus(status);
+  // Switch to the suggested Gemini model so it's ready to use
+  if (status.recommended) { activeModel = status.recommended; saveActiveModel(activeModel); }
+  await loadModelSelector();
+  showGeminiNote(`Saved. ${geminiModels.length} Gemini model${geminiModels.length === 1 ? '' : 's'} added to the model list${status.recommended ? ` — now using ${modelDisplayName(status.recommended)}` : ''}.`, true);
+});
+geminiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') geminiSaveBtn.click(); });
+
+geminiRemoveBtn.addEventListener('click', async () => {
+  if (!confirm('Remove your Gemini API key from this computer? Gemini models will disappear from the model list.')) return;
+  renderGeminiStatus(await window.api.geminiClearKey());
+  await loadModelSelector(); // a Gemini model in use falls back to a local one
+  showGeminiNote('Key removed.', true);
+});
+
 async function loadModelSelector() {
   try {
     const result = await window.api.listModels();
@@ -779,6 +854,7 @@ async function loadModelSelector() {
 
     modelSelect.innerHTML = '';
     installedCapabilities.clear();
+    await loadGeminiModels();
     for (const entry of allEntries) {
       const inst = findInstalled(entry.name);
       if (inst && Array.isArray(inst.capabilities)) {
@@ -794,6 +870,22 @@ async function loadModelSelector() {
         ? `✓  ${entry.label}  (${sizeStr})${noTools ? '  · no tools' : ''}`
         : `${entry.label}  (${sizeStr}) · not downloaded`;
       modelSelect.appendChild(opt);
+    }
+
+    // Gemini models (with the user's API key), in their own group
+    if (geminiModels.length) {
+      const group = document.createElement('optgroup');
+      group.label = 'Gemini — on Google\'s servers, with your API key';
+      for (const m of geminiModels) {
+        installedCapabilities.set(m.name, ['completion', 'vision', ...(m.tools ? ['tools'] : [])]);
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.dataset.installed = 'true';
+        opt.dataset.cloud = 'true';
+        opt.textContent = `☁️  ${m.label}${m.name === geminiRecommended ? '  · recommended' : ''}`;
+        group.appendChild(opt);
+      }
+      modelSelect.appendChild(group);
     }
 
     // Select activeModel if present, else first installed entry
@@ -1157,6 +1249,12 @@ function refreshModelAction() {
   const isInstalled = opt.dataset.installed === 'true';
 
   renderCapCard(opt.value, sidebarCapCard);
+  if (opt.dataset.cloud === 'true') {
+    modelAction.classList.add('hidden');
+    updateCapabilityUI();
+    updateHeaderModelDisplay();
+    return;
+  }
   modelAction.classList.remove('hidden');
 
   if (isInstalled) {

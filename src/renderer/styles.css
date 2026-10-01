@@ -328,6 +328,19 @@ body {
   color: var(--muted);
   line-height: 1.4;
 }
+.settings-desc a { color: var(--accent); }
+.settings-optional { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--muted); }
+.gemini-key-form { display: flex; gap: 8px; }
+.settings-input {
+  flex: 1; min-width: 0;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); font: inherit; font-size: 13px; padding: 10px 12px;
+}
+.settings-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+.gemini-key-set { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text); }
+.gemini-note { font-size: 12px; line-height: 1.5; color: #f5b544; }
+.gemini-note.ok { color: var(--muted); }
+.gemini-privacy { font-size: 11.5px; }
 
 /* ── CHAT AREA ── */
 .chat-area {

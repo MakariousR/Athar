@@ -10,6 +10,7 @@ function indexInBackground(sessionId, resource) {
   resourceTools.indexResource(sessionId, resource).catch(() => {});
 }
 const ollama = require('./ollama/ollama-client');
+const gemini = require('./cloud/gemini');
 const ollamaInstaller = require('./ollama/ollama-installer');
 const downloads = require('./downloads');
 const store  = require('./store/chat-store');
@@ -219,6 +220,28 @@ function registerIpcHandlers() {
   ipcMain.handle('ollama:install-cancel', () => { ollamaInstaller.cancelInstall(); return { success: true }; });
 
   ipcMain.handle('ollama:open-download-page', () => shell.openExternal(ollamaInstaller.DOWNLOAD_PAGE));
+
+  // ── Gemini (the user's own API key) ──
+  // The key goes main-ward only: the window learns whether one is set, never the key.
+  const geminiStatus = async () => {
+    if (!gemini.hasKey()) return { success: true, hasKey: false, models: [], recommended: null, encryption: gemini.encryptionAvailable() };
+    try {
+      const models = await gemini.listModels();
+      return { success: true, hasKey: true, models, recommended: gemini.recommendedModel(models), encryption: true };
+    } catch (err) {
+      return { success: false, hasKey: true, models: [], recommended: null, error: err.message };
+    }
+  };
+  ipcMain.handle('gemini:status', geminiStatus);
+  ipcMain.handle('gemini:set-key', async (event, key) => {
+    try {
+      await gemini.setKey(key);
+      return await geminiStatus();
+    } catch (err) {
+      return { success: false, hasKey: gemini.hasKey(), error: err.message };
+    }
+  });
+  ipcMain.handle('gemini:clear-key', () => { gemini.clearKey(); return { success: true, hasKey: false, models: [] }; });
 
   ipcMain.handle('ollama:list-models', async () => {
     try { return { success: true, models: await ollama.listModels() }; }

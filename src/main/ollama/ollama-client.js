@@ -31,6 +31,10 @@ const capabilityCache = new Map();
 
 /** e.g. ["completion", "tools", "vision"], or null if this Ollama doesn't report capabilities. */
 async function getModelCapabilities(modelName) {
+  if (gemini.isCloudModel(modelName)) {
+    const m = gemini.knownModel(modelName);
+    return ['completion', 'vision', ...(!m || m.tools ? ['tools'] : [])];
+  }
   if (capabilityCache.has(modelName)) return capabilityCache.get(modelName);
   let caps = null;
   try {
@@ -189,6 +193,8 @@ const { gitStatusTool, gitLogTool, gitDiffTool } = require('../tools/git-tools')
 
 // ─── Agent loop (Vercel AI SDK + ai-sdk-ollama) ──────────────────────────────
 const { ollama } = require('ai-sdk-ollama');
+const { generateText } = require('ai');
+const gemini = require('../cloud/gemini');
 const { runAgentLoop } = require('./agent-loop');
 const store = require('../store/chat-store');
 const { formatMemoryContext } = require('../memory/memory-index');
@@ -221,9 +227,13 @@ applyContextBudgets(NUM_CTX);
 
 // ─── Model profiles (see model-profile.js) ───────────────────────────────────
 const profileCache = new Map();
+// Gemini: a capable model with a large context. 32K keeps each request (and
+// what it sends to Google) reasonable; memory and file budgets follow it.
+const CLOUD_PROFILE = { capabilities: ['completion', 'tools', 'vision'], tools: true, vision: true, thinking: false, paramsB: null, level: 'light', numCtx: 32768 };
 
 /** The model's profile: capabilities, helper level, context size. Cached once known. */
 async function getModelProfile(modelName) {
+  if (gemini.isCloudModel(modelName)) return CLOUD_PROFILE;
   if (profileCache.has(modelName)) return profileCache.get(modelName);
   let show = null;
   try {
@@ -259,6 +269,7 @@ const CHAT_TEMPERATURE = process.env.OLLAMA_TEMPERATURE && Number.isFinite(Numbe
   : undefined;
 
 function createChatModel(modelName) {
+  if (gemini.isCloudModel(modelName)) return gemini.createModel(modelName);
   const options = { num_ctx: numCtxFor(modelName) };
   if (CHAT_TEMPERATURE !== undefined) options.temperature = CHAT_TEMPERATURE;
   return ollama(modelName, { options, keep_alive: KEEP_ALIVE });
@@ -666,33 +677,20 @@ CRITICAL RULES:
 }
 
 // ─── Single Ollama generation step ───────────────────────────────────────────
-async function ollamaChat(reqBody) {
-  // Same num_ctx / keep_alive as the agent loop, so these side calls reuse
-  // the already-loaded model instead of forcing Ollama to reload it.
-  const body = {
-    ...reqBody,
-    keep_alive: KEEP_ALIVE,
-    // Checks and rewrites don't need a thinking model's reasoning
-    ...(profileCache.get(reqBody.model) && profileCache.get(reqBody.model).thinking ? { think: false } : {}),
-    options: { ...(reqBody.options || {}), num_ctx: numCtxFor(reqBody.model) }
-  };
-  const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok || !res.body) {
-    const err = await res.text().catch(() => String(res.status));
-    throw new Error(`Ollama chat failed: ${err}`);
-  }
-  return res;
-}
 /**
  * One non-streaming completion (no tools). Used for background jobs like
  * building the memory profile. Same num_ctx/keep_alive as chat, so the model
  * isn't reloaded between these calls and normal chatting.
  */
 async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0.2, maxTokens = 600, signal } = {}) {
+  if (gemini.isCloudModel(modelName)) {
+    try {
+      const { text } = await generateText({ model: gemini.createModel(modelName), prompt, temperature, maxOutputTokens: maxTokens, abortSignal: signal });
+      return String(text || '').trim();
+    } catch (err) {
+      throw new Error(gemini.friendlyError(err, modelName));
+    }
+  }
   const profile = await getModelProfile(modelName);
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
     method: 'POST',
@@ -864,6 +862,11 @@ async function generate(
       return await run(toolsAvailable);
     } catch (err) {
       if (options.signal && options.signal.aborted) throw err; // stopped by the user: not an error to recover from
+      if (gemini.isCloudModel(modelName)) {
+        const message = gemini.friendlyError(err, modelName);
+        onStatus({ icon: '⚠️', text: message });
+        return message;
+      }
       if (!toolsAvailable) {
         onStatus({ icon: '⚠️', text: `Model error: ${err.message}` });
         return `Sorry — the model backend reported an error: ${err.message}`;

@@ -6,10 +6,48 @@ component only, not to Athar itself. Electron and Chromium, which Athar runs
 on, are covered by LICENSE.electron.txt and LICENSES.chromium.html in the
 installation folder.
 
-Components (18): @ai-sdk/gateway, @ai-sdk/provider, @ai-sdk/provider-utils, @standard-schema/spec, @vercel/oidc, @workflow/serde, ai, ai-sdk-ollama, eventsource-parser, json-schema, jsonrepair, marked, node-ensure, ollama, pdf-parse, undici, whatwg-fetch, zod
+Components (21): @ai-sdk/gateway, @ai-sdk/google, @ai-sdk/provider, @ai-sdk/provider, @ai-sdk/provider-utils, @ai-sdk/provider-utils, @standard-schema/spec, @vercel/oidc, @workflow/serde, ai, ai-sdk-ollama, eventsource-parser, json-schema, jsonrepair, marked, node-ensure, ollama, pdf-parse, undici, whatwg-fetch, zod
 
 ==============================================================================
 @ai-sdk/gateway 4.0.85  (Apache-2.0)
+https://ai-sdk.dev/docs
+==============================================================================
+
+Copyright 2023 Vercel, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+==============================================================================
+@ai-sdk/google 4.0.87  (Apache-2.0)
+https://ai-sdk.dev/docs
+==============================================================================
+
+Copyright 2023 Vercel, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+==============================================================================
+@ai-sdk/provider 4.0.21  (Apache-2.0)
 https://ai-sdk.dev/docs
 ==============================================================================
 
@@ -47,11 +85,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
+@ai-sdk/provider-utils 5.0.53  (Apache-2.0)
+https://ai-sdk.dev/docs
+==============================================================================
+
+Licensed under the Apache License, Version 2.0 — its full text is included in this file under "@ai-sdk/google".
+
+==============================================================================
 @ai-sdk/provider-utils 5.0.43  (Apache-2.0)
 https://ai-sdk.dev/docs
 ==============================================================================
 
-Licensed under the Apache License, Version 2.0 — its full text is included in this file under "ai".
+Licensed under the Apache License, Version 2.0 — its full text is included in this file under "@ai-sdk/google".
 
 ==============================================================================
 @standard-schema/spec 1.1.0  (MIT)

@@ -102,7 +102,7 @@
       <div class="settings-body">
         <section class="settings-section">
           <h3>Model</h3>
-          <p class="settings-desc">The AI that answers your chats. It runs on this computer with Ollama.</p>
+          <p class="settings-desc">The AI that answers your chats. Local models run on this computer with Ollama; Gemini models (☁️) run on Google's servers.</p>
           <div class="model-row">
             <select id="modelSelect" class="model-select" title="Choose model"></select>
             <div id="sidebarCapCard" class="cap-card cap-card-sidebar hidden"></div>
@@ -115,6 +115,24 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Gemini <span class="settings-optional">optional</span></h3>
+          <p class="settings-desc">Use Google's Gemini models with your own API key — free to create at
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
+            Gemini models then appear in the model list above, marked ☁️.</p>
+          <div id="geminiKeyForm" class="gemini-key-form">
+            <input id="geminiKeyInput" type="password" class="settings-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" />
+            <button id="geminiSaveBtn" class="primary-btn" type="button">Save</button>
+          </div>
+          <div id="geminiKeySet" class="gemini-key-set hidden">
+            <span>✓ Key saved, stored encrypted on this computer.</span>
+            <button id="geminiRemoveBtn" class="text-btn danger" type="button">Remove key</button>
+          </div>
+          <p id="geminiNote" class="gemini-note hidden"></p>
+          <p class="settings-desc gemini-privacy">With a Gemini model, your question, the conversation, the related excerpts from your memory and attached files are sent to Google.
+            On Google's free plan, Google may use them to improve its products. Local models keep everything on this computer.</p>
         </section>
 
         <section class="settings-section">
