@@ -684,12 +684,19 @@ CRITICAL RULES:
  */
 async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0.2, maxTokens = 600, signal } = {}) {
   if (gemini.isCloudModel(modelName)) {
-    try {
-      const { text } = await generateText({ model: gemini.createModel(modelName), prompt, temperature, maxOutputTokens: maxTokens, abortSignal: signal });
-      return String(text || '').trim();
-    } catch (err) {
-      throw new Error(gemini.friendlyError(err, modelName));
+    let lastError = null;
+    for (const name of await gemini.fallbackOrder(modelName)) {
+      try {
+        const { text } = await generateText({ model: gemini.createModel(name), prompt, temperature, maxOutputTokens: maxTokens, abortSignal: signal, maxRetries: 1 });
+        return String(text || '').trim();
+      } catch (err) {
+        lastError = err;
+        const info = gemini.classifyError(err);
+        if (!info || (signal && signal.aborted)) break;
+        gemini.markUnavailable(name, info); // the next model takes over
+      }
     }
+    throw new Error(lastError ? gemini.friendlyError(lastError, modelName) : 'All your Gemini models have reached their limits for now.');
   }
   const profile = await getModelProfile(modelName);
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
@@ -791,13 +798,15 @@ async function generate(
 
   // The marker on earlier replies must not end up in this one; nor an apology with nothing to apologize for
   let text = chatContext.stripUnpromptedApology(chatContext.stripMarker(loopResult.text), conversationHistory);
+  // Another Gemini model answered (the chosen one reached its limit…): it does the follow-up work too
+  const answeredBy = loopResult.answeredBy ? loopResult.answeredBy.name : modelName;
 
   // The answer came out in the wrong language (usually the language of the
   // memories or file it was given): translate it before it's shown for good.
   if (!stopped() && replyLang && text && text.trim() && !language.matchesLanguage(text, replyLang)) {
     onStatus({ icon: '🌐', text: `Rewriting the answer in ${replyLang.name}…` });
     try {
-      const translated = await translateText(text, replyLang, modelName);
+      const translated = await translateText(text, replyLang, answeredBy);
       if (translated && language.matchesLanguage(translated, replyLang)) text = translated;
     } catch { /* keep the original answer */ }
   }
@@ -808,8 +817,55 @@ async function generate(
     text += note;
     onToken(note);
   }
+  if (loopResult.answeredBy && text && text.trim()) {
+    const first = loopResult.answeredBy.skipped[0];
+    const why = `${gemini.modelLabel(first.name)} ${gemini.unavailableReason(first.kind)}`;
+    const note = `\n\n_Answered by ${gemini.modelLabel(answeredBy)}: ${why}._`;
+    text += note;
+    onToken(note);
+  }
   onStatus({ icon: '✨', text: 'Answer ready.' });
   return text;
+
+  /**
+   * Gemini: the chosen model, or — when it reached its free limit, isn't in
+   * the plan, or was retired — the next Gemini model that can answer. Says
+   * which model answered and why. Returns a string when none could.
+   */
+  async function answerWithGemini(run) {
+    const candidates = await gemini.fallbackOrder(modelName);
+    const skipped = []; // [{ name, kind }]: why the chosen model (and others) didn't answer
+    // The chosen model was set aside earlier (e.g. its daily limit, on a previous message)
+    if (!candidates.includes(modelName)) skipped.push({ name: modelName, kind: gemini.unavailableKind(modelName) });
+    for (let i = 0; i < candidates.length; i++) {
+      const name = candidates[i];
+      const known = gemini.knownModel(name);
+      try {
+        const result = await run(toolsAvailable && (!known || known.tools), name);
+        if (name !== modelName) result.answeredBy = { name, skipped };
+        return result;
+      } catch (err) {
+        if (options.signal && options.signal.aborted) throw err; // stopped by the user
+        const info = gemini.classifyError(err);
+        if (!info) {
+          const message = gemini.friendlyError(err, name);
+          onStatus({ icon: '⚠️', text: message });
+          return message;
+        }
+        gemini.markUnavailable(name, info);
+        skipped.push({ name, kind: info.kind });
+        const next = candidates[i + 1];
+        onStatus({ type: 'reset' });
+        onStatus({
+          icon: '🔁',
+          text: `${gemini.modelLabel(name)} ${gemini.unavailableReason(info.kind)}${next ? ` — trying ${gemini.modelLabel(next)}…` : '.'}`
+        });
+      }
+    }
+    const message = 'All your Gemini models have reached their limits for now. Try again later (free limits reset daily), or choose a local model in Settings.';
+    onStatus({ icon: '⚠️', text: message });
+    return message;
+  }
 
   /** One full answer attempt (agent loop, or a plain completion if tools fail). Returns a string on backend error. */
   async function answerOnce() {
@@ -835,11 +891,11 @@ async function generate(
         messages: toModelMessages(allMessages.filter((m) => m.role !== 'system'))
       };
     };
-    const run = (withTools) => {
+    const run = (withTools, useModel = modelName) => {
       const { systemContent, messages } = prepare(withTools);
       return runAgentLoop({
-        modelName,
-        model: createChatModel(modelName),
+        modelName: useModel,
+        model: createChatModel(useModel),
         systemContent,
         messages,
         userText,
@@ -853,20 +909,18 @@ async function generate(
         maxSteps: 40,
         maxTotalMs: 600000, // 10 minutes max for the whole agent loop
         abortSignal: options.signal,
+        // Gemini: one retry (a brief overload); a model at its limit is switched, not retried
+        maxRetries: gemini.isCloudModel(useModel) ? 1 : undefined,
         needsWorkspaceRead: withTools && isProjectQuestion
       });
     };
 
     onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
+    if (gemini.isCloudModel(modelName)) return answerWithGemini(run);
     try {
       return await run(toolsAvailable);
     } catch (err) {
       if (options.signal && options.signal.aborted) throw err; // stopped by the user: not an error to recover from
-      if (gemini.isCloudModel(modelName)) {
-        const message = gemini.friendlyError(err, modelName);
-        onStatus({ icon: '⚠️', text: message });
-        return message;
-      }
       if (!toolsAvailable) {
         onStatus({ icon: '⚠️', text: `Model error: ${err.message}` });
         return `Sorry — the model backend reported an error: ${err.message}`;

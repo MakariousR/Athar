@@ -203,8 +203,90 @@ function friendlyError(err, name = null) {
   return `Gemini reported an error: ${message.slice(0, 200) || `HTTP ${status}`}`;
 }
 
+// ─── When a model can't answer: another Gemini model takes over ──────────────
+// A model that reached its free limit (per day or per minute), isn't in the
+// key's plan, or was retired is set aside — for the day, a minute, or this
+// session — and the next one in the list (best first) answers instead. Once a
+// limit resets, the chosen model is used again.
+
+const unavailable = new Map(); // model name → { until (ms timestamp), kind }
+
+/** Milliseconds until midnight Pacific time, when Google resets daily free limits. */
+function msUntilPacificMidnight(now = new Date()) {
+  const pt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const passed = ((pt.getHours() * 60 + pt.getMinutes()) * 60 + pt.getSeconds()) * 1000;
+  return Math.max(60 * 1000, 24 * 3600 * 1000 - passed);
+}
+
+/**
+ * Whether another model may answer instead, and for how long this one is set
+ * aside: 'not-in-plan' and 'gone' (this session), 'daily' (until the daily
+ * reset), 'minute' (Google's "retry in Ns", else a minute). null: an error
+ * every model would hit too (bad key, no internet, region).
+ */
+function classifyError(err, now = new Date()) {
+  const status = err && (err.status || err.statusCode);
+  const message = String((err && (err.message || err.responseBody)) || '');
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(message)) {
+    if (/limit:\s*0\b/.test(message)) return { kind: 'not-in-plan', until: Infinity };
+    if (/PerDay/i.test(message)) return { kind: 'daily', until: now.getTime() + msUntilPacificMidnight(now) };
+    const retry = /retry in ([\d.]+)\s*s/i.exec(message) || /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(message);
+    return { kind: 'minute', until: now.getTime() + (retry ? Math.ceil(Number(retry[1])) : 60) * 1000 };
+  }
+  if (status === 404 || /is not found|not supported for generateContent|no longer available|has been deprecated/i.test(message)) {
+    return { kind: 'gone', until: Infinity };
+  }
+  return null;
+}
+
+function markUnavailable(name, info) {
+  unavailable.set(name, info);
+}
+
+/** Why a model is set aside right now ('daily', 'minute'…), or null. */
+function unavailableKind(name) {
+  return isAvailable(name) ? null : unavailable.get(name).kind;
+}
+
+function isAvailable(name, now = Date.now()) {
+  const u = unavailable.get(name);
+  if (!u) return true;
+  if (now >= u.until) { unavailable.delete(name); return true; }
+  return false;
+}
+
+/** The chosen model first (if it can answer), then the other Gemini models, best first. */
+async function fallbackOrder(name) {
+  let list = [];
+  try { list = await listModels(); } catch { /* the chosen model alone */ }
+  const others = list.map((m) => m.name).filter((n) => n !== name);
+  return [name, ...others].filter((n) => isAvailable(n));
+}
+
+/** "reached its free limit for today", in words for the user. */
+function unavailableReason(kind) {
+  return {
+    daily: 'reached its free limit for today',
+    minute: 'reached its limit for this minute',
+    'not-in-plan': 'isn\'t in your free plan',
+    gone: 'isn\'t available anymore'
+  }[kind] || 'can\'t answer right now';
+}
+
+function modelLabel(name) {
+  const m = knownModel(name);
+  return m ? m.label : modelId(name);
+}
+
 module.exports = {
   PREFIX,
+  classifyError,
+  markUnavailable,
+  isAvailable,
+  unavailableKind,
+  fallbackOrder,
+  unavailableReason,
+  modelLabel,
   isCloudModel,
   modelId,
   encryptionAvailable,
@@ -217,5 +299,10 @@ module.exports = {
   createModel,
   friendlyError,
   // for tests
-  _internals: { chatModels, versionOf, fetchModels, setDataDir: (dir) => { dataDirOverride = dir; cachedKey = undefined; models = null; } }
+  _internals: {
+    chatModels, versionOf, fetchModels, msUntilPacificMidnight,
+    setModels: (list) => { models = list; },
+    resetUnavailable: () => unavailable.clear(),
+    setDataDir: (dir) => { dataDirOverride = dir; cachedKey = undefined; models = null; }
+  }
 };

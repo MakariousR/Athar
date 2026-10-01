@@ -269,7 +269,8 @@ async function runAgentLoop({
   fallbackRetriesLeft = 3,    // retries for "printed a tool call as text"
   continueRetriesLeft = 1,    // nudges when a project question was answered without looking
   progressLogSoFar = [],      // "tool → result" recap across retries, fed back to the model
-  abortSignal = undefined     // the Stop button
+  abortSignal = undefined,    // the Stop button
+  maxRetries = undefined      // the SDK's own retries of a failed request (default: 2)
 }) {
   const tools = useTools ? buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText }) : {};
   const toolNames = Object.keys(tools);
@@ -294,6 +295,7 @@ async function runAgentLoop({
     stopWhen: stepCountIs(maxSteps),
     timeout: maxTotalMs,
     ...(abortSignal ? { abortSignal } : {}),
+    ...(maxRetries !== undefined ? { maxRetries } : {}),
     onError: (event) => {
       streamError = (event && event.error) || event;
       onError(event);
@@ -360,7 +362,10 @@ async function runAgentLoop({
     // Replace the SDK's generic "No output generated" with the actual cause.
     if (streamError) {
       const cause = streamError.responseBody || streamError.message || String(streamError);
-      throw new Error(typeof cause === 'string' ? cause.replace(/^\{"error":"(.*)"\}$/, '$1') : String(cause));
+      const error = new Error(typeof cause === 'string' ? cause.replace(/^\{"error":"(.*)"\}$/, '$1') : String(cause));
+      // The HTTP status stays with it: a cloud model's 429 (limit reached) or 404 (retired) switches to another model
+      error.status = streamError.statusCode || streamError.status;
+      throw error;
     }
     throw err;
   }
