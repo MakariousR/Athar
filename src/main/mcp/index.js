@@ -31,6 +31,10 @@ function startMcpMode() {
   // stdout carries the protocol: anything else printed there breaks the connection
   for (const level of ['log', 'info', 'debug']) console[level] = (...args) => console.error(...args);
   app.disableHardwareAcceleration();
+  // No window: no separate GPU or network processes either (~190 MB saved while Claude is open)
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('in-process-gpu');
+  app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess2');
   if (app.dock) app.dock.hide();
 
   const ollama = require('../ollama/ollama-client');
