@@ -2442,7 +2442,8 @@ async function handleImportFile(file) {
   fileInput.value = ''; // the same file can be chosen again
 
   if (!result.success) {
-    importStatus.textContent = `Import failed: ${result.error}`;
+    importStatus.innerHTML = `Import failed: ${escapeHtml(result.error)} ` +
+      '<button class="text-btn export-guide-link" type="button" data-doc="export-guide">How to export your chats</button>';
     return;
   }
 
@@ -2636,7 +2637,8 @@ async function loadMoreMemoryList(seq = memorySearchSeq) {
     return;
   }
   if (res.total === 0) {
-    memoryResults.innerHTML = '<p class="memory-empty">Your memory is empty.<br/>Import a ChatGPT, Claude or Gemini export with “Import chat history” in the sidebar — or just start chatting.</p>';
+    memoryResults.innerHTML = '<p class="memory-empty">Your memory is empty.<br/>Import a ChatGPT, Claude or Gemini export with “Import chat history” in the sidebar — or just start chatting.' +
+      '<br/><button class="text-btn export-guide-link" type="button" data-doc="export-guide">How do I export my chats?</button></p>';
     return;
   }
   for (const t of res.items) {
@@ -3466,7 +3468,8 @@ if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', toggleSidebar);
 
 // License, privacy policy and open-source notices (Settings footer)
 const docModal = document.getElementById('docModal');
-const DOC_TITLES = { license: 'License agreement', privacy: 'Privacy policy', notices: 'Open-source licenses' };
+const DOC_TITLES = { license: 'License agreement', privacy: 'Privacy policy', notices: 'Open-source licenses', 'export-guide': 'How to export your chats' };
+const MARKDOWN_DOCS = new Set(['privacy', 'export-guide']);
 
 async function openDocument(name) {
   const body = document.getElementById('docBody');
@@ -3477,9 +3480,10 @@ async function openDocument(name) {
   docModal.classList.remove('hidden');
   const res = await window.api.appDocument(name);
   if (!res.success) { body.textContent = `Could not open this document: ${res.error}`; return; }
-  if (name === 'privacy') {
+  if (MARKDOWN_DOCS.has(name)) {
     body.classList.add('markdown', 'message-text');
-    body.innerHTML = renderMarkdown(res.text);
+    // The guide's own title is the window's title
+    body.innerHTML = renderMarkdown(name === 'export-guide' ? res.text.replace(/^# .*\n+/, '') : res.text);
   } else {
     const pre = document.createElement('pre');
     pre.className = 'doc-text';
@@ -3495,6 +3499,11 @@ const closeDocument = () => {
 
 document.querySelectorAll('.settings-about [data-doc]').forEach((btn) => {
   btn.addEventListener('click', () => openDocument(btn.dataset.doc));
+});
+// "How do I export my chats?" links: in the sidebar, the empty Memory view and import errors
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-doc="export-guide"]');
+  if (link && !link.closest('.settings-about')) { e.preventDefault(); openDocument('export-guide'); }
 });
 document.getElementById('docCloseBtn').addEventListener('click', closeDocument);
 docModal.querySelector('.settings-backdrop').addEventListener('click', closeDocument);

@@ -199,8 +199,8 @@ function registerIpcHandlers() {
   ipcMain.handle('license:status', () => getLicense().status());
   ipcMain.handle('license:activate', (event, key) => getLicense().activate(String(key || '').slice(0, 2000)));
 
-  // License, privacy policy and open-source notices shipped with the app (these three files only)
-  const APP_DOCUMENTS = { license: 'LICENSE.txt', privacy: 'PRIVACY.md', notices: 'THIRD-PARTY-NOTICES.txt' };
+  // License, privacy policy, open-source notices and the export guide shipped with the app (these files only)
+  const APP_DOCUMENTS = { license: 'LICENSE.txt', privacy: 'PRIVACY.md', notices: 'THIRD-PARTY-NOTICES.txt', 'export-guide': 'src/renderer/export-guide.md' };
   ipcMain.handle('app:document', (event, name) => {
     const file = APP_DOCUMENTS[name];
     if (!file) return { success: false, error: 'Unknown document.' };
