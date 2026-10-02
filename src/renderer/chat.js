@@ -2452,6 +2452,7 @@ async function handleImportFile(file) {
     result.added ? `${result.added} new` : null,
     result.updated ? `${result.updated} updated` : null,
     result.unchanged ? `${result.unchanged} already imported` : null,
+    result.forgotten ? `${result.forgotten} you deleted before, left out` : null,
     result.skippedEmpty ? `${result.skippedEmpty} skipped (the export has no text for them)` : null
   ].filter(Boolean).join(', ');
   lastImportNote = `${sourceLabel}: ${changes || 'nothing new'}.`;
@@ -2537,6 +2538,14 @@ function renderMemorySummary() {
     }
     memorySummary.appendChild(pill);
   }
+  if (entries.some(([source]) => source !== 'app')) {
+    const clear = document.createElement('button');
+    clear.className = 'text-btn danger memory-clear-btn';
+    clear.type = 'button';
+    clear.textContent = 'Clear all imported history';
+    clear.addEventListener('click', clearImportedHistory);
+    memorySummary.appendChild(clear);
+  }
 }
 
 async function forgetMemorySource(source) {
@@ -2562,21 +2571,120 @@ function highlightTerms(text, terms) {
   return html;
 }
 
-function memoryResultCard({ title, source, sourceName, date, meta, snippetHtml, onClick }) {
+function memoryResultCard({ id, title, source, sourceName, date, meta, snippetHtml, onClick }) {
   const card = document.createElement('div');
   card.className = 'memory-result';
   card.tabIndex = 0;
+  card.dataset.threadId = id;
+  card.dataset.source = source;
   const color = SOURCE_COLORS[source] || SOURCE_COLORS.unknown;
   card.innerHTML = `
     <div class="memory-result-head">
+      <input type="checkbox" class="memory-select-box" tabindex="-1" aria-label="Select this conversation"${memorySelected.has(id) ? ' checked' : ''}>
       <span class="memory-result-source" style="color:${color}">${escapeHtml(SOURCE_LABELS[source] || sourceName || source)}</span>
       <span class="memory-result-title" dir="auto">${escapeHtml(title)}</span>
       <span class="memory-result-meta">${escapeHtml([date, meta].filter(Boolean).join(' · '))}</span>
     </div>
     ${snippetHtml ? `<div class="memory-result-snippet" dir="auto">${snippetHtml}</div>` : ''}`;
-  card.addEventListener('click', onClick);
-  card.addEventListener('keydown', (e) => { if (e.key === 'Enter') onClick(); });
+  card.classList.toggle('selected', memorySelected.has(id));
+  // Choosing conversations to delete: a click ticks the card instead of opening it
+  const activate = () => (memorySelecting ? toggleMemorySelection(id, source) : onClick());
+  card.addEventListener('click', (e) => { e.preventDefault(); activate(); });
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || (memorySelecting && e.key === ' ')) { e.preventDefault(); activate(); } });
   return card;
+}
+
+// ── Deleting conversations from the memory ──────────────────────────────────
+// Imported ones leave Athar (the export file is untouched) and stay out of later
+// imports; chats made in Athar are deleted, as from the chat list.
+let memorySelecting = false;
+const memorySelected = new Map(); // thread id → source
+const memorySelectBar = document.getElementById('memorySelectBar');
+const memorySelectBtn = document.getElementById('memorySelectBtn');
+const memoryDeleteSelected = document.getElementById('memoryDeleteSelected');
+
+function setMemorySelecting(on) {
+  memorySelecting = on;
+  if (!on) memorySelected.clear();
+  memoryResults.classList.toggle('selecting', on);
+  memorySelectBar.classList.toggle('hidden', !on);
+  memorySelectBtn.classList.toggle('hidden', on);
+  updateMemorySelection();
+}
+
+function toggleMemorySelection(id, source) {
+  if (memorySelected.has(id)) memorySelected.delete(id); else memorySelected.set(id, source);
+  updateMemorySelection();
+}
+
+function updateMemorySelection() {
+  // A search can show several excerpts of one conversation: they are ticked together
+  for (const card of memoryResults.querySelectorAll('.memory-result')) {
+    const on = memorySelected.has(card.dataset.threadId);
+    card.classList.toggle('selected', on);
+    const box = card.querySelector('.memory-select-box');
+    if (box) box.checked = on;
+  }
+  const n = memorySelected.size;
+  document.getElementById('memorySelectCount').textContent = n ? `${n} conversation${n === 1 ? '' : 's'} selected` : 'Choose conversations to delete';
+  memoryDeleteSelected.disabled = n === 0;
+  memoryDeleteSelected.textContent = n ? `Delete ${n}` : 'Delete';
+}
+
+/** Asks, then deletes the conversations; true when they were deleted. */
+async function deleteMemoryConversations(entries) {
+  const appCount = entries.filter(([, src]) => src === 'app').length;
+  const importedCount = entries.length - appCount;
+  const lines = [entries.length === 1 ? 'Delete this conversation from your memory?' : `Delete ${entries.length} conversations from your memory?`, ''];
+  if (importedCount) lines.push(`${importedCount === entries.length ? 'They are' : `${importedCount} imported:`} removed from Athar and won't come back when you import a newer export. Your export file isn't touched.`);
+  if (appCount) lines.push(`${appCount === entries.length ? (appCount === 1 ? 'It is a chat made in Athar: the chat itself is deleted.' : 'They are chats made in Athar: the chats themselves are deleted.') : `${appCount} made in Athar: those chats are deleted.`}`);
+  if (!confirm(lines.join('\n'))) return false;
+  const ids = entries.map(([id]) => id);
+  for (const id of ids) if (liveRun && liveRun.sessionId === id) await window.api.chatStop(id);
+  const res = await window.api.memoryDeleteThreads(ids);
+  if (!res.success) { alert(`Could not delete: ${res.error}`); return false; }
+  if (res.chatsDeleted) {
+    if (ids.includes(activeSessionId)) activeSessionId = null;
+    await loadSessionList();
+  }
+  const stats = await window.api.memoryStats();
+  if (stats.success) { memoryStats = stats; renderMemoryStatus(); }
+  renderMemorySummary();
+  return true;
+}
+
+memorySelectBtn.addEventListener('click', () => setMemorySelecting(true));
+document.getElementById('memorySelectCancel').addEventListener('click', () => setMemorySelecting(false));
+document.getElementById('memorySelectAll').addEventListener('click', () => {
+  for (const card of memoryResults.querySelectorAll('.memory-result')) memorySelected.set(card.dataset.threadId, card.dataset.source);
+  updateMemorySelection();
+});
+memoryDeleteSelected.addEventListener('click', async () => {
+  if (!memorySelected.size) return;
+  if (!(await deleteMemoryConversations([...memorySelected]))) return;
+  setMemorySelecting(false);
+  refreshMemoryResults();
+});
+document.getElementById('memoryDeleteBtn').addEventListener('click', async () => {
+  if (!memoryCurrentThread) return;
+  if (!(await deleteMemoryConversations([[memoryCurrentThread.id, memoryCurrentThread.source]]))) return;
+  memoryCurrentThread = null;
+  showMemoryList();
+  refreshMemoryResults();
+});
+
+async function clearImportedHistory() {
+  const total = Object.entries((memoryStats && memoryStats.sources) || {})
+    .filter(([src]) => src !== 'app').reduce((n, [, info]) => n + info.count, 0);
+  if (!confirm(`Clear all imported history (${total.toLocaleString()} conversation${total === 1 ? '' : 's'} from ChatGPT, Claude and Gemini)?\n\n` +
+    'Athar forgets them all. Your export files and the chats you made in Athar are not touched. You can import again any time.')) return;
+  const res = await window.api.memoryClearImported();
+  if (!res.success) { alert(`Could not clear: ${res.error}`); return; }
+  setMemorySelecting(false);
+  const stats = await window.api.memoryStats();
+  if (stats.success) { memoryStats = stats; renderMemoryStatus(); }
+  renderMemorySummary();
+  refreshMemoryResults();
 }
 
 async function refreshMemoryResults() {
@@ -2618,6 +2726,7 @@ async function refreshMemoryResults() {
   }
   for (const p of res.passages) {
     memoryResults.appendChild(memoryResultCard({
+      id: p.threadId,
       title: p.title,
       source: p.source,
       sourceName: p.sourceName,
@@ -2643,6 +2752,7 @@ async function loadMoreMemoryList(seq = memorySearchSeq) {
   }
   for (const t of res.items) {
     memoryResults.appendChild(memoryResultCard({
+      id: t.id,
       title: t.title,
       source: t.source,
       sourceName: t.sourceName,

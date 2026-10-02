@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   memoryGet: (threadId) => ipcRenderer.invoke('memory:get', threadId),
   memorySearch: (query, filter) => ipcRenderer.invoke('memory:search', query, filter),
   memoryDeleteSource: (source) => ipcRenderer.invoke('memory:delete-source', source),
+  memoryDeleteThreads: (ids) => ipcRenderer.invoke('memory:delete-threads', ids),
+  memoryClearImported: () => ipcRenderer.invoke('memory:clear-imported'),
   memoryAttachToChat: (sessionId, threadId) => ipcRenderer.invoke('memory:attach-to-chat', sessionId, threadId),
 
   // Portable memory profile

@@ -2265,3 +2265,17 @@ body {
 @keyframes session-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 .send-btn.is-stop { background: var(--text); color: var(--bg); }
 .send-btn.is-stop:hover { opacity: 0.85; }
+
+/* ── Deleting conversations from the memory ── */
+.memory-select-bar { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 13px; }
+.memory-select-bar #memorySelectCount { flex: 1; color: var(--muted); }
+.memory-select-bar .primary-btn { padding: 6px 14px; font-size: 13px; }
+.danger-btn { background: var(--danger); border-color: var(--danger); }
+.danger-btn:hover:not(:disabled) { filter: brightness(1.1); box-shadow: none; }
+.danger-btn:disabled { opacity: 0.45; cursor: default; }
+.danger-outline:hover { border-color: var(--danger); color: var(--danger); }
+.memory-select-box { display: none; margin: 0 2px 0 0; accent-color: var(--accent); align-self: center; }
+.memory-results.selecting .memory-select-box { display: inline-block; }
+.memory-results.selecting .memory-result { cursor: default; }
+.memory-result.selected { border-color: var(--accent); background: var(--accent-dim); }
+.memory-clear-btn { font-size: 12px; margin-inline-start: auto; align-self: center; }

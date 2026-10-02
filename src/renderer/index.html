@@ -323,6 +323,13 @@
               <option value="app">This app</option>
             </select>
             <button id="openProfileBtn" class="secondary-btn memory-profile-btn" title="A summary of you, learned from your conversations — usable here and in other AI assistants">✨ Memory profile</button>
+            <button id="memorySelectBtn" class="secondary-btn" title="Choose conversations to delete from your memory">Select</button>
+          </div>
+          <div id="memorySelectBar" class="memory-select-bar hidden">
+            <span id="memorySelectCount">Choose conversations to delete</span>
+            <button id="memorySelectAll" class="text-btn" type="button">Select all shown</button>
+            <button id="memoryDeleteSelected" class="primary-btn danger-btn" type="button" disabled>Delete</button>
+            <button id="memorySelectCancel" class="text-btn" type="button">Cancel</button>
           </div>
           <div id="memorySummary" class="memory-summary"></div>
           <div id="memoryUnderstood" class="memory-understood hidden"></div>
@@ -340,6 +347,7 @@
             <div class="memory-thread-actions">
               <button id="memoryAskBtn" class="primary-btn" title="Start a new chat with this conversation attached">💬 Ask about this</button>
               <button id="memoryCopyBtn" class="secondary-btn" title="Copy the whole conversation as text">Copy</button>
+              <button id="memoryDeleteBtn" class="secondary-btn danger-outline" title="Delete this conversation from your memory">Delete</button>
             </div>
           </div>
           <div class="memory-thread-body">

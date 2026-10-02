@@ -456,6 +456,24 @@ function registerIpcHandlers() {
     } catch (err) { return { success: false, error: err.message }; }
   });
 
+  // Chosen conversations: imported ones leave the memory (and stay out of later imports);
+  // chats made in Athar are deleted, as from the chat list
+  ipcMain.handle('memory:delete-threads', async (event, ids) => {
+    try {
+      const list = Array.isArray(ids) ? ids.map(String) : [];
+      const appIds = new Set(store.loadSessions().map((s) => s.id));
+      const chats = list.filter((id) => appIds.has(id));
+      for (const id of chats) store.deleteSession(id);
+      if (chats.length) syncAppMemory();
+      return { success: true, removed: memory.deleteThreads(list.filter((id) => !appIds.has(id))), chatsDeleted: chats.length };
+    } catch (err) { return { success: false, error: err.message }; }
+  });
+
+  ipcMain.handle('memory:clear-imported', async () => {
+    try { return { success: true, removed: memory.clearImported() }; }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
   ipcMain.handle('memory:delete-source', async (event, source) => {
     try { return { success: true, removed: memory.deleteSource(source) }; }
     catch (err) { return { success: false, error: err.message }; }
