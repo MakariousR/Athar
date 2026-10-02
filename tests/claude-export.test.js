@@ -28,10 +28,10 @@ test('code, commands and edits replace the "not supported" placeholders', () => 
   assert(!/internal reasoning/.test(text), 'thinking is not shown');
 });
 
-test('files the user uploaded are kept (their text, shortened)', () => {
+test('files the user uploaded are kept (their text; the app shows it as a card)', () => {
   const [thread] = parseAnyExport(file);
   const text = thread.messages[0].text;
-  assert(/\*\*Attached file: notes\.txt\*\*\n```\nUse port 8080 in production\.\n```/.test(text), text);
+  assert(/\*\*Attached `notes\.txt`\*\*\n```\nUse port 8080 in production\.\n```/.test(text), text);
   assert(/Set up an express server on port 8080$/.test(text));
 });
 
@@ -53,8 +53,14 @@ test('older export formats: artifacts and analysis-tool code', () => {
     { type: 'tool_use', name: 'artifacts', input: { command: 'create', title: 'Fibonacci', language: 'python', content: 'def fib(n): ...' } },
     { type: 'tool_use', name: 'repl', input: { code: 'console.log(1 + 1)' } }
   ] });
-  assert(/\*\*Fibonacci\*\*\n```python\ndef fib\(n\): \.\.\.\n```/.test(text), text);
+  assert(/\*\*Artifact `Fibonacci`\*\*\n```python\ndef fib\(n\): \.\.\.\n```/.test(text), text);
   assert(/```javascript\nconsole\.log\(1 \+ 1\)\n```/.test(text));
+  // Artifact types → the language the viewer previews (Markdown, HTML, SVG) or highlights
+  const typed = (type) => messageText({ sender: 'assistant', text: '', content: [{ type: 'tool_use', name: 'artifacts', input: { title: 'X', type, content: 'x' } }] });
+  assert(/```markdown\n/.test(typed('text/markdown')) && /```html\n/.test(typed('text/html')) && /```svg\n/.test(typed('image/svg+xml')) && /```jsx\n/.test(typed('application/vnd.ant.react')));
+  // Files Claude shared: one line each (the app shows each as a card)
+  const shared = messageText({ sender: 'assistant', text: '', content: [{ type: 'tool_use', name: 'present_files', input: { filepaths: ['/out/a.md', '/out/b.docx'] } }] });
+  assert.strictEqual(shared, '**Shared `/out/a.md`**\n\n**Shared `/out/b.docx`**');
 });
 
 test('plain-text messages are unchanged; unknown tools are named', () => {

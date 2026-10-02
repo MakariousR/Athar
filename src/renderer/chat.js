@@ -1863,7 +1863,19 @@ function createMessageBubble(role, text, images = [], documents = [], { markdown
   const textEl = document.createElement('div');
   textEl.className = 'message-text';
   textEl.dir = 'auto'; // Arabic (right-to-left) and English messages each lay out correctly
-  if (markdown && text) {
+  // Long text pasted into a prompt (or an attached file's text): shown as cards, opened on demand
+  const parts = role === 'user' && text ? splitLongText(text) : null;
+  if (parts) {
+    textEl.classList.add('has-blocks');
+    if (markdown) textEl.classList.add('markdown');
+    for (const part of parts) {
+      if (part.block) { textEl.appendChild(createTextBlockCard(part)); continue; }
+      const el = document.createElement('div');
+      el.className = 'msg-part';
+      if (markdown) el.innerHTML = renderMarkdown(part.text); else el.textContent = part.text;
+      textEl.appendChild(el);
+    }
+  } else if (markdown && text) {
     textEl.innerHTML = renderMarkdown(role === 'assistant' ? stripCitations(text) : text);
     textEl.classList.add('markdown'); // line breaks come from the HTML, not pre-wrap
   } else textEl.textContent = text;
@@ -2293,6 +2305,7 @@ const memoryFilePanelMeta   = document.getElementById('memoryFilePanelMeta');
 const memoryFilePanelBody   = document.getElementById('memoryFilePanelBody');
 const memoryFilePanelCopy   = document.getElementById('memoryFilePanelCopy');
 const memoryFilePanelClose  = document.getElementById('memoryFilePanelClose');
+const memoryFilePanelMode   = document.getElementById('memoryFilePanelMode');
 const memoryAskBtn          = document.getElementById('memoryAskBtn');
 const memoryCopyBtn         = document.getElementById('memoryCopyBtn');
 
@@ -2482,6 +2495,7 @@ async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
   memoryAskBtn.disabled = false;
 
   closeFilePanel();
+  threadFiles = new Map();
   memoryThreadMessages.innerHTML = '';
   let firstHighlight = null;
   const end = msgEnd === null || msgEnd === undefined ? msgStart : msgEnd;
@@ -2501,17 +2515,23 @@ async function openMemoryThread(threadId, msgStart = null, msgEnd = null) {
   else memoryThreadMessages.scrollTop = 0;
 }
 
-// ── Compact commands and files in imported Claude conversations ──────────────
-// The Claude importer writes commands as a ```bash block (+ "Output:" block)
-// and created/edited files as "**Created `path`**" + a code block. Here they
-// become a collapsed command row and a small file card that opens the code in
-// a panel next to the conversation.
+// ── Compact commands, files and long text ────────────────────────────────────
+// The Claude importer writes commands as a ```bash block (+ "Output:" block),
+// files as "**Created|Edited|Artifact|Attached|Shared `path`**" + a code block.
+// Here they become a collapsed command row and a small file card that opens
+// in a viewer (next to the conversation in Memory, in a window in a chat).
+// Long text pasted into a prompt (any chat) becomes a card the same way.
 
 const TOOL_ICONS = {
   terminal: svgIcon('<path d="M5 17l5-5-5-5M12 18h7"/>'),
   chevron: svgIcon('<path d="M9 6l6 6-6 6"/>')
 };
 const TOOL_NOTE_RE = /^(Viewed|Searched the web|Opened|Shared|Asked you|Used) /;
+const FILE_ACTION_RE = /^(Created|Edited|Artifact|Updated artifact|Attached|Shared) (.+)$/;
+const FILE_ACTION_LABEL = { Created: 'Created file', Edited: 'Edited file', Artifact: 'Artifact', 'Updated artifact': 'Updated artifact', Attached: 'Attached file', Shared: 'Shared file' };
+
+// Files created in the conversation being shown, by path — a "Shared" card opens the file Claude created
+let threadFiles = new Map();
 
 /** The "_description_" paragraph the importer writes just above a command. */
 function toolDescriptionBefore(el) {
@@ -2522,16 +2542,41 @@ function toolDescriptionBefore(el) {
   return TOOL_NOTE_RE.test(em.textContent) ? null : prev;
 }
 
+const codeLang = (pre) => {
+  const code = pre && pre.querySelector('code');
+  const m = code && /language-([\w+-]+)/.exec(code.className);
+  return m ? m[1] : '';
+};
+
 function compactToolBlocks(root) {
-  // Files: <p>[<em>desc</em><br>]<strong>Created|Edited <code>path</code></strong></p><pre>…</pre>
+  const containers = root.classList.contains('has-blocks') ? [...root.querySelectorAll(':scope > .msg-part')] : [root];
+  for (const box of containers) compactToolBlocksIn(box);
+}
+
+function compactToolBlocksIn(root) {
+  // Several files in one paragraph ("**Shared `a`**<br>**Shared `b`**"): one paragraph each
+  for (const p of Array.from(root.querySelectorAll(':scope > p'))) {
+    const kids = [...p.childNodes].filter((n) => !(n.nodeType === Node.TEXT_NODE && !n.textContent.trim()));
+    const strongs = kids.filter((n) => n.nodeName === 'STRONG');
+    if (strongs.length < 2 || kids.some((n) => n.nodeName !== 'STRONG' && n.nodeName !== 'BR') ||
+        !strongs.every((s) => FILE_ACTION_RE.test(s.textContent.trim()) && s.querySelector('code'))) continue;
+    p.replaceWith(...strongs.map((s) => { const one = document.createElement('p'); one.appendChild(s); return one; }));
+  }
+
+  // Files: <p>[<em>desc</em><br>]<strong>Created|Edited|… <code>path</code></strong></p>[<pre>…</pre>]
   for (const strong of Array.from(root.querySelectorAll(':scope > p > strong'))) {
-    const m = /^(Created|Edited) (.+)$/.exec(strong.textContent.trim());
+    const m = FILE_ACTION_RE.exec(strong.textContent.trim());
     const p = strong.parentElement;
-    const pre = p.nextElementSibling;
-    if (!m || !strong.querySelector('code') || p.lastElementChild !== strong || !pre || pre.tagName !== 'PRE') continue;
+    if (!m || !strong.querySelector('code') || p.lastElementChild !== strong) continue;
+    const next = p.nextElementSibling;
+    const pre = next && next.tagName === 'PRE' ? next : null;
+    // Created/Edited/Artifact always come with their code; Attached/Shared may not (not in the export)
+    if (!pre && !/^(Attached|Shared)$/.test(m[1])) continue;
     const em = p.querySelector(':scope > em');
-    pre.remove();
-    p.replaceWith(createFileCard({ action: m[1], path: m[2], description: em ? em.textContent.trim() : '', pre }));
+    if (pre) pre.remove();
+    const file = { action: m[1], path: m[2], description: em ? em.textContent.trim() : '', text: pre ? pre.textContent : null, lang: codeLang(pre) };
+    if (file.text !== null && /^(Created|Artifact)$/.test(file.action)) threadFiles.set(file.path, file);
+    p.replaceWith(createFileCard(file));
   }
 
   // Commands: [<p><em>desc</em></p>]<pre><code class="language-bash">…</code></pre>[<p>Output:|Error:</p><pre>…</pre>]
@@ -2591,18 +2636,22 @@ function createCommandRow({ description, pre, label, output, isError }) {
 }
 
 const fileBaseName = (path) => path.split(/[\\/]/).filter(Boolean).pop() || path;
+const LANG_EXT = { markdown: '.md', html: '.html', svg: '.svg', python: '.py', javascript: '.js', jsx: '.jsx', typescript: '.ts', tsx: '.tsx', json: '.json', css: '.css', bash: '.sh', sql: '.sql', csv: '.csv', yaml: '.yml' };
+const lineCount = (text) => String(text || '').replace(/\n$/, '').split('\n').length;
+const linesLabel = (text) => { const n = lineCount(text); return `${n.toLocaleString()} line${n === 1 ? '' : 's'}`; };
 
-function createFileCard({ action, path, description, pre }) {
+/** A small card for a file (created, edited, an artifact, attached or shared) that opens it in the viewer. */
+function createFileCard({ action, path, description, text, lang }) {
   const name = fileBaseName(path);
-  const ext = name.includes('.') ? '.' + name.split('.').pop().toLowerCase() : '';
+  const ext = name.includes('.') ? '.' + name.split('.').pop().toLowerCase() : (LANG_EXT[lang] || '');
   const card = document.createElement('button');
   card.type = 'button';
   card.className = 'tool-file-card';
   card.title = `Open ${path}`;
 
   let stats = '';
-  if (action === 'Edited') {
-    const lines = pre.textContent.split('\n');
+  if (action === 'Edited' || action === 'Updated artifact') {
+    const lines = String(text || '').split('\n');
     const added = lines.filter((l) => l.startsWith('+ ')).length;
     const removed = lines.filter((l) => l.startsWith('- ')).length;
     stats = `<span class="tool-file-stat add">+${added}</span><span class="tool-file-stat del">−${removed}</span>`;
@@ -2610,61 +2659,256 @@ function createFileCard({ action, path, description, pre }) {
   card.innerHTML = `<span class="tool-file-icon">${getDocumentIcon(ext)}</span>` +
     '<span class="tool-file-text"><span class="tool-file-name"></span><span class="tool-file-action" dir="auto"></span></span>' + stats;
   card.querySelector('.tool-file-name').textContent = name;
-  card.querySelector('.tool-file-action').textContent = description || (action === 'Created' ? 'Created file' : 'Edited file');
+  const known = text !== null && text !== undefined;
+  card.querySelector('.tool-file-action').textContent = description ||
+    `${FILE_ACTION_LABEL[action] || action}${known && !stats ? ` · ${linesLabel(text)}` : ''}`;
 
   card.addEventListener('click', () => {
-    if (card.classList.contains('active')) { closeFilePanel(); return; }
-    openFilePanel({ card, action, path, pre });
+    if (card.classList.contains('active')) { closeContentViewer(); return; }
+    // A shared file: the content Claude created earlier in this conversation, if it's there
+    const created = !known && action === 'Shared' ? threadFiles.get(path) : null;
+    openContentViewer({
+      card,
+      name,
+      meta: action === 'Pasted' ? `${linesLabel(text)} · ${String(text).length.toLocaleString()} characters` : `${FILE_ACTION_LABEL[action] || action} · ${path}`,
+      text: known ? text : created ? created.text : null,
+      lang: known ? lang : created ? created.lang : '',
+      missing: action === 'Shared'
+        ? 'Claude shared this file, but Claude\'s export doesn\'t include its contents (for example a Word or PDF file made by a script). You can download it from the conversation on claude.ai.'
+        : 'This file was attached, but the export doesn\'t include its text (for example an image or a scanned PDF).'
+    });
   });
   return card;
 }
 
-function openFilePanel({ card, action, path, pre }) {
-  document.querySelectorAll('.tool-file-card.active').forEach((c) => c.classList.remove('active'));
-  card.classList.add('active');
-  memoryFilePanelName.textContent = fileBaseName(path);
-  memoryFilePanelName.title = path;
-  memoryFilePanelMeta.textContent = `${action} · ${path}`;
-  memoryFilePanelBody.innerHTML = '';
-  const copy = pre.cloneNode(true);
-  const code = copy.querySelector('code');
-  if (code && code.classList.contains('language-diff')) {
-    // colour the removed/added lines of an edit
-    const lines = code.textContent.replace(/\n$/, '').split('\n');
-    code.textContent = '';
-    for (const line of lines) {
+// ── Long text in a prompt → a card ───────────────────────────────────────────
+const LONG_MESSAGE_CHARS = 1200; // shorter messages are shown as they are
+const LONG_PIECE_CHARS = 900;    // a code block or paragraph longer than this becomes a card…
+const LONG_PIECE_LINES = 18;     // …or with more lines than this
+const SHORT_KEEP_CHARS = 280;    // the short lines around a pasted run (usually the question) stay visible
+
+/**
+ * Splits a long user message into what stays visible and what becomes a card:
+ * long code blocks, long pasted paragraphs, attached files' text, and long
+ * runs of pasted paragraphs (keeping the short question before/after them).
+ * Returns null when nothing needs to change.
+ */
+function splitLongText(text) {
+  const s = String(text || '');
+  const hasAttachment = /^\*\*Attached `[^`]+`\*\*$/m.test(s);
+  if (s.length < LONG_MESSAGE_CHARS && !hasAttachment) return null;
+
+  // Pieces: fenced code blocks, and the paragraphs between them
+  const pieces = [];
+  const fenceRe = /^(`{3,})([^\n`]*)\n([\s\S]*?)\n\1[ \t]*$/gm;
+  const pushParas = (chunk) => { for (const p of chunk.split(/\n[ \t]*\n/)) if (p.trim()) pieces.push({ kind: 'para', raw: p }); };
+  let last = 0;
+  let m;
+  while ((m = fenceRe.exec(s))) {
+    if (m.index > last) pushParas(s.slice(last, m.index));
+    pieces.push({ kind: 'fence', raw: m[0], lang: m[2].trim(), body: m[3] });
+    last = m.index + m[0].length;
+  }
+  pushParas(s.slice(last));
+
+  const big = (t) => t.length > LONG_PIECE_CHARS || lineCount(t) > LONG_PIECE_LINES;
+  const out = [];
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i];
+    const att = piece.kind === 'para' && /^\*\*Attached `([^`]+)`\*\*$/.exec(piece.raw.trim());
+    if (att && pieces[i + 1] && pieces[i + 1].kind === 'fence') {
+      const f = pieces[++i];
+      out.push({ block: true, title: att[1], kind: 'Attached', text: f.body, lang: f.lang });
+    } else if (piece.kind === 'fence' && big(piece.body)) {
+      out.push({ block: true, title: piece.lang ? `Pasted ${piece.lang} code` : 'Pasted code', kind: 'Pasted', text: piece.body, lang: piece.lang });
+    } else if (piece.kind === 'para' && big(piece.raw)) {
+      out.push({ block: true, title: 'Pasted text', kind: 'Pasted', text: piece.raw, lang: 'prose' });
+    } else {
+      out.push({ block: false, text: piece.raw });
+    }
+  }
+
+  // A long run of short paragraphs (a pasted article, an email…): one card, keeping a short question before/after it
+  const merged = [];
+  for (let i = 0; i < out.length;) {
+    if (out[i].block) { merged.push(out[i++]); continue; }
+    let j = i;
+    while (j < out.length && !out[j].block) j++;
+    const run = out.slice(i, j);
+    const total = run.reduce((n, r) => n + r.text.length, 0);
+    if (total > LONG_MESSAGE_CHARS && run.length >= 3) {
+      const head = run[0].text.length <= SHORT_KEEP_CHARS ? [run.shift()] : [];
+      const tail = run.length > 1 && run[run.length - 1].text.length <= SHORT_KEEP_CHARS ? [run.pop()] : [];
+      merged.push(...head, { block: true, title: 'Pasted text', kind: 'Pasted', text: run.map((r) => r.text).join('\n\n'), lang: 'prose' }, ...tail);
+    } else merged.push(...run);
+    i = j;
+  }
+  if (!merged.some((p) => p.block)) return null;
+
+  // Neighbouring visible pieces become one part again
+  const parts = [];
+  for (const p of merged) {
+    const prev = parts[parts.length - 1];
+    if (!p.block && prev && !prev.block) prev.text += `\n\n${p.text}`;
+    else parts.push({ ...p });
+  }
+  return parts;
+}
+
+/** The card for a long piece of a prompt. */
+function createTextBlockCard(piece) {
+  const card = createFileCard({ action: piece.kind === 'Attached' ? 'Attached' : 'Pasted', path: piece.title, description: '', text: piece.text, lang: piece.lang });
+  const firstLine = piece.text.split('\n').find((l) => l.trim()) || '';
+  card.querySelector('.tool-file-action').textContent = `${piece.kind === 'Attached' ? 'Attached file' : linesLabel(piece.text)} · ${firstLine.trim().slice(0, 80)}`;
+  return card;
+}
+FILE_ACTION_LABEL.Pasted = 'Pasted';
+
+// ── The viewer: code, or a rendered preview (Markdown, HTML, SVG) ────────────
+const PREVIEW_LANGS = { markdown: 'markdown', md: 'markdown', html: 'html', svg: 'svg' };
+const docBody = document.getElementById('docBody');
+let viewerState = null; // { card, text, lang, mode, inPanel }
+
+/** The viewer's content: the code (diffs coloured), or the rendered file. */
+function viewerContent(text, lang, mode) {
+  const kind = PREVIEW_LANGS[String(lang || '').toLowerCase()];
+  if (mode === 'preview' && kind === 'markdown') {
+    const div = document.createElement('div');
+    div.className = 'content-preview markdown';
+    div.innerHTML = renderMarkdown(text);
+    return div;
+  }
+  if (mode === 'preview' && kind === 'html') {
+    // In its own shadow root, so the page's styles stay inside it. Nothing runs: scripts, frames,
+    // event handlers and javascript: links are removed (and the app's security policy blocks outside files)
+    const host = document.createElement('div');
+    host.className = 'content-preview-html';
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    for (const el of doc.querySelectorAll('script, iframe, frame, object, embed, link, meta, base, form')) el.remove();
+    for (const el of doc.querySelectorAll('*')) {
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith('on') || (/^(href|src|action|formaction|xlink:href)$/.test(name) && /^\s*javascript:/i.test(attr.value))) el.removeAttribute(attr.name);
+      }
+    }
+    const styles = [...doc.querySelectorAll('style')].map((s) => s.outerHTML).join('');
+    const page = document.createElement('div');
+    page.className = 'page';
+    page.innerHTML = styles + doc.body.innerHTML;
+    for (const attr of doc.body.attributes) if (attr.name === 'style') page.setAttribute('style', attr.value);
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = '<style>:host{display:block;background:#fff;color:#111;min-height:100%;font-family:system-ui,sans-serif}.page{padding:16px;min-height:100%;box-sizing:border-box}</style>';
+    root.appendChild(page);
+    return host;
+  }
+  if (lang === 'prose') {
+    // Pasted prose: as text, not as code
+    const div = document.createElement('div');
+    div.className = 'content-prose';
+    div.textContent = text;
+    return div;
+  }
+  if (mode === 'preview' && kind === 'svg') {
+    const img = document.createElement('img');
+    img.className = 'content-preview-image';
+    img.alt = '';
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`;
+    return img;
+  }
+  const pre = document.createElement('pre');
+  const code = document.createElement('code');
+  if (lang) code.className = `language-${lang}`;
+  if (lang === 'diff') {
+    for (const line of String(text).replace(/\n$/, '').split('\n')) {
       const span = document.createElement('span');
       span.className = line.startsWith('+ ') ? 'diff-add' : line.startsWith('- ') ? 'diff-del' : '';
       span.textContent = line + '\n';
       code.appendChild(span);
     }
-  }
-  memoryFilePanelBody.appendChild(copy);
-  memoryFilePanel._code = pre.textContent;
-  memoryFilePanel.classList.remove('hidden');
-  memoryThreadPane.classList.add('has-file-panel');
-  memoryFilePanelBody.scrollTop = 0;
+  } else code.textContent = text;
+  pre.appendChild(code);
+  return pre;
 }
 
-function closeFilePanel() {
-  if (!memoryFilePanel) return;
-  memoryFilePanel.classList.add('hidden');
-  memoryThreadPane.classList.remove('has-file-panel');
-  document.querySelectorAll('.tool-file-card.active').forEach((c) => c.classList.remove('active'));
+function renderViewer() {
+  const { text, lang, mode, inPanel, missing } = viewerState;
+  const target = inPanel ? memoryFilePanelBody : docBody.querySelector('.viewer-content');
+  target.innerHTML = '';
+
+  if (text === null) {
+    const p = document.createElement('p');
+    p.className = 'viewer-missing';
+    p.textContent = missing;
+    target.appendChild(p);
+  } else target.appendChild(viewerContent(text, lang, mode));
+  const modeBtn = inPanel ? memoryFilePanelMode : docBody.querySelector('.viewer-mode');
+  const previewable = text !== null && Boolean(PREVIEW_LANGS[String(lang || '').toLowerCase()]);
+  modeBtn.classList.toggle('hidden', !previewable);
+  modeBtn.textContent = mode === 'preview' ? 'Code' : 'Preview';
+  const copyBtn = inPanel ? memoryFilePanelCopy : docBody.querySelector('.viewer-copy');
+  copyBtn.classList.toggle('hidden', text === null);
 }
+
+/** Opens a file or pasted text: next to the conversation in Memory, otherwise in a window. */
+function openContentViewer({ card, name, meta, text, lang, missing }) {
+  closeContentViewer();
+  const inPanel = Boolean(memoryFilePanel && card.closest('#memoryThreadMessages'));
+  viewerState = { card, text, lang: lang || '', missing, inPanel, mode: PREVIEW_LANGS[String(lang || '').toLowerCase()] ? 'preview' : 'code' };
+  card.classList.add('active');
+  if (inPanel) {
+    memoryFilePanelName.textContent = name;
+    memoryFilePanelName.title = meta;
+    memoryFilePanelMeta.textContent = meta;
+    renderViewer();
+    memoryFilePanel.classList.remove('hidden');
+    memoryThreadPane.classList.add('has-file-panel');
+    memoryFilePanelBody.scrollTop = 0;
+  } else {
+    document.getElementById('docTitle').textContent = name;
+    docBody.className = 'doc-body';
+    docBody.innerHTML = '<div class="viewer-bar"><span class="viewer-meta"></span><button type="button" class="secondary-btn viewer-mode hidden"></button>' +
+      '<button type="button" class="secondary-btn viewer-copy">Copy</button></div><div class="viewer-content"></div>';
+    docBody.querySelector('.viewer-meta').textContent = meta;
+    docBody.querySelector('.viewer-mode').addEventListener('click', toggleViewerMode);
+    docBody.querySelector('.viewer-copy').addEventListener('click', (e) => copyViewerText(e.target));
+    renderViewer();
+    docModal.classList.add('viewer');
+    docModal.classList.remove('hidden');
+  }
+}
+
+function toggleViewerMode() {
+  if (!viewerState) return;
+  viewerState.mode = viewerState.mode === 'preview' ? 'code' : 'preview';
+  renderViewer();
+}
+
+async function copyViewerText(btn) {
+  try {
+    await navigator.clipboard.writeText((viewerState && viewerState.text) || '');
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  } catch { /* clipboard unavailable */ }
+}
+
+function closeContentViewer() {
+  document.querySelectorAll('.tool-file-card.active').forEach((c) => c.classList.remove('active'));
+  if (viewerState && !viewerState.inPanel) { docModal.classList.add('hidden'); docModal.classList.remove('viewer'); }
+  if (memoryFilePanel) {
+    memoryFilePanel.classList.add('hidden');
+    memoryThreadPane.classList.remove('has-file-panel');
+  }
+  viewerState = null;
+}
+const closeFilePanel = closeContentViewer; // (used when another conversation opens)
 
 if (memoryFilePanel) {
   memoryFilePanelClose.innerHTML = ICONS.close;
-  memoryFilePanelClose.addEventListener('click', closeFilePanel);
-  memoryFilePanelCopy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(memoryFilePanel._code || '');
-      memoryFilePanelCopy.textContent = 'Copied';
-      setTimeout(() => { memoryFilePanelCopy.textContent = 'Copy'; }, 1500);
-    } catch { /* clipboard unavailable */ }
-  });
+  memoryFilePanelClose.addEventListener('click', closeContentViewer);
+  memoryFilePanelCopy.addEventListener('click', () => copyViewerText(memoryFilePanelCopy));
+  memoryFilePanelMode.addEventListener('click', toggleViewerMode);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !memoryFilePanel.classList.contains('hidden')) closeFilePanel();
+    if (e.key === 'Escape' && viewerState && viewerState.inPanel) closeContentViewer();
   });
 }
 
@@ -2887,6 +3131,7 @@ const DOC_TITLES = { license: 'License agreement', privacy: 'Privacy policy', no
 async function openDocument(name) {
   const body = document.getElementById('docBody');
   document.getElementById('docTitle').textContent = DOC_TITLES[name] || '';
+  closeContentViewer();
   body.innerHTML = '';
   body.className = 'doc-body';
   docModal.classList.remove('hidden');
@@ -2903,7 +3148,10 @@ async function openDocument(name) {
   }
   body.scrollTop = 0;
 }
-const closeDocument = () => docModal.classList.add('hidden');
+const closeDocument = () => {
+  docModal.classList.add('hidden');
+  if (viewerState && !viewerState.inPanel) closeContentViewer();
+};
 
 document.querySelectorAll('.settings-about [data-doc]').forEach((btn) => {
   btn.addEventListener('click', () => openDocument(btn.dataset.doc));

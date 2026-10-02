@@ -2030,6 +2030,31 @@ body {
 .memory-file-panel-meta { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: start; }
 .memory-file-panel-header .secondary-btn { padding: 5px 12px; font-size: 12.5px; }
 .memory-file-panel-body { flex: 1; overflow: auto; }
+
+/* Long text in a prompt, shown as cards between the visible parts */
+.message-text.has-blocks { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.message-text.has-blocks > .tool-file-card { max-width: 100%; }
+
+/* The viewer: rendered previews and the document-window version */
+.content-preview { padding: 16px 20px; line-height: 1.6; }
+.content-preview table { border-collapse: collapse; margin: 10px 0; }
+.content-preview th, .content-preview td { border: 1px solid var(--border); padding: 6px 10px; text-align: start; }
+.content-preview th { background: var(--sidebar-hover); }
+.content-preview h1, .content-preview h2, .content-preview h3 { margin: 14px 0 8px; }
+.content-preview p, .content-preview ul, .content-preview ol { margin-bottom: 8px; }
+.content-preview-html { min-height: 100%; }
+.content-prose { padding: 16px 20px; white-space: pre-wrap; word-break: break-word; line-height: 1.65; font-size: 13.5px; color: var(--text); }
+.content-preview-image { display: block; max-width: 100%; margin: 16px auto; background: #fff; border-radius: 8px; }
+.viewer-missing { padding: 20px; color: var(--muted); line-height: 1.6; }
+#docModal.viewer .doc-card { width: min(980px, 94vw); }
+#docModal.viewer .doc-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.viewer-bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.viewer-meta { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-bar .secondary-btn { padding: 5px 12px; font-size: 12.5px; }
+.viewer-content { flex: 1; overflow: auto; min-height: 0; }
+.viewer-content pre { margin: 0; padding: 14px 16px; background: transparent; border: none; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; direction: ltr; text-align: left; }
+.viewer-content .diff-add { display: block; background: rgba(16, 185, 129, 0.12); color: #a7f3d0; }
+.viewer-content .diff-del { display: block; background: rgba(244, 63, 94, 0.12); color: #fecdd3; }
 .memory-file-panel-body pre { margin: 0; padding: 14px 16px; background: transparent; border: none; font-size: 12.5px; line-height: 1.55; white-space: pre; direction: ltr; text-align: left; }
 .memory-file-panel-body .diff-add { display: block; background: rgba(16, 185, 129, 0.12); color: #a7f3d0; }
 .memory-file-panel-body .diff-del { display: block; background: rgba(244, 63, 94, 0.12); color: #fecdd3; }

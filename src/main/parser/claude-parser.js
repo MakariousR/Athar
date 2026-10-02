@@ -20,7 +20,7 @@ function parseClaudeExport(filePath) {
 const PLACEHOLDER_RE = /\n?```\n?This block is not supported on your current device yet\.?\n?```\n?/g;
 const MAX_CODE_CHARS = 20000;       // one file/artifact
 const MAX_OUTPUT_CHARS = 1500;      // command output shown under a command
-const MAX_ATTACHMENT_CHARS = 4000;  // text of a file the user uploaded
+const MAX_ATTACHMENT_CHARS = 20000; // text of a file the user uploaded (shown as a card, opened on demand)
 
 const LANG_BY_EXT = {
   js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx',
@@ -86,24 +86,26 @@ function renderToolUse(block, result) {
     case 'view':
       return italic(`Viewed ${input.path || 'a file'}`);
     case 'present_files':
-      return italic(`Shared ${(input.filepaths || []).join(', ') || 'files'}`);
+      // One line per file shared with the user; the app shows each as a file card
+      return (input.filepaths || []).length
+        ? input.filepaths.map((p) => `**Shared \`${p}\`**`).join('\n\n')
+        : italic('Shared files');
     case 'web_search':
     case 'web_search_fast':
       return italic(`Searched the web: "${input.query || ''}"`);
     case 'web_fetch':
       return italic(`Opened ${input.url || 'a web page'}`);
     case 'artifacts': {
-      // Older exports: code/document artifacts
-      const title = input.title ? `**${input.title}**\n` : '';
+      // Older exports: code/document artifacts — shown as a card, like a created file
+      const title = String(input.title || input.id || 'Artifact').replace(/`/g, "'");
       if (input.command === 'update' && (input.old_str || input.new_str)) {
         const diff = [
           ...String(input.old_str || '').split('\n').map((l) => `- ${l}`),
           ...String(input.new_str || '').split('\n').map((l) => `+ ${l}`)
         ].join('\n');
-        return `${title}${fence(clip(diff, MAX_CODE_CHARS), 'diff')}`;
+        return `**Updated artifact \`${title}\`**\n${fence(clip(diff, MAX_CODE_CHARS), 'diff')}`;
       }
-      const lang = input.language || (/markdown/.test(input.type || '') ? 'markdown' : /html/.test(input.type || '') ? 'html' : '');
-      return input.content ? `${title}${fence(clip(input.content, MAX_CODE_CHARS), lang)}` : title;
+      return input.content ? `**Artifact \`${title}\`**\n${fence(clip(input.content, MAX_CODE_CHARS), artifactLang(input))}` : italic(title);
     }
     case 'repl':
       return fence(clip(input.code, MAX_CODE_CHARS), 'javascript');
@@ -119,17 +121,28 @@ function renderToolUse(block, result) {
   }
 }
 
-/** Files the user uploaded in this message (their extracted text is kept, shortened). */
+/** The code language of an artifact, from its type: markdown, html, svg, jsx, mermaid, or its own language. */
+function artifactLang(input) {
+  const type = String(input.type || '');
+  if (/markdown/.test(type)) return 'markdown';
+  if (/html/.test(type)) return 'html';
+  if (/svg/.test(type)) return 'svg';
+  if (/react/.test(type)) return 'jsx';
+  if (/mermaid/.test(type)) return 'mermaid';
+  return input.language || '';
+}
+
+/** Files the user uploaded in this message (their extracted text is kept; the app shows it as a card). */
 function renderAttachments(m) {
   const parts = [];
   for (const a of m.attachments || []) {
-    const name = a.file_name || 'file';
+    const name = String(a.file_name || 'file').replace(/`/g, "'");
     parts.push(a.extracted_content
-      ? `**Attached file: ${name}**\n${fence(clip(a.extracted_content, MAX_ATTACHMENT_CHARS))}`
-      : `**Attached file: ${name}**`);
+      ? `**Attached \`${name}\`**\n${fence(clip(a.extracted_content, MAX_ATTACHMENT_CHARS), langFor(name))}`
+      : `**Attached \`${name}\`**`);
   }
   for (const f of m.files || []) {
-    if (f && f.file_name && !(m.attachments || []).some((a) => a.file_name === f.file_name)) parts.push(`**Attached: ${f.file_name}**`);
+    if (f && f.file_name && !(m.attachments || []).some((a) => a.file_name === f.file_name)) parts.push(`**Attached \`${String(f.file_name).replace(/`/g, "'")}\`**`);
   }
   return parts.join('\n\n');
 }
