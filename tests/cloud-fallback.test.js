@@ -122,4 +122,44 @@ test('every Gemini model at its limit: a plain message; a bad key: no switching'
   }
 });
 
+test('Search on: Gemini 3+ gets Google Search; if Google refuses it next to other tools, Athar\'s search tool instead', async () => {
+  gemini._internals.resetUnavailable();
+  assert(gemini.canUseGoogleSearch('gemini/gemini-3.5-flash') && !gemini.canUseGoogleSearch('gemini/gemini-2.5-flash') && !gemini.canUseGoogleSearch('gemini/gemma-4-27b-it'));
+  await gemini.setKey('gemini', 'AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl: async () => ({ ok: true, status: 200,
+    json: async () => ({ models: [{ name: 'models/gemini-3.5-flash', displayName: 'Gemini 3.5 Flash', supportedGenerationMethods: ['generateContent'] }] }) }) });
+  const seenTools = [];
+  const model = new MockLanguageModelV4({
+    doStream: async (opts) => {
+      const names = (opts.tools || []).map((t) => t.name);
+      seenTools.push(names);
+      if (names.includes('google_search')) {
+        throw new APICallError({ message: 'Tool use with function calling is unsupported', url: 'x', requestBodyValues: {}, statusCode: 400,
+          responseBody: '{"error":{"code":400,"message":"Tool use with function calling is unsupported"}}', isRetryable: false });
+      }
+      return answering('Gold is about $3,900 an ounce today (Reuters, 2 Oct 2026).').doStream(opts);
+    }
+  });
+  const original = gemini.createModel;
+  gemini.createModel = () => model;
+  try {
+    const steps = [];
+    const text = await client.generate('What is the price of gold today?', null, [], 'gemini/gemini-3.5-flash', () => {}, (s) => { if (s && s.text) steps.push(s.text); },
+      [], null, null, [], null, { searchOn: true });
+    assert(seenTools[0].includes('google_search') && seenTools[0].includes('url_context') && seenTools[0].includes('search_memory'), JSON.stringify(seenTools[0]));
+    assert(seenTools[1].includes('web_search') && !seenTools[1].includes('google_search'), JSON.stringify(seenTools[1]));
+    assert(steps.some((s) => /can't use Google Search here — searching with Athar's search instead/.test(s)), steps.join(' | '));
+    assert(/Reuters/.test(text) && !/training data/.test(text), 'searched: no "training data" note');
+    assert(!gemini.canUseGoogleSearch('gemini/gemini-3.5-flash'), 'remembered for this session');
+
+    // Search off: no web tools at all, and the answer says how old its information is
+    seenTools.length = 0;
+    const off = await client.generate('What is the price of gold today?', null, [], 'gemini/gemini-3.5-flash', () => {}, () => {});
+    assert(!seenTools[0].some((n) => /web_search|fetch_web_page|google_search/.test(n)), JSON.stringify(seenTools[0]));
+    assert(/training data/.test(off), off);
+  } finally {
+    gemini.createModel = original;
+    gemini.clearKey('gemini');
+  }
+});
+
 done();

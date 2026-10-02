@@ -21,7 +21,7 @@ const { z } = require('zod');
 const { createThinkFilter, stripThinking } = require('./model-profile');
 
 const ALL_KNOWN_TOOLS = [
-  'search_memory', 'get_current_time',
+  'search_memory', 'web_search', 'fetch_web_page', 'get_current_time',
   'list_chat_resources', 'read_chat_resource',
   'read_file', 'list_directory', 'search_files',
   'git_status', 'git_log', 'git_diff'
@@ -39,7 +39,7 @@ function summarizeToolResult(name, text) {
  * "ERROR: …" strings instead of throwing, so the model sees failures as
  * tool results it can react to rather than the stream blowing up.
  */
-function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText }) {
+function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText, web = null }) {
   const def = (name, description, shape) => tool({
     description,
     inputSchema: z.object(shape),
@@ -73,6 +73,21 @@ function buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission
         search_query: z.string().optional().describe('Words or a question describing what to find inside the file(s)')
       })
   };
+
+  // The web: only for capable models (14B+ local, Gemini), and only while the user has Search on.
+  // web.tools: Athar's own search (DuckDuckGo + reading pages); web.googleTools: Gemini 3+'s Google Search and URL reading.
+  if (web && web.googleTools) {
+    Object.assign(tools, web.googleTools);
+  } else if (web && web.tools) {
+    Object.assign(tools, {
+      web_search: def('web_search',
+        'Search the internet for current facts, news, prices, versions, people and events. Search for the subject in a few words, with names instead of "it"/"this".',
+        { query: z.string().describe('Concise search query') }),
+      fetch_web_page: def('fetch_web_page',
+        'Fetch and read the full content of a web page: a result from web_search, or a link the user gave.',
+        { url: z.string().describe('Full https:// URL of the page to fetch') })
+    });
+  }
 
   // Project-folder tools exist only when the user has picked a folder. All read-only.
   if (workspaceDir) {
@@ -270,9 +285,10 @@ async function runAgentLoop({
   continueRetriesLeft = 1,    // nudges when a project question was answered without looking
   progressLogSoFar = [],      // "tool → result" recap across retries, fed back to the model
   abortSignal = undefined,    // the Stop button
-  maxRetries = undefined      // the SDK's own retries of a failed request (default: 2)
+  maxRetries = undefined,     // the SDK's own retries of a failed request (default: 2)
+  web = null                  // { tools } or { googleTools }: web access this turn (see buildToolSet)
 }) {
-  const tools = useTools ? buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText }) : {};
+  const tools = useTools ? buildToolSet({ executeTool, onStatus, workspaceDir, onRequestPermission, modelName, userText, web }) : {};
   const toolNames = Object.keys(tools);
 
   // The SDK reports stream failures (e.g. Ollama's "model does not support
@@ -378,7 +394,7 @@ async function runAgentLoop({
   const retry = (followUpContent, overrides) => runAgentLoop({
     modelName, systemContent, userText, workspaceDir, executeTool,
     onToken, onStatus, onRequestPermission, maxSteps, maxTotalMs, needsWorkspaceRead, useTools,
-    model, onError, fallbackRetriesLeft, continueRetriesLeft, abortSignal,
+    model, onError, fallbackRetriesLeft, continueRetriesLeft, abortSignal, maxRetries, web,
     messages: [...messages, ...stepMessages, { role: 'user', content: followUpContent }],
     ...overrides
   });

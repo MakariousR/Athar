@@ -177,6 +177,7 @@ async function embedText(text) {
 }
 
 const freshness = require('./freshness');
+const { searchWebTool, fetchPageTool } = require('../tools/web-search');
 const chatContext = require('./chat-context');
 const language = require('./language');
 
@@ -254,6 +255,13 @@ async function getModelProfile(modelName) {
   return profile;
 }
 
+/** May this model search the web (with Search on)? Capable local models (14B+) with tools, and cloud models. */
+async function modelCanSearch(modelName) {
+  if (cloud.isCloudModel(modelName)) return true;
+  const [profile, tools] = await Promise.all([getModelProfile(modelName), supportsTools(modelName)]);
+  return profile.level === 'light' && tools;
+}
+
 /** The context size to use for every request to this model (the same one each time). */
 function numCtxFor(modelName) {
   const p = profileCache.get(modelName);
@@ -324,7 +332,9 @@ function trimUrl(url) {
   return u;
 }
 
-/** Web addresses in a message (Athar doesn't open them: the model is told so). */
+const normalizeLink = (u) => String(u || '').trim().replace(/[.,;:!?]+$/, '').replace(/\/+$/, '');
+
+/** Web addresses in a message. */
 function extractUrls(text) {
   return (String(text || '').match(/https?:\/\/[^\s"'<>]+/gi) || []).map((u) => trimUrl(u).replace(/\/+$/, ''));
 }
@@ -366,6 +376,42 @@ async function executeTool(toolName, rawArgs, onStatus = () => {}, workspaceDir 
     } catch (err) {
       return `ERROR: Memory search failed: ${err.message}`;
     }
+  }
+
+  // The web: only for capable models while the user has Search on (turn.webAllowed)
+  if (toolName === 'web_search' || toolName === 'fetch_web_page') {
+    if (!turn || !turn.webAllowed) {
+      return 'Web access is off (the "Search" button in the message box), so nothing was searched or opened. ' +
+        'Answer from your own knowledge and say that it may be out of date.';
+    }
+    if (toolName === 'web_search') {
+      const query = String(args.query || '').trim();
+      if (!query) return 'ERROR: web_search needs a query.';
+      onStatus({ icon: '🌐', text: `Searching the web for: "${query}"` });
+      const result = await searchWebTool(query, onStatus, { signal: turn.signal });
+      const text = typeof result === 'string' ? result : JSON.stringify(result);
+      // Pages from these results may be opened without asking
+      for (const m of text.matchAll(/^URL: (\S+)$/gm)) turn.knownUrls.add(normalizeLink(m[1]));
+      turn.searched = true;
+      return text;
+    }
+    const url = String(args.url || '').trim();
+    if (!turn.knownUrls.has(normalizeLink(url))) {
+      // An address from neither the user nor a search result: it could carry data out of the chat inside it
+      if (typeof onRequestPermission !== 'function') return 'ERROR: this address did not come from the user or a web_search result, and needs the user\'s approval.';
+      onStatus({ icon: '🔒', text: `Asking permission to open: ${url.slice(0, 80)}` });
+      const approved = await onRequestPermission({
+        toolName,
+        args: { url, preview: 'This address did not come from your message or from a web search result. A page opened this way can be used to send data from your files or chats to another site (inside the address itself), so only allow it if you recognise the address.' },
+        workspaceDir
+      });
+      if (!approved) return `ERROR: The user did not allow opening ${url}. Use web_search instead, or ask the user for the link.`;
+      turn.knownUrls.add(normalizeLink(url));
+    }
+    onStatus({ icon: '📄', text: `Reading ${url.slice(0, 70)}…` });
+    const page = await fetchPageTool(url, onStatus, { signal: turn.signal });
+    turn.searched = true;
+    return typeof page === 'string' ? page : JSON.stringify(page);
   }
 
   // System tools
@@ -557,10 +603,10 @@ function buildMessages(userText, memory, conversationHistory, images = [], works
 
   const now = new Date();
 
-  let systemContent = `You are Athar, the user's personal AI assistant. You remember their past conversations — imported from ChatGPT, Claude and Gemini, plus earlier chats in this app — and can read files they attach. You cannot go online: you don't search the web or open links.
+  let systemContent = `You are Athar, the user's personal AI assistant. You remember their past conversations — imported from ChatGPT, Claude and Gemini, plus earlier chats in this app — and can read files they attach. ${memory && memory.webAccess ? 'The user has Search on, so you can also search the web and open links.' : 'Right now you cannot go online: you don\'t search the web or open links.'}
 
 Today's real-world date is ${now.toDateString()} (${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}).
-Your own knowledge comes from training data that ends ${memory && memory.cutoffLabel ? `around ${memory.cutoffLabel}` : 'some time before today'}. For anything that may have changed since then (prices, news, versions, who holds a role…), say your information is as of your training data and may be out of date — never invent a current figure.
+Your own knowledge comes from training data that ends ${memory && memory.cutoffLabel ? `around ${memory.cutoffLabel}` : 'some time before today'}. For anything that may have changed since then (prices, news, versions, who holds a role…), ${memory && memory.webAccess ? 'search the web and give the source and date of what you found' : 'say your information is as of your training data and may be out of date'} — never invent a current figure.
 
 CRITICAL RULES:
 1. MEMORY: <memory_from_past_conversations> holds excerpts from the user's own earlier conversations. Use them for continuity ("last time you decided…"), cite them like [M1], and never confuse them with the current conversation. They are reliable for what the user said, asked and decided — NOT for facts about the outside world: an old answer in them may be wrong or out of date. If the user asks about their past and nothing relevant is shown, ${memory && memory.toolsAvailable === false ? 'say you couldn\'t find it in their history (they can search it in the Memory tab)' : 'call search_memory with a focused query before saying you don\'t remember'}.
@@ -623,7 +669,7 @@ CRITICAL RULES:
       memory && memory.profile ? 'fit your answer to the user\'s profile (their projects, tools and stated answer preferences)' : null,
       memoryBlock ? 'if a past conversation is relevant, build on it ("last time you…") and cite it like [M1]' : null,
       earlierBlock ? 'your earlier replies in this chat are claims, not sources — the note says which were never checked' : null,
-      memory && memory.offlineInstruction ? 'follow the notes below (no internet access)' : null
+      memory && memory.offlineInstruction ? 'follow the notes below about the web' : null
     ].filter(Boolean).join('; ');
     const block = `[Context for this reply, provided by the Athar app — not written by the user. ` +
       `Use it to personalise: ${how}. Don't mention this context block itself.]\n${turnContext.join('\n\n')}`;
@@ -746,7 +792,7 @@ async function generate(
   onRequestPermission = null,
   documents  = [],
   sessionId  = null,
-  options    = {}   // { continuation }: a "continue" request; { signal }: the Stop button
+  options    = {}   // { searchOn }: the Search button; { continuation }: a "continue" request; { signal }: the Stop button
 ) {
   onStatus({ icon: '🧠', text: 'Analyzing request…' });
 
@@ -778,11 +824,20 @@ async function generate(
     });
   }
 
-  // Athar doesn't go online: a link in the message can't be opened, and a
-  // question about something that changes (prices, news, "latest"…) is
-  // answered from the model's training data, saying how old that is.
+  // The web: only while the user has Search on, and only for models that use it
+  // well — capable local models (14B+) and cloud models. Gemini 3+ use Google
+  // Search; the others Athar's search tool. Otherwise a link isn't opened, and a
+  // question about something that changes (prices, news, "latest"…) is answered
+  // from the model's training data, saying how old that is.
+  const searchOn = Boolean(options.searchOn);
+  const canSearch = searchOn && toolsAvailable && (cloud.isCloudModel(modelName) || profile.level === 'light');
   const links = [...new Set(extractUrls(userText))];
-  if (links.length) onStatus({ icon: '🔗', text: 'Athar doesn\'t open web links — answering without the page.' });
+  const turn = { webAllowed: canSearch, knownUrls: new Set(links.map(normalizeLink)), signal: options.signal || null, searched: false };
+  if (searchOn && !canSearch) {
+    onStatus({ icon: '🔒', text: `${modelName} is too small to search the web well, so it answers without the web. Choose a 14B or larger model, or Gemini, to search.` });
+  } else if (links.length && !canSearch) {
+    onStatus({ icon: '🔗', text: 'Turn on Search to let Athar open links — answering without the page.' });
+  }
   const hasDocuments = Boolean(preRead) || (documents && documents.length > 0);
   const aboutOwnHistory = freshness.isPersonalMemoryQuestion(userText) || Boolean(memory && (memory.focus || memory.list));
   let dated = freshness.needsFreshInfo(userText, { cutoffYear: cutoff.year, hasDocuments, isProjectQuestion }).needed;
@@ -812,7 +867,7 @@ async function generate(
   }
 
   // Current information: make sure the answer says it's as of the training data, even if the model forgot to
-  if (dated && text && text.trim() && !freshness.hasTrainingDisclaimer(text)) {
+  if (dated && !canSearch && text && text.trim() && !freshness.hasTrainingDisclaimer(text)) {
     const note = `\n\n_${freshness.offlineNote({ cutoffLabel: cutoff.label, cutoffLabelAr: cutoff.labelAr, arabic: freshness.isArabic(userText) })}_`;
     text += note;
     onToken(note);
@@ -869,11 +924,17 @@ async function generate(
 
   /** One full answer attempt (agent loop, or a plain completion if tools fail). Returns a string on backend error. */
   async function answerOnce() {
-    const instruction = [
-      dated ? freshness.offlineInstruction({ cutoffLabel: cutoff.label }) : null,
-      links.length ? `[The user linked ${links.join(', ')}. Athar cannot open web pages, so you have not seen it: do not guess what it says — ` +
-        'say you can\'t open links, and ask them to paste the part they want you to look at.]' : null
-    ].filter(Boolean).join('\n');
+    const instruction = (canSearch
+      ? [
+        '[Search is on: for facts that change over time (prices, news, versions, who holds a role…) or that you are unsure of, search the web before answering, ' +
+          'and say which source and date your facts come from. Questions only about the user\'s own chats or files need no search.]',
+        links.length ? `[The user linked ${links.join(', ')}: open ${links.length > 1 ? 'them' : 'it'} before answering.]` : null
+      ]
+      : [
+        dated ? freshness.offlineInstruction({ cutoffLabel: cutoff.label }) : null,
+        links.length ? `[The user linked ${links.join(', ')}. You cannot open web pages right now, so you have not seen it: do not guess what it says — ` +
+          'say so, and ask them to paste the part they want you to look at, or to turn on Search.]' : null
+      ]).filter(Boolean).join('\n');
     const prepare = (withTools) => {
       const context = {
         ...(memory || {}),
@@ -882,6 +943,7 @@ async function generate(
         // "continue" picks up the last reply as it was: no note, no marks
         earlierReplies: options.continuation ? '' : chatContext.earlierRepliesNote(conversationHistory),
         replyLanguage: replyLang,
+        webAccess: canSearch,
         offlineInstruction: instruction || null
       };
       const allMessages = buildMessages(userText, context, conversationHistory, images, workspaceDir, documents, sessionId, preRead);
@@ -891,7 +953,10 @@ async function generate(
         messages: toModelMessages(allMessages.filter((m) => m.role !== 'system'))
       };
     };
-    const run = (withTools, useModel = modelName) => {
+    // Gemini 3+: Google Search and URL reading; other models that may search: Athar's search tool
+    const webFor = (useModel, withTools) => (!canSearch || !withTools ? null
+      : cloud.canUseGoogleSearch(useModel) ? { googleTools: cloud.googleTools() } : { tools: true });
+    const runOnce = (withTools, useModel = modelName) => {
       const { systemContent, messages } = prepare(withTools);
       return runAgentLoop({
         modelName: useModel,
@@ -902,7 +967,8 @@ async function generate(
         workspaceDir,
         useTools: withTools,
         executeTool: (tName, rArgs, oStatus, wsDir, reqPerm, model, uText) =>
-          executeTool(tName, rArgs, oStatus, wsDir, reqPerm, model, uText, sessionId),
+          executeTool(tName, rArgs, oStatus, wsDir, reqPerm, model, uText, sessionId, turn),
+        web: webFor(useModel, withTools),
         onToken,
         onStatus,
         onRequestPermission,
@@ -913,6 +979,19 @@ async function generate(
         maxRetries: cloud.isCloudModel(useModel) ? 1 : undefined,
         needsWorkspaceRead: withTools && isProjectQuestion
       });
+    };
+    // Google refused its search next to Athar's tools: this model uses Athar's search tool instead
+    const run = async (withTools, useModel = modelName) => {
+      const usesGoogle = Boolean((webFor(useModel, withTools) || {}).googleTools);
+      try {
+        return await runOnce(withTools, useModel);
+      } catch (err) {
+        if (!usesGoogle || !cloud.isGoogleToolsRefusal(err) || (options.signal && options.signal.aborted)) throw err;
+        cloud.stopGoogleSearch(useModel);
+        onStatus({ type: 'reset' });
+        onStatus({ icon: '🔁', text: `${cloud.modelLabel(useModel)} can't use Google Search here — searching with Athar's search instead…` });
+        return runOnce(withTools, useModel);
+      }
     };
 
     onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
@@ -986,7 +1065,8 @@ module.exports = {
   embedTexts,
   setMemorySearch,
   completeText,
+  modelCanSearch,
   generate,
   // exported for tests
-  _internals: { executeTool, normalizeToolArgs, buildResourcePreRead, extractUrls, buildMessages }
+  _internals: { executeTool, normalizeToolArgs, normalizeLink, buildResourcePreRead, extractUrls, buildMessages }
 };

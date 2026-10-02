@@ -226,6 +226,36 @@ function createModel(name) {
   return PROVIDERS[provider].create(key, modelId(name));
 }
 
+// ─── Searching the web ───────────────────────────────────────────────────────
+// Gemini 3 and newer can use Google Search (and read linked pages) next to
+// Athar's own tools (memory search, files). Gemini 2.x can't combine them —
+// those, and any model whose Google Search fails, use Athar's search tool.
+
+const googleSearchUnsupported = new Set(); // models that refused Google Search with other tools (this session)
+
+function canUseGoogleSearch(name) {
+  if (providerOf(name) !== 'gemini' || googleSearchUnsupported.has(name)) return false;
+  const m = /^gemini-(\d+)/.exec(modelId(name));
+  return Boolean(m) && Number(m[1]) >= 3;
+}
+
+/** Google Search and URL reading, as AI SDK tools (no key needed to describe them). */
+function googleTools() {
+  const { google } = require('@ai-sdk/google');
+  return { google_search: google.tools.googleSearch({}), url_context: google.tools.urlContext({}) };
+}
+
+/** Google refused its tools next to function tools: this model uses Athar's search tool from now on. */
+function isGoogleToolsRefusal(err) {
+  const status = err && (err.status || err.statusCode);
+  const message = String((err && (err.message || err.responseBody)) || '');
+  return (status === 400 || !status) && /(google_?search|url_?context|built-?in tool|function calling|tool use|multiple tools|unsupported).{0,120}(not supported|unsupported|cannot|can't|isn't)|not supported.{0,60}(tool|function calling)/i.test(message);
+}
+
+function stopGoogleSearch(name) {
+  googleSearchUnsupported.add(name);
+}
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 /** The providers' errors in plain words. */
@@ -362,6 +392,10 @@ module.exports = {
   fallbackOrder,
   unavailableReason,
   modelLabel,
+  canUseGoogleSearch,
+  googleTools,
+  isGoogleToolsRefusal,
+  stopGoogleSearch,
   // for tests
   _internals: {
     PROVIDERS, versionOf, fetchModels, msUntilPacificMidnight,

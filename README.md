@@ -23,9 +23,11 @@ Gemini model with your own API key.
   question, the conversation and the relevant memory and file excerpts go to Google;
   memory search stays on your computer. The key is stored encrypted. When a model
   reaches its limit, another Gemini model answers.
-- **No web access.** Athar never goes online for an answer. Questions about
-  things that change (prices, news, the latest version…) are answered from the
-  model's training data, with a note saying how old that is.
+- **Web search only when you turn it on.** The **Search** button in the message box
+  (off by default) lets larger models search the web and open links: local models of
+  ~14B parameters or more (DuckDuckGo, no API key) and Gemini (Google Search on
+  Gemini 3+). Smaller models never go online. With Search off, questions about things
+  that change are answered from the model's training data, with a note saying so.
 - **Attach files** (PDFs, text, code) and let the model read them on demand.
 - **Project folder (read-only)**: let the model read a folder and its git
   history to answer questions about it. It can never change your files.

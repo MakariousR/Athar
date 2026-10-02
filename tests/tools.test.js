@@ -49,20 +49,36 @@ test('file-changing tools no longer exist', async () => {
   assert.strictEqual(fs.readFileSync(path.join(ws, 'small.txt'), 'utf8'), 'a\nb\nc');
 });
 
-test('the web tools no longer exist: Athar never goes online for an answer', async () => {
-  for (const [name, args] of [['web_search', { query: 'news today' }], ['fetch_web_page', { url: 'https://example.com' }]]) {
-    const out = await exec(name, args);
-    assert(/Unknown tool/.test(out) && !/web_search|fetch_web_page/.test(out.replace(name, '')), `${name}: ${out}`);
+test('the web tools refuse unless this answer may search (Search on, a model that can)', async () => {
+  let asked = false;
+  for (const turn of [null, { webAllowed: false, knownUrls: new Set() }]) {
+    for (const [name, args] of [['web_search', { query: 'news today' }], ['fetch_web_page', { url: 'https://example.com' }]]) {
+      const out = await executeTool(name, args, () => {}, ws, async () => { asked = true; return true; }, null, null, null, turn);
+      assert(/Web access is off/.test(out), `${name}: ${out}`);
+    }
   }
+  assert(!asked, 'nothing asked, nothing opened');
 });
 
-test('tool set offered to the model is read-only and has no web tools', () => {
-  const tools = agentLoop.buildToolSet({ executeTool: async () => '', onStatus() {}, workspaceDir: ws });
-  assert.deepStrictEqual(Object.keys(tools).sort(), [
+test('with Search on, a page from neither the user nor a search result needs approval', async () => {
+  let asked = null;
+  const turn = { webAllowed: true, knownUrls: new Set(), signal: null };
+  const out = await executeTool('fetch_web_page', { url: 'https://example.com/?secret=1' }, () => {}, ws, async (req) => { asked = req; return false; }, null, null, null, turn);
+  assert(asked && asked.toolName === 'fetch_web_page');
+  assert(/did not allow/.test(out), out);
+});
+
+test('the model gets web tools only when this answer may search: Athar\'s search tool, or Google\'s for Gemini 3+', () => {
+  const base = { executeTool: async () => '', onStatus() {}, workspaceDir: ws };
+  assert.deepStrictEqual(Object.keys(agentLoop.buildToolSet(base)).sort(), [
     'get_current_time', 'git_diff', 'git_log', 'git_status', 'list_chat_resources',
     'list_directory', 'read_chat_resource', 'read_file', 'search_files', 'search_memory'
-  ]);
-  const noFolder = agentLoop.buildToolSet({ executeTool: async () => '', onStatus() {}, workspaceDir: null });
+  ], 'read-only, and no web without Search');
+  const withSearch = Object.keys(agentLoop.buildToolSet({ ...base, web: { tools: true } }));
+  assert(withSearch.includes('web_search') && withSearch.includes('fetch_web_page'));
+  const google = agentLoop.buildToolSet({ ...base, web: { googleTools: { google_search: { type: 'provider' }, url_context: { type: 'provider' } } } });
+  assert(google.google_search && google.url_context && !google.web_search, 'Google\'s instead of Athar\'s');
+  const noFolder = agentLoop.buildToolSet({ ...base, workspaceDir: null });
   assert(!('read_file' in noFolder));
 });
 
@@ -81,12 +97,13 @@ test('links in a message: parentheses inside the URL are kept, trailing punctuat
   assert.deepStrictEqual(extractUrls('links: https://a.com/x, https://b.com/y!'), ['https://a.com/x', 'https://b.com/y']);
 });
 
-test('the prompt says Athar can\'t go online, and has no web rules', () => {
+test('the prompt says whether Athar can go online for this answer', () => {
   const { buildMessages } = client._internals;
-  const msgs = buildMessages('hi', { cutoffLabel: 'late 2023', toolsAvailable: true }, [], [], null, [], null, '');
-  const system = msgs.find((m) => m.role === 'system').content;
-  assert(/cannot go online/.test(system) && /as of your training data/.test(system), system.slice(0, 400));
-  assert(!/web_search|fetch_web_page|Search is on|SEARCH IS ON|web results/i.test(system));
+  const system = (ctx) => buildMessages('hi', { cutoffLabel: 'late 2023', toolsAvailable: true, ...ctx }, [], [], null, [], null, '').find((m) => m.role === 'system').content;
+  const off = system({});
+  assert(/cannot go online/.test(off) && /as of your training data/.test(off), off.slice(0, 400));
+  const on = system({ webAccess: true });
+  assert(/Search on, so you can also search the web/.test(on) && /give the source and date/.test(on) && !/cannot go online/.test(on));
 });
 
 test('project-question detection is narrow', () => {

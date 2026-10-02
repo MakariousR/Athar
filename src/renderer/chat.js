@@ -1218,7 +1218,47 @@ function modelDisplayName(modelName = activeModel) {
 }
 
 /** Applies the selected model's capabilities everywhere in the UI. Call after switching model. */
+// ── "Search" button in the message box ───────────────────────────────────────
+// Off by default: the model may search the web and open links only while it's
+// on, and only models that use it well can (14B+ local models and Gemini).
+// Remembered between app starts.
+const webSearchToggle = document.getElementById('webSearchToggle');
+const WEB_SEARCH_KEY = 'athar.searchOn';
+let webSearchOn = false;
+let webSearchAvailable = false; // the selected model may search
+try { webSearchOn = localStorage.getItem(WEB_SEARCH_KEY) === 'true'; } catch { /* storage unavailable */ }
+
+function renderWebSearchToggle() {
+  const on = webSearchOn && webSearchAvailable;
+  webSearchToggle.classList.toggle('active', on);
+  webSearchToggle.classList.toggle('unavailable', !webSearchAvailable);
+  webSearchToggle.setAttribute('aria-pressed', String(on));
+  webSearchToggle.title = !webSearchAvailable
+    ? `${modelDisplayName()} can't search the web — choose a larger model (14B or more) or Gemini to use Search.`
+    : on
+      ? 'Search is on: the model may search the web and open links for this chat\'s answers. Click to turn off.'
+      : 'Search is off: nothing goes online. Click to let the model search the web and open links.';
+}
+webSearchToggle.addEventListener('click', () => {
+  if (!webSearchAvailable) { showComposerNotice(webSearchToggle.title); return; }
+  webSearchOn = !webSearchOn;
+  try { localStorage.setItem(WEB_SEARCH_KEY, String(webSearchOn)); } catch { /* storage unavailable */ }
+  renderWebSearchToggle();
+});
+
+/** Whether the selected model may search: asked once per model. */
+const searchAbility = new Map();
+async function refreshWebSearchAvailability() {
+  const model = activeModel;
+  if (!searchAbility.has(model)) {
+    try { searchAbility.set(model, Boolean((await window.api.modelCanSearch(model)).canSearch)); } catch { searchAbility.set(model, false); }
+  }
+  if (model === activeModel) { webSearchAvailable = searchAbility.get(model); renderWebSearchToggle(); }
+}
+renderWebSearchToggle();
+
 function updateCapabilityUI() {
+  refreshWebSearchAvailability();
   const support = modelSupport();
   const name = modelDisplayName();
 
@@ -2141,7 +2181,8 @@ async function sendMessage() {
   mountLiveRun();
   scrollToBottom();
 
-  const result = await window.api.chatSend(sessionId, text, activeModel, currentImagesBase64, currentDocs);
+  const result = await window.api.chatSend(sessionId, text, activeModel, currentImagesBase64, currentDocs,
+    { searchOn: webSearchOn && webSearchAvailable });
 
   const run = liveRun;
   liveRun = null;

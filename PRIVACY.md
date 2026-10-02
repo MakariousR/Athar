@@ -16,7 +16,9 @@ All of this is stored in Athar's data folder (on Windows, `%APPDATA%\Athar`). By
 
 ## What Athar sends over the internet, and why
 
-**With a local model, Athar never goes online to answer you.** It doesn't search the web or open links: your questions are answered from your chats, your files and the AI model's own knowledge. When a question is about something that changes over time (prices, news, the latest version…), the answer says it comes from the model's training data and may be out of date.
+**Nothing goes online to answer you unless you turn on Search.** The **Search** button in the message box is off by default. While it's off, Athar doesn't search the web or open links: your questions are answered from your chats, your files and the AI model's own knowledge, and an answer about something that changes over time (prices, news, the latest version…) says it comes from the model's training data and may be out of date.
+
+While Search is on, the model may search the web and open links when a question needs it. Only larger models can: local models of about 14B parameters or more, and Gemini models; with a smaller local model, Search stays off.
 
 Each request below goes directly from your computer to the service named; the author never receives it.
 
@@ -24,10 +26,15 @@ Each request below goes directly from your computer to the service named; the au
 |---|---|---|
 | You add a Gemini API key in Settings → Cloud models | Google (generativelanguage.googleapis.com) | The key, to check it and list the models it can use |
 | You chat with a Gemini model | Google (the Gemini API) | Your message, the conversation so far, the excerpts of your past conversations that Athar found relevant to it, excerpts of attached files, and images you attach |
+| Search is on, with a local model or Gemini 2.x, and the model searches | DuckDuckGo (duckduckgo.com) | Search words for what the question needs — never your own chats or files |
+| Search is on, with a Gemini 3 or newer model, and the model searches | Google Search, through the Gemini API | Search words chosen by Gemini (Google handles them under the Gemini API terms) |
+| Search is on: reading search results, or a link you paste into a message | The website of that page | A normal request for the page, as a web browser would make; a page that came from neither your message nor a search result is opened only if you allow it |
+| Search is on, and a Wikipedia page is used | Wikipedia (wikipedia.org) | The name of the article |
+| Search is on: checking whether you are online before searching | Microsoft (msftconnecttest.com), Google (gstatic.com), Cloudflare (1.1.1.1) | A tiny standard connectivity check with no personal data |
 | You choose to install Ollama | ollama.com and GitHub | A download of the official Ollama installer |
 | You download an AI model | The Ollama model library, through Ollama | A download request for that model |
 
-These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Apart from the Gemini rows above, Athar does not send your imported history, your chats, your memory profile or your files to any of them.
+These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Apart from the Gemini rows above, Athar does not send your imported history, your chats, your memory profile or your files to any of them; web searches carry only search words.
 
 **Gemini.** What you send to a Gemini model is handled by Google under the [Gemini API terms](https://ai.google.dev/gemini-api/terms) and [Google's privacy policy](https://policies.google.com/privacy). On Google's **free** plan, Google may use what you send to improve its products, and people at Google may review it — don't use a Gemini model for anything you wouldn't want Google to see.
 

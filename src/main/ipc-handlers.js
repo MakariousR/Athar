@@ -235,6 +235,11 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('cloud:clear-key', async (event, provider) => { cloud.clearKey(provider); return { success: true, providers: await cloud.status() }; });
 
+  // Whether a model may search the web (with Search on): capable local models (14B+) and cloud models
+  ipcMain.handle('model:can-search', async (event, modelName) => {
+    try { return { success: true, canSearch: await ollama.modelCanSearch(modelName) }; } catch { return { success: true, canSearch: false }; }
+  });
+
   ipcMain.handle('ollama:list-models', async () => {
     try { return { success: true, models: await ollama.listModels() }; }
     catch (err) { return { success: false, error: err.message }; }
@@ -594,7 +599,7 @@ function registerIpcHandlers() {
           onRequestPermission,
           documents,
           sessionId,
-          { continuation: isContinuation, signal: controller.signal }
+          { searchOn: Boolean(options && options.searchOn), continuation: isContinuation, signal: controller.signal }
         );
       } catch (err) {
         if (!controller.signal.aborted) throw err;

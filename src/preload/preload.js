@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('ollama:install-progress', (_e, progress) => cb(progress));
   },
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
+  modelCanSearch: (modelName) => ipcRenderer.invoke('model:can-search', modelName),
   // Cloud models (Gemini, ChatGPT, Claude) with the user's own API keys: a key is sent once to be saved, never read back
   cloudStatus: () => ipcRenderer.invoke('cloud:status'),
   cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
