@@ -955,10 +955,22 @@ function toModelMessages(msgs) {
       role: m.role,
       content: [
         ...(m.content ? [{ type: 'text', text: m.content }] : []),
-        ...m.images.map((img) => ({ type: 'image', image: img }))
+        ...m.images.map(imagePart)
       ]
     };
   });
+}
+
+// The image's type from its first bytes (base64): what the models need to read it
+const IMAGE_SIGNATURES = [['iVBOR', 'image/png'], ['/9j/', 'image/jpeg'], ['R0lGOD', 'image/gif'], ['UklGR', 'image/webp'], ['Qk', 'image/bmp']];
+
+/** An image (base64, or a data: URL) as the AI SDK's "file" part with its image type. */
+function imagePart(img) {
+  const s = String(img || '');
+  const dataUrl = /^data:(image\/[\w.+-]+);base64,(.*)$/s.exec(s);
+  const data = dataUrl ? dataUrl[2] : s;
+  const mediaType = dataUrl ? dataUrl[1] : ((IMAGE_SIGNATURES.find(([sig]) => data.startsWith(sig)) || [])[1] || 'image/png');
+  return { type: 'file', data, mediaType };
 }
 module.exports = {
   DEFAULT_MODEL,
