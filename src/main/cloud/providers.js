@@ -1,11 +1,10 @@
 'use strict';
 
-// Cloud models with the user's own API key: Gemini (Google), ChatGPT (OpenAI)
-// and Claude (Anthropic).
+// Cloud models with the user's own API key: Gemini (Google).
 //
 // Optional: Athar answers with a local model by default. With a key, the
 // provider's models appear in the model list as "<provider>/<model id>"
-// (e.g. "openai/gpt-5-mini"). The question, the conversation, the memory
+// (e.g. "gemini/gemini-2.5-flash"). The question, the conversation, the memory
 // excerpts found for it and attached-file excerpts then go to that company;
 // memory indexing and search stay on this computer.
 //
@@ -21,13 +20,10 @@ const path = require('path');
 
 // Gemini: not chat models (speech, audio, live, images/video, embeddings, special purpose)
 const GEMINI_NOT_CHAT_RE = /(tts|audio|live|image|imagen|veo|embedding|embed|aqa|robotics|computer-use|lyria|learnlm|deep-research|thinking-exp|-exp-\d)/i;
-// OpenAI: chat models only, and one entry per model (no dated snapshots or old generations)
-const OPENAI_CHAT_RE = /^(gpt-|o\d|chatgpt-)/;
-const OPENAI_NOT_CHAT_RE = /(audio|realtime|tts|transcribe|search|image|embedding|moderation|instruct|codex|computer-use|deep-research|-\d{4}-\d{2}-\d{2}$|-\d{4}$|^gpt-3\.5|^gpt-4$|^gpt-4-|-preview$)/i;
 
-/** "gemini-2.5-flash" → [2, 5]; "gpt-4.1-mini" → [4, 1]; "claude-sonnet-4-5" → [4, 5] */
+/** "gemini-2.5-flash" → [2, 5] */
 function versionOf(id) {
-  const m = /(\d+)(?:[.-](\d+))?/.exec(String(id).replace(/^(gemini|gemma|gpt|claude|o)-?/, ''));
+  const m = /(\d+)(?:[.-](\d+))?/.exec(String(id).replace(/^(gemini|gemma)-?/, ''));
   return m ? [Number(m[1]), Number(m[2] || 0)] : [0, 0];
 }
 
@@ -62,65 +58,10 @@ const PROVIDERS = {
       const { createGoogleGenerativeAI } = require('@ai-sdk/google');
       return createGoogleGenerativeAI({ apiKey: key })(id);
     }
-  },
-
-  openai: {
-    name: 'ChatGPT',
-    company: 'OpenAI',
-    keyUrl: 'platform.openai.com/api-keys',
-    keyRe: /^sk-[\w-]{20,}$/,
-    async list(key, fetchImpl) {
-      const res = await fetchImpl('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw httpError(res.status, body);
-      return (body.data || [])
-        .filter((m) => OPENAI_CHAT_RE.test(m.id) && !OPENAI_NOT_CHAT_RE.test(m.id))
-        .map((m) => ({ id: m.id, label: openaiLabel(m.id), tools: true, preview: false, created: m.created || 0 }))
-        .sort((a, b) => {
-          const [va, vb] = [versionOf(a.id), versionOf(b.id)];
-          const reasoning = (id) => (/^o\d/.test(id) ? 1 : 0); // GPT models first, then the o-series
-          return (reasoning(a.id) - reasoning(b.id)) || (vb[0] - va[0]) || (vb[1] - va[1]) || (b.created - a.created) || a.id.localeCompare(b.id);
-        });
-    },
-    // The newest "mini" GPT model: good and inexpensive
-    recommend: (list) => list.find((m) => /^gpt-/.test(m.id) && /-mini$/.test(m.id)),
-    create(key, id) {
-      const { createOpenAI } = require('@ai-sdk/openai');
-      return createOpenAI({ apiKey: key })(id);
-    }
-  },
-
-  anthropic: {
-    name: 'Claude',
-    company: 'Anthropic',
-    keyUrl: 'console.anthropic.com/settings/keys',
-    keyRe: /^sk-ant-[\w-]{20,}$/,
-    async list(key, fetchImpl) {
-      const res = await fetchImpl('https://api.anthropic.com/v1/models?limit=100', { headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' } });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw httpError(res.status, body);
-      const tier = (id) => (/sonnet/.test(id) ? 0 : /opus/.test(id) ? 1 : /haiku/.test(id) ? 2 : 3);
-      return (body.data || [])
-        .filter((m) => /^claude-/.test(m.id))
-        .map((m) => ({ id: m.id, label: m.display_name || m.id, tools: true, preview: false, created: Date.parse(m.created_at) || 0 }))
-        .sort((a, b) => (b.created - a.created) || (tier(a.id) - tier(b.id)) || a.id.localeCompare(b.id));
-    },
-    // The newest Sonnet: Anthropic's balance of quality and price
-    recommend: (list) => list.find((m) => /sonnet/.test(m.id)),
-    create(key, id) {
-      const { createAnthropic } = require('@ai-sdk/anthropic');
-      return createAnthropic({ apiKey: key })(id);
-    }
   }
 };
 
 const PROVIDER_IDS = Object.keys(PROVIDERS);
-
-/** "gpt-4.1-mini" → "GPT-4.1 mini", "o4-mini" → "o4-mini" */
-function openaiLabel(id) {
-  if (!/^gpt-/.test(id)) return id;
-  return id.replace(/^gpt-([\w.]+)/, 'GPT-$1').replace(/-(mini|nano|pro|turbo|chat-latest)$/, ' $1');
-}
 
 function httpError(status, body) {
   const err = new Error((body && body.error && (body.error.message || body.error.type)) || `HTTP ${status}`);
@@ -131,7 +72,7 @@ function httpError(status, body) {
 
 // ─── Model names ─────────────────────────────────────────────────────────────
 
-/** "openai/gpt-5-mini" → "openai"; a local model → null */
+/** "gemini/gemini-2.5-flash" → "gemini"; a local model → null */
 function providerOf(name) {
   const p = String(name || '').split('/')[0];
   return String(name || '').includes('/') && PROVIDERS[p] ? p : null;
@@ -141,7 +82,7 @@ function isCloudModel(name) {
   return providerOf(name) !== null;
 }
 
-/** "openai/gpt-5-mini" → "gpt-5-mini" */
+/** "gemini/gemini-2.5-flash" → "gemini-2.5-flash" */
 function modelId(name) {
   const p = providerOf(name);
   return p ? String(name).slice(p.length + 1) : String(name || '');
@@ -249,8 +190,19 @@ function recommendedModel(provider, list) {
   return pick ? pick.name : null;
 }
 
+// ChatGPT and Claude keys were supported briefly: delete any such key left on this computer
+let oldKeysRemoved = false;
+function removeOldKeys() {
+  if (oldKeysRemoved) return;
+  oldKeysRemoved = true;
+  for (const old of ['openai', 'anthropic']) {
+    try { fs.rmSync(keyPath(old), { force: true }); } catch { /* not there */ }
+  }
+}
+
 /** For the window: each provider's key state and models. */
 async function status() {
+  removeOldKeys();
   const out = {};
   for (const provider of PROVIDER_IDS) {
     const base = { provider, name: PROVIDERS[provider].name, company: PROVIDERS[provider].company, keyUrl: PROVIDERS[provider].keyUrl };
@@ -412,7 +364,7 @@ module.exports = {
   modelLabel,
   // for tests
   _internals: {
-    PROVIDERS, versionOf, fetchModels, msUntilPacificMidnight, openaiLabel,
+    PROVIDERS, versionOf, fetchModels, msUntilPacificMidnight,
     setModels: (provider, list) => { models.set(provider, list); },
     resetUnavailable: () => unavailable.clear(),
     setDataDir: (dir) => { dataDirOverride = dir; cachedKeys.clear(); models.clear(); }

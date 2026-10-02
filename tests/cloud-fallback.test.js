@@ -122,37 +122,4 @@ test('every Gemini model at its limit: a plain message; a bad key: no switching'
   }
 });
 
-test('ChatGPT at its rate limit: another ChatGPT model answers — never another provider; no credit: no switching', async () => {
-  gemini._internals.resetUnavailable();
-  const lists = {
-    openai: { data: [{ id: 'gpt-5-mini', created: 3 }, { id: 'gpt-4.1-mini', created: 2 }] },
-    gemini: { models: [{ name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] }] }
-  };
-  const fetchImpl = async (url) => ({ ok: true, status: 200, json: async () => (/openai/.test(url) ? lists.openai : lists.gemini) });
-  await gemini.setKey('openai', 'sk-proj-test_key_1234567890abcdefghij', { fetchImpl });
-  await gemini.setKey('gemini', 'AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl });
-  const calls = { n: 0 };
-  const RATE = '{"error":{"message":"Rate limit reached for gpt-5-mini on requests per min (RPM): Limit 3. Please try again in 20s.","type":"requests","code":"rate_limit_exceeded"}}';
-  const original = gemini.createModel;
-  const used = [];
-  gemini.createModel = (name) => { used.push(name); return name === 'openai/gpt-5-mini' ? failing(429, RATE, calls) : answering(`from ${name}`); };
-  try {
-    const res = await ask('openai/gpt-5-mini');
-    assert(/^from openai\/gpt-4\.1-mini/i.test(res.text), res.text);
-    assert(/_Answered by GPT-4\.1 mini: GPT-5 mini reached its limit for this minute\._$/.test(res.text), res.text);
-    assert(!used.some((n) => n.startsWith('gemini/')), 'stays with ChatGPT');
-
-    gemini._internals.resetUnavailable();
-    used.length = 0;
-    gemini.createModel = (name) => { used.push(name); return failing(429, '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","code":"insufficient_quota"}}', calls); };
-    const broke = await ask('openai/gpt-5-mini');
-    assert.deepStrictEqual(used, ['openai/gpt-5-mini'], 'no credit is the whole account: not switched');
-    assert(/OpenAI account has no credit left/.test(broke.text), broke.text);
-  } finally {
-    gemini.createModel = original;
-    gemini.clearKey('openai');
-    gemini.clearKey('gemini');
-  }
-});
-
 done();

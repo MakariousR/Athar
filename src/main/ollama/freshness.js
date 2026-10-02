@@ -35,7 +35,7 @@ const MODEL_CUTOFFS = [
 ];
 
 function modelKnowledgeCutoff(modelName) {
-  const name = String(modelName || '').toLowerCase().replace(/^(gemini|openai|anthropic)\//, ''); // a cloud model's provider prefix
+  const name = String(modelName || '').toLowerCase().replace(/^gemini\//, ''); // a cloud model's provider prefix
   const hit = MODEL_CUTOFFS.find(([prefix]) => name.startsWith(prefix));
   return hit ? hit[1] : { label: null, labelAr: null, year: null };
 }

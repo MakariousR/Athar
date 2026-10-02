@@ -3,7 +3,7 @@
 One private memory for all your AI chats. Import your ChatGPT, Claude and Gemini
 history; a local model (via [Ollama](https://ollama.com)) remembers it, cites it,
 and helps you search it — nothing leaves your computer unless you choose a
-cloud model (Gemini, ChatGPT or Claude) with your own API key.
+Gemini model with your own API key.
 
 ## What it does
 
@@ -18,12 +18,11 @@ cloud model (Gemini, ChatGPT or Claude) with your own API key.
 - **Portable memory profile.** A short summary of you (work, projects, tools,
   how you like answers) learned from your own messages. Review it, use it here,
   or copy it into ChatGPT's custom instructions or another assistant.
-- **Cloud models, optional.** Add your own API key for Gemini (free plan from Google
-  AI Studio), ChatGPT (OpenAI) or Claude (Anthropic) in Settings to use their models
-  next to the local ones. With a cloud model, the question, the conversation and the
-  relevant memory and file excerpts go to that company; memory search stays on your
-  computer. Keys are stored encrypted. When a model reaches its limit, another model
-  of the same company answers.
+- **Gemini, optional.** Add your own Gemini API key (free plan from Google AI Studio)
+  in Settings to use Gemini models next to the local ones. With a Gemini model, the
+  question, the conversation and the relevant memory and file excerpts go to Google;
+  memory search stays on your computer. The key is stored encrypted. When a model
+  reaches its limit, another Gemini model answers.
 - **No web access.** Athar never goes online for an answer. Questions about
   things that change (prices, news, the latest version…) are answered from the
   model's training data, with a note saying how old that is.

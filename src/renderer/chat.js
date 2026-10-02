@@ -92,11 +92,9 @@ function saveActiveModel(name) {
 // The model currently used for generation — remembered across launches, so a
 // model picked during setup (or later) stays selected.
 let activeModel = loadSavedModel() || CHAT_MODEL;
-// Cloud models (the user's own API keys): "<provider>/<model id>", e.g. "openai/gpt-5-mini" — see "Cloud models" below
+// Cloud models (the user's own API keys): "<provider>/<model id>", e.g. "gemini/gemini-2.5-flash" — see "Cloud models" below
 const CLOUD_PROVIDERS = {
-  gemini:    { name: 'Gemini',  company: 'Google',    plan: 'free plan available', keyUrl: 'https://aistudio.google.com/apikey' },
-  openai:    { name: 'ChatGPT', company: 'OpenAI',    plan: 'paid per use',        keyUrl: 'https://platform.openai.com/api-keys' },
-  anthropic: { name: 'Claude',  company: 'Anthropic', plan: 'paid per use',        keyUrl: 'https://console.anthropic.com/settings/keys' }
+  gemini:    { name: 'Gemini',  company: 'Google',    plan: 'free plan available', keyUrl: 'https://aistudio.google.com/apikey' }
 };
 function cloudProviderOf(name) {
   const p = String(name || '').split('/')[0];
@@ -1058,8 +1056,6 @@ const MODEL_CATEGORIES = {
   local:     { title: 'On this computer',          sub: 'private · offline' },
   download:  { title: 'Download to this computer', sub: 'free · private once downloaded' },
   gemini:    { title: 'Gemini',  sub: 'Google · free plan' },
-  openai:    { title: 'ChatGPT', sub: 'OpenAI · paid per use' },
-  anthropic: { title: 'Claude',  sub: 'Anthropic · paid per use' },
   other:     { title: 'Other',   sub: '' }
 };
 

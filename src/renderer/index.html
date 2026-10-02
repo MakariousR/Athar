@@ -62,7 +62,6 @@
           <button id="setupGeminiSave" class="primary-btn" type="button">Continue</button>
         </div>
         <p id="setupGeminiNote" class="gemini-note hidden"></p>
-        <p class="settings-desc">Have a ChatGPT or Claude API key instead? Start with a local model or Gemini, then add it in Settings → Cloud models.</p>
         <p class="settings-desc">Your past chats stay on this computer and are searched here; only the parts that match your question are sent with it.
           On Google's free plan, Google may use what you send to improve its products.</p>
         <button id="setupCloudBack" class="setup-link-btn" type="button">← Back</button>
@@ -132,7 +131,7 @@
       <div class="settings-body">
         <section class="settings-section">
           <h3>Model</h3>
-          <p class="settings-desc">The AI that answers your chats. Local models run privately on this computer; cloud models (Gemini, ChatGPT, Claude) run on the company's servers with your own API key.</p>
+          <p class="settings-desc">The AI that answers your chats. Local models run privately on this computer; Gemini models run on Google's servers with your own API key.</p>
           <div class="model-row">
             <select id="modelSelect" class="model-select hidden" title="Choose model" aria-hidden="true" tabindex="-1"></select>
             <div id="modelPicker" class="model-picker">
@@ -166,11 +165,10 @@
 
         <section class="settings-section">
           <h3>Cloud models <span class="settings-optional">optional</span></h3>
-          <p class="settings-desc">Use Gemini, ChatGPT or Claude with your own API key. Their models then appear in the model list above.</p>
+          <p class="settings-desc">Use Google's Gemini models with your own API key. They then appear in the model list above.</p>
           <div id="cloudProviders" class="cloud-providers"></div>
-          <p class="settings-desc cloud-privacy">With a cloud model, your question, the conversation and the related excerpts from your memory and attached files are sent to that company.
-            Gemini has a free plan, on which Google may use what you send to improve its products; ChatGPT and Claude API use is paid by you to OpenAI or Anthropic.
-            Local models keep everything on this computer.</p>
+          <p class="settings-desc cloud-privacy">With a Gemini model, your question, the conversation and the related excerpts from your memory and attached files are sent to Google.
+            On Google's free plan, Google may use what you send to improve its products. Local models keep everything on this computer.</p>
         </section>
 
         <section class="settings-section">
