@@ -3252,7 +3252,7 @@ function renderMcpApps(st, note = '', ok = false) {
   const desktopAction = !d.installed
     ? '<span>Not installed. Get it at <a href="https://claude.ai/download" target="_blank" rel="noopener">claude.ai/download</a>, open it once, then come back.</span>'
     : d.connected
-      ? '<span>Restart Claude Desktop if Athar doesn\'t show in its tools.</span><button class="text-btn danger" type="button" data-action="disconnect">Disconnect</button>'
+      ? '<span>Not in Claude\'s tools? Quit Claude Desktop from its tray icon, then open it again.</span><button class="text-btn danger" type="button" data-action="disconnect">Disconnect</button>'
       : `<span>${d.outdated ? 'Connected to another copy of Athar.' : 'Quit Claude Desktop first (also from the tray icon), then connect.'}</span><button class="primary-btn" type="button" data-action="connect">${d.outdated ? 'Reconnect' : 'Connect'}</button>`;
   mcpAppsEl.innerHTML = `
     <div class="cloud-provider">
@@ -3277,7 +3277,7 @@ function renderMcpApps(st, note = '', ok = false) {
     connect.disabled = true;
     const res = await window.api.mcpConnectDesktop();
     renderMcpApps(res.success ? res : { ...st, success: true }, res.success
-      ? 'Connected. Open Claude Desktop and ask it about something from your past chats.'
+      ? 'Connected. If Claude Desktop is still running (check the tray icon by the clock), right-click it → Quit, then open it again. Then ask it about something from your past chats.'
       : res.error, res.success);
   });
   const disconnect = mcpAppsEl.querySelector('[data-action="disconnect"]');
