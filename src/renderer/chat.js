@@ -92,11 +92,18 @@ function saveActiveModel(name) {
 // The model currently used for generation — remembered across launches, so a
 // model picked during setup (or later) stays selected.
 let activeModel = loadSavedModel() || CHAT_MODEL;
-// Gemini models (cloud, the user's own API key): "gemini/<model id>" — see the Gemini section below
-const GEMINI_PREFIX = 'gemini/';
-function isGeminiModel(name) { return String(name || '').startsWith('gemini/'); }
-let geminiModels = [];
-let geminiRecommended = null;
+// Cloud models (the user's own API keys): "<provider>/<model id>", e.g. "openai/gpt-5-mini" — see "Cloud models" below
+const CLOUD_PROVIDERS = {
+  gemini:    { name: 'Gemini',  company: 'Google',    plan: 'free plan available', keyUrl: 'https://aistudio.google.com/apikey' },
+  openai:    { name: 'ChatGPT', company: 'OpenAI',    plan: 'paid per use',        keyUrl: 'https://platform.openai.com/api-keys' },
+  anthropic: { name: 'Claude',  company: 'Anthropic', plan: 'paid per use',        keyUrl: 'https://console.anthropic.com/settings/keys' }
+};
+function cloudProviderOf(name) {
+  const p = String(name || '').split('/')[0];
+  return String(name || '').includes('/') && CLOUD_PROVIDERS[p] ? p : null;
+}
+function isCloudModel(name) { return cloudProviderOf(name) !== null; }
+let cloudState = {}; // provider → { hasKey, models, recommended, error }
 let setupNeedsEmbed = false;
 
 // Curated catalog of popular Ollama chat models with rich capability metadata.
@@ -146,15 +153,17 @@ const MODEL_CATALOG = [
 const installedCapabilities = new Map();
 
 function getModelInfo(modelName) {
-  if (isGeminiModel(modelName)) {
-    const m = geminiModels.find((x) => x.name === modelName);
+  const provider = cloudProviderOf(modelName);
+  if (provider) {
+    const p = CLOUD_PROVIDERS[provider];
+    const m = ((cloudState[provider] && cloudState[provider].models) || []).find((x) => x.name === modelName);
     return {
       name: modelName,
-      label: `${m ? m.label : modelName.slice(GEMINI_PREFIX.length)} ☁️`,
-      cloud: true,
+      label: m ? m.label : modelName.slice(provider.length + 1),
+      cloud: provider,
       vision: true,
       tools: m ? m.tools : true,
-      desc: 'Runs on Google\'s servers with your API key. Your question, the conversation and related memory and file excerpts are sent to Google.'
+      desc: `${p.name} model, on ${p.company}'s servers with your API key (${p.plan}). Your question, the conversation and related memory and file excerpts are sent to ${p.company}.`
     };
   }
   const info = MODEL_CATALOG.find((m) => m.name === modelName || m.name.startsWith(modelName + ':')) || {
@@ -181,7 +190,7 @@ function renderCapCard(modelName, containerEl) {
       <span class="cap-badge ${info.vision ? 'vision' : ''}">${info.vision ? 'Images + text' : 'Text only'}</span>
     </div>
     ${info.cloud
-    ? '<div class="cap-row"><span>Runs on:</span> <span class="cap-val">Google\'s servers (needs internet)</span></div>'
+    ? `<div class="cap-row"><span>Runs on:</span> <span class="cap-val">${CLOUD_PROVIDERS[info.cloud].company}'s servers (needs internet)</span></div>`
     : `<div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>`}
     ${toolsRow}
     ${info.thinking ? '<div class="cap-row"><span>Reasoning:</span> <span class="cap-val">thinks before answering (slower, better on hard questions)</span></div>' : ''}
@@ -331,10 +340,11 @@ function addThoughtStep(bubble, info) {
 
 // ── Setup flow ────────────────────────────────────────────────────────────────
 async function checkSetup() {
-  // Gemini chosen and its key saved: no local AI needed
-  if (isGeminiModel(activeModel)) {
-    const gemini = await window.api.geminiStatus().catch(() => null);
-    if (gemini && gemini.hasKey) { enterApp(); return; }
+  // A cloud model chosen and its key saved: no local AI needed
+  if (isCloudModel(activeModel)) {
+    const providers = await window.api.cloudStatus().catch(() => null);
+    const st = providers && providers[cloudProviderOf(activeModel)];
+    if (st && st.hasKey) { enterApp(); return; }
   }
   const result = await window.api.checkOllama();
   if (result.running && result.chatInstalled && result.embedInstalled) { stopOllamaWatch(); setupOllama.classList.add('hidden'); enterApp(); return; }
@@ -406,10 +416,11 @@ setupGeminiSave.addEventListener('click', async () => {
   setupGeminiSave.disabled = true;
   setupGeminiSave.textContent = 'Checking…';
   setupGeminiNote.classList.add('hidden');
-  const status = await window.api.geminiSetKey(key);
+  const res = await window.api.cloudSetKey('gemini', key);
+  const status = res.success ? res.providers.gemini : { error: res.error };
   setupGeminiSave.disabled = false;
   setupGeminiSave.textContent = 'Continue';
-  if (!status.success || !status.recommended) {
+  if (!res.success || !status.recommended) {
     setupGeminiNote.textContent = status.error || 'No Gemini model is available for this key.';
     setupGeminiNote.classList.remove('hidden');
     return;
@@ -833,63 +844,104 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
-// ── Gemini (the user's own API key) ──────────────────────────────────────────
-// The key is saved by the main process (encrypted); this window only learns
+// ── Cloud models: Gemini, ChatGPT, Claude (the user's own API keys) ─────────
+// The keys are saved by the main process (encrypted); this window only learns
 // whether one is set, and the models it can use.
-const geminiKeyForm   = document.getElementById('geminiKeyForm');
-const geminiKeyInput  = document.getElementById('geminiKeyInput');
-const geminiSaveBtn   = document.getElementById('geminiSaveBtn');
-const geminiKeySet    = document.getElementById('geminiKeySet');
-const geminiRemoveBtn = document.getElementById('geminiRemoveBtn');
-const geminiNote      = document.getElementById('geminiNote');
+const cloudProvidersEl = document.getElementById('cloudProviders');
 
-function showGeminiNote(text, ok = false) {
-  geminiNote.textContent = text || '';
-  geminiNote.classList.toggle('ok', ok);
-  geminiNote.classList.toggle('hidden', !text);
+/** The small square in front of a model: where it runs, or whose it is. */
+const MODEL_ICONS = {
+  local: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+  download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  gemini: '✦',
+  openai: '<svg viewBox="0 0 24 24"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg>',
+  anthropic: '✳'
+};
+function modelIcon(kind, small = false) {
+  const k = MODEL_ICONS[kind] ? kind : 'local';
+  return `<span class="mp-icon mp-icon-${k}${small ? ' small' : ''}" aria-hidden="true">${MODEL_ICONS[k]}</span>`;
 }
 
-function renderGeminiStatus(status) {
-  const hasKey = Boolean(status && status.hasKey);
-  geminiKeyForm.classList.toggle('hidden', hasKey);
-  geminiKeySet.classList.toggle('hidden', !hasKey);
-  geminiModels = (status && status.models) || [];
-  geminiRecommended = (status && status.recommended) || null;
-  if (status && !status.success && status.error) showGeminiNote(status.error);
-  else if (status && status.encryption === false) showGeminiNote('This computer can\'t store an API key securely, so Gemini can\'t be used here.');
-  else showGeminiNote('');
+function showCloudNote(provider, text, ok = false) {
+  const row = cloudProvidersEl.querySelector(`[data-provider="${provider}"]`);
+  const note = row && row.querySelector('.gemini-note');
+  if (!note) return;
+  note.textContent = text || '';
+  note.classList.toggle('ok', ok);
+  note.classList.toggle('hidden', !text);
 }
 
-async function loadGeminiModels() {
-  try { renderGeminiStatus(await window.api.geminiStatus()); } catch { geminiModels = []; }
+function renderCloudProviders() {
+  cloudProvidersEl.innerHTML = '';
+  for (const [id, p] of Object.entries(CLOUD_PROVIDERS)) {
+    const st = cloudState[id] || {};
+    const count = (st.models || []).length;
+    const row = document.createElement('div');
+    row.className = 'cloud-provider';
+    row.dataset.provider = id;
+    row.innerHTML = `
+      <div class="cloud-provider-head">
+        ${modelIcon(id)}
+        <div class="cloud-provider-title"><strong>${p.name}</strong><span>${p.company} · ${p.plan}</span></div>
+        ${st.hasKey && count ? `<span class="cloud-provider-state">✓ ${count} model${count === 1 ? '' : 's'}</span>` : ''}
+      </div>
+      ${st.hasKey
+    ? '<div class="cloud-provider-actions"><span>Key saved, stored encrypted on this computer.</span><button class="text-btn danger" type="button" data-action="remove">Remove key</button></div>'
+    : `<div class="gemini-key-form">
+          <input type="password" class="settings-input" placeholder="Paste your ${p.name} API key" autocomplete="off" spellcheck="false" />
+          <button class="primary-btn" type="button" data-action="save">Save</button>
+        </div>
+        <p class="cloud-provider-hint">Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${p.keyUrl.replace(/^https:\/\//, '')}</a></p>`}
+      <p class="gemini-note hidden"></p>`;
+    cloudProvidersEl.appendChild(row);
+    if (st.success === false && st.error) showCloudNote(id, st.error);
+    else if (!st.hasKey && st.encryption === false) showCloudNote(id, 'This computer can\'t store an API key securely, so cloud models can\'t be used here.');
+
+    const input = row.querySelector('input');
+    const save = row.querySelector('[data-action="save"]');
+    if (save) {
+      save.addEventListener('click', () => saveCloudKey(id, input, save));
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });
+    }
+    const remove = row.querySelector('[data-action="remove"]');
+    if (remove) remove.addEventListener('click', () => removeCloudKey(id));
+  }
 }
 
-geminiSaveBtn.addEventListener('click', async () => {
-  const key = geminiKeyInput.value.trim();
-  if (!key) { showGeminiNote('Paste your API key first.'); return; }
-  geminiSaveBtn.disabled = true;
-  geminiSaveBtn.textContent = 'Checking…';
-  showGeminiNote('');
-  const status = await window.api.geminiSetKey(key);
-  geminiSaveBtn.disabled = false;
-  geminiSaveBtn.textContent = 'Save';
-  if (!status.success) { showGeminiNote(status.error || 'The key could not be saved.'); return; }
-  geminiKeyInput.value = '';
-  renderGeminiStatus(status);
-  // Switch to the suggested Gemini model so it's ready to use
-  if (status.recommended) { activeModel = status.recommended; saveActiveModel(activeModel); }
-  await loadModelSelector();
-  showGeminiNote(`Saved. ${geminiModels.length} Gemini model${geminiModels.length === 1 ? '' : 's'} added to the model list${status.recommended ? ` — now using ${modelDisplayName(status.recommended)}` : ''}.`, true);
-});
-geminiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') geminiSaveBtn.click(); });
+async function loadCloudStatus() {
+  try { cloudState = (await window.api.cloudStatus()) || {}; } catch { cloudState = {}; }
+  renderCloudProviders();
+}
 
-geminiRemoveBtn.addEventListener('click', async () => {
-  if (!confirm('Remove your Gemini API key from this computer? Gemini models will disappear from the model list.')) return;
-  renderGeminiStatus(await window.api.geminiClearKey());
-  await loadModelSelector(); // a Gemini model in use falls back to a local one
-  showGeminiNote('Key removed.', true);
-});
+async function saveCloudKey(provider, input, button) {
+  const key = input.value.trim();
+  if (!key) { showCloudNote(provider, 'Paste your API key first.'); return; }
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  showCloudNote(provider, '');
+  const res = await window.api.cloudSetKey(provider, key);
+  button.disabled = false;
+  button.textContent = 'Save';
+  if (!res.success) { showCloudNote(provider, res.error || 'The key could not be saved.'); return; }
+  input.value = '';
+  // Switch to the suggested model so it's ready to use
+  const st = res.providers[provider];
+  if (st && st.recommended) { activeModel = st.recommended; saveActiveModel(activeModel); }
+  await loadModelSelector(); // reloads the providers too
+  const count = (st && st.models ? st.models.length : 0);
+  showCloudNote(provider, `Saved. ${count} ${CLOUD_PROVIDERS[provider].name} model${count === 1 ? '' : 's'} added to the model list` +
+    `${st && st.recommended ? ` — now using ${modelDisplayName(st.recommended)}` : ''}.`, true);
+}
 
+async function removeCloudKey(provider) {
+  const p = CLOUD_PROVIDERS[provider];
+  if (!confirm(`Remove your ${p.name} API key from this computer? ${p.name} models will disappear from the model list.`)) return;
+  await window.api.cloudClearKey(provider);
+  await loadModelSelector(); // a model of this provider in use falls back to another one
+  showCloudNote(provider, 'Key removed.', true);
+}
+
+// ── The model list: categorised, in the hidden <select> the picker shows ────
 async function loadModelSelector() {
   try {
     const result = await window.api.listModels();
@@ -916,39 +968,61 @@ async function loadModelSelector() {
 
     modelSelect.innerHTML = '';
     installedCapabilities.clear();
-    await loadGeminiModels();
+    await loadCloudStatus();
+
+    const group = (category, label) => {
+      const g = document.createElement('optgroup');
+      g.label = label;
+      g.dataset.category = category;
+      modelSelect.appendChild(g);
+      return g;
+    };
+    // Local models: the installed ones first, then the ones that can be downloaded
+    const onThisPc = group('local', 'On this computer');
+    const toDownload = group('download', 'Download to this computer');
     for (const entry of allEntries) {
       const inst = findInstalled(entry.name);
-      if (inst && Array.isArray(inst.capabilities)) {
-        installedCapabilities.set(entry.name, inst.capabilities);
-        installedCapabilities.set(inst.name, inst.capabilities);
+      const caps = inst && Array.isArray(inst.capabilities) ? inst.capabilities : null;
+      if (caps) {
+        installedCapabilities.set(entry.name, caps);
+        installedCapabilities.set(inst.name, caps);
       }
       const opt  = document.createElement('option');
       opt.value  = entry.name;
       opt.dataset.installed = inst ? 'true' : 'false';
+      opt.dataset.label = entry.label;
       const sizeStr = inst ? formatBytes(inst.size) : `~${formatBytes(entry.sizeBytes)}`;
-      const noTools = inst && Array.isArray(inst.capabilities) && !inst.capabilities.includes('tools');
+      const noTools = caps && !caps.includes('tools');
+      const vision = caps ? caps.includes('vision') : entry.vision;
+      opt.dataset.meta = [sizeStr, entry.ram && !inst ? `${entry.ram} RAM` : null, vision ? 'sees images' : null,
+        entry.thinking ? 'reasoning' : null, noTools ? 'no tools' : null].filter(Boolean).join(' · ');
+      if (entry.name === CHAT_MODEL) opt.dataset.badge = 'Recommended';
       opt.textContent = inst
         ? `✓  ${entry.label}  (${sizeStr})${noTools ? '  · no tools' : ''}`
         : `${entry.label}  (${sizeStr}) · not downloaded`;
-      modelSelect.appendChild(opt);
+      (inst ? onThisPc : toDownload).appendChild(opt);
     }
 
-    // Gemini models (with the user's API key), in their own group
-    if (geminiModels.length) {
-      const group = document.createElement('optgroup');
-      group.label = 'Gemini — on Google\'s servers, with your API key';
-      for (const m of geminiModels) {
+    // Cloud models (with the user's API keys), one group per provider
+    for (const [provider, p] of Object.entries(CLOUD_PROVIDERS)) {
+      const st = cloudState[provider];
+      const list = (st && st.models) || [];
+      if (!list.length) continue;
+      const g = group(provider, p.name);
+      for (const m of list) {
         installedCapabilities.set(m.name, ['completion', 'vision', ...(m.tools ? ['tools'] : [])]);
         const opt = document.createElement('option');
         opt.value = m.name;
         opt.dataset.installed = 'true';
         opt.dataset.cloud = 'true';
-        opt.textContent = `☁️  ${m.label}${m.name === geminiRecommended ? '  · recommended' : ''}`;
-        group.appendChild(opt);
+        opt.dataset.label = m.label;
+        opt.dataset.meta = m.label === m.id ? `${p.company}` : m.id;
+        if (m.name === st.recommended) opt.dataset.badge = 'Recommended';
+        opt.textContent = `☁️  ${m.label}`;
+        g.appendChild(opt);
       }
-      modelSelect.appendChild(group);
     }
+    for (const g of [...modelSelect.querySelectorAll('optgroup')]) if (!g.children.length) g.remove();
 
     // Select activeModel if present, else first installed entry
     // Must be installed: a saved/remembered model may since have been uninstalled.
@@ -971,6 +1045,145 @@ async function loadModelSelector() {
     console.warn('Could not load model list:', err);
   }
 }
+
+// ── Model picker: a modern, categorised dropdown over the hidden <select> ────
+// The <select> stays the source of truth (everything else reads and sets it);
+// the picker only shows it and sets its value.
+const modelPickerBtn    = document.getElementById('modelPickerBtn');
+const modelPickerPanel  = document.getElementById('modelPickerPanel');
+const modelPickerSearch = document.getElementById('modelPickerSearch');
+const modelPickerList   = document.getElementById('modelPickerList');
+
+const MODEL_CATEGORIES = {
+  local:     { title: 'On this computer',          sub: 'private · offline' },
+  download:  { title: 'Download to this computer', sub: 'free · private once downloaded' },
+  gemini:    { title: 'Gemini',  sub: 'Google · free plan' },
+  openai:    { title: 'ChatGPT', sub: 'OpenAI · paid per use' },
+  anthropic: { title: 'Claude',  sub: 'Anthropic · paid per use' },
+  other:     { title: 'Other',   sub: '' }
+};
+
+const categoryOf = (opt) => (opt && opt.parentElement && opt.parentElement.dataset.category) || (opt && cloudProviderOf(opt.value)) || 'other';
+const CHECK_SVG = '<svg class="mp-item-end" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const DOWNLOAD_SVG = '<svg class="mp-item-end muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
+
+function renderModelPicker() {
+  const opt = modelSelect.options[modelSelect.selectedIndex];
+  const nameEl = document.getElementById('modelPickerName');
+  const metaEl = document.getElementById('modelPickerMeta');
+  const iconEl = document.getElementById('modelPickerIcon');
+  if (!opt) {
+    nameEl.textContent = 'Choose a model';
+    metaEl.textContent = '';
+    iconEl.innerHTML = modelIcon('local');
+  } else {
+    const cat = categoryOf(opt);
+    const info = MODEL_CATEGORIES[cat] || MODEL_CATEGORIES.other;
+    nameEl.textContent = opt.dataset.label || opt.textContent.trim();
+    metaEl.textContent = cat === 'download'
+      ? `Not downloaded yet · ${opt.dataset.meta || ''}`
+      : `${info.title} · ${cat === 'local' ? (opt.dataset.meta || '') : info.sub}`;
+    iconEl.innerHTML = modelIcon(cat === 'other' ? 'local' : cat);
+  }
+  if (!modelPickerPanel.classList.contains('hidden')) renderModelPickerList();
+}
+
+function renderModelPickerList() {
+  const q = modelPickerSearch.value.trim().toLowerCase();
+  const matches = (opt) => !q || `${opt.dataset.label || opt.textContent} ${opt.dataset.meta || ''}`.toLowerCase().includes(q);
+  // Groups as in the <select>; options outside a group go under "Other"
+  const groups = [];
+  const loose = [];
+  for (const child of modelSelect.children) {
+    if (child.tagName === 'OPTGROUP') groups.push({ category: child.dataset.category || 'other', options: [...child.children] });
+    else loose.push(child);
+  }
+  if (loose.length) groups.push({ category: 'other', options: loose });
+
+  const html = [];
+  for (const { category, options } of groups) {
+    const shown = options.filter(matches);
+    if (!shown.length) continue;
+    const info = MODEL_CATEGORIES[category] || MODEL_CATEGORIES.other;
+    html.push(`<div class="mp-group"><div class="mp-group-head">${modelIcon(category === 'other' ? 'local' : category, true)}` +
+      `<span class="mp-group-title">${escapeHtml(info.title)}</span><span class="mp-group-sub">${escapeHtml(info.sub)}</span></div>`);
+    for (const opt of shown) {
+      const selected = opt.value === modelSelect.value;
+      html.push(`<button type="button" class="mp-item${selected ? ' selected' : ''}" role="option" aria-selected="${selected}" data-value="${escapeHtml(opt.value)}">` +
+        `<span class="mp-item-text"><span class="mp-item-name">${escapeHtml(opt.dataset.label || opt.textContent.trim())}</span>` +
+        `<span class="mp-item-meta">${escapeHtml(opt.dataset.meta || '')}</span></span>` +
+        `${opt.dataset.badge ? `<span class="mp-item-badge">${escapeHtml(opt.dataset.badge)}</span>` : ''}` +
+        `${selected ? CHECK_SVG : category === 'download' ? DOWNLOAD_SVG : ''}</button>`);
+    }
+    html.push('</div>');
+  }
+  // Cloud providers without a key: a way to add one
+  const missing = Object.entries(CLOUD_PROVIDERS).filter(([id]) => !(cloudState[id] && cloudState[id].hasKey));
+  if (missing.length && !q) {
+    html.push('<div class="mp-group"><div class="mp-group-head"><span class="mp-group-title">Cloud models</span><span class="mp-group-sub">your own API key</span></div>');
+    for (const [id, p] of missing) {
+      html.push(`<button type="button" class="mp-item add" data-add="${id}">${modelIcon(id, true)}` +
+        `<span class="mp-item-text"><span class="mp-item-name">Add a ${escapeHtml(p.name)} API key…</span>` +
+        `<span class="mp-item-meta">${escapeHtml(p.company)} · ${escapeHtml(p.plan)}</span></span></button>`);
+    }
+    html.push('</div>');
+  }
+  modelPickerList.innerHTML = html.length ? html.join('') : '<p class="mp-empty">No models match.</p>';
+}
+
+function openModelPicker() {
+  modelPickerSearch.value = '';
+  modelPickerPanel.classList.remove('hidden');
+  modelPickerBtn.setAttribute('aria-expanded', 'true');
+  renderModelPickerList();
+  const sel = modelPickerList.querySelector('.mp-item.selected');
+  if (sel) sel.scrollIntoView({ block: 'nearest' });
+  modelPickerSearch.focus();
+}
+
+function closeModelPicker(focusButton = false) {
+  if (modelPickerPanel.classList.contains('hidden')) return;
+  modelPickerPanel.classList.add('hidden');
+  modelPickerBtn.setAttribute('aria-expanded', 'false');
+  if (focusButton) modelPickerBtn.focus();
+}
+
+modelPickerBtn.addEventListener('click', () => {
+  if (modelPickerPanel.classList.contains('hidden')) openModelPicker(); else closeModelPicker();
+});
+modelPickerSearch.addEventListener('input', renderModelPickerList);
+modelPickerList.addEventListener('click', (e) => {
+  const item = e.target.closest('.mp-item');
+  if (!item) return;
+  if (item.dataset.add) {
+    // "Add a ChatGPT API key…": to that provider's key field, below in Settings
+    closeModelPicker();
+    const row = cloudProvidersEl.querySelector(`[data-provider="${item.dataset.add}"]`);
+    if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); const input = row.querySelector('input'); if (input) input.focus(); }
+    return;
+  }
+  modelSelect.value = item.dataset.value;
+  modelSelect.dispatchEvent(new Event('change'));
+  closeModelPicker(true);
+});
+// Keyboard: arrows move through the list, Enter picks, Escape closes
+modelPickerPanel.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModelPicker(true); return; }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+  const items = [...modelPickerList.querySelectorAll('.mp-item')];
+  if (!items.length) return;
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'Enter') {
+    if (i < 0) { e.preventDefault(); items[0].click(); }
+    return;
+  }
+  e.preventDefault();
+  const next = e.key === 'ArrowDown' ? (i < 0 ? 0 : Math.min(items.length - 1, i + 1)) : (i <= 0 ? -1 : i - 1);
+  if (next < 0) modelPickerSearch.focus(); else items[next].focus();
+});
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('#modelPicker')) closeModelPicker();
+});
 
 // ── Model capabilities → which features are available ─────────────────────────
 // Decided from what Ollama reports for the selected model (/api/show
@@ -1306,11 +1519,13 @@ function refreshModelAction() {
   if (!opt) {
     modelAction.classList.add('hidden');
     sidebarCapCard.classList.add('hidden');
+    renderModelPicker();
     return;
   }
   const isInstalled = opt.dataset.installed === 'true';
 
   renderCapCard(opt.value, sidebarCapCard);
+  renderModelPicker();
   if (opt.dataset.cloud === 'true') {
     modelAction.classList.add('hidden');
     updateCapabilityUI();
@@ -2570,8 +2785,8 @@ window.api.onProfileProgress(({ done, total }) => {
 profileGenerateBtn.addEventListener('click', async () => {
   if (currentProfile && currentProfile.edited &&
       !confirm('Rebuilding replaces the profile, including your edits. Continue?')) return;
-  if (isGeminiModel(activeModel) && !confirm(`Building your profile with ${modelDisplayName(activeModel)} sends your messages from up to ${profileScope.value} past conversations to Google.\n\n` +
-    'To keep them on this computer, choose a local model in Settings first. Continue with Gemini?')) return;
+  if (isCloudModel(activeModel) && !confirm(`Building your profile with ${modelDisplayName(activeModel)} sends your messages from up to ${profileScope.value} past conversations to ${CLOUD_PROVIDERS[cloudProviderOf(activeModel)].company}.\n\n` +
+    `To keep them on this computer, choose a local model in Settings first. Continue with ${CLOUD_PROVIDERS[cloudProviderOf(activeModel)].name}?`)) return;
   profileError.classList.add('hidden');
   profileProgressFill.style.width = '0%';
   profileProgressText.textContent = 'Starting…';

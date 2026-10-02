@@ -62,6 +62,7 @@
           <button id="setupGeminiSave" class="primary-btn" type="button">Continue</button>
         </div>
         <p id="setupGeminiNote" class="gemini-note hidden"></p>
+        <p class="settings-desc">Have a ChatGPT or Claude API key instead? Start with a local model or Gemini, then add it in Settings → Cloud models.</p>
         <p class="settings-desc">Your past chats stay on this computer and are searched here; only the parts that match your question are sent with it.
           On Google's free plan, Google may use what you send to improve its products.</p>
         <button id="setupCloudBack" class="setup-link-btn" type="button">← Back</button>
@@ -131,9 +132,26 @@
       <div class="settings-body">
         <section class="settings-section">
           <h3>Model</h3>
-          <p class="settings-desc">The AI that answers your chats. Local models run on this computer with Ollama; Gemini models (☁️) run on Google's servers.</p>
+          <p class="settings-desc">The AI that answers your chats. Local models run privately on this computer; cloud models (Gemini, ChatGPT, Claude) run on the company's servers with your own API key.</p>
           <div class="model-row">
-            <select id="modelSelect" class="model-select" title="Choose model"></select>
+            <select id="modelSelect" class="model-select hidden" title="Choose model" aria-hidden="true" tabindex="-1"></select>
+            <div id="modelPicker" class="model-picker">
+              <button id="modelPickerBtn" class="model-picker-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span id="modelPickerIcon" class="mp-icon-slot"></span>
+                <span class="mp-current">
+                  <span id="modelPickerName" class="mp-current-name">Choose a model</span>
+                  <span id="modelPickerMeta" class="mp-current-meta"></span>
+                </span>
+                <svg class="mp-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div id="modelPickerPanel" class="model-picker-panel hidden">
+                <div class="mp-search-row">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                  <input id="modelPickerSearch" class="mp-search" type="text" placeholder="Search models…" autocomplete="off" spellcheck="false" />
+                </div>
+                <div id="modelPickerList" class="mp-list" role="listbox" aria-label="Models"></div>
+              </div>
+            </div>
             <div id="sidebarCapCard" class="cap-card cap-card-sidebar hidden"></div>
             <div id="modelAction" class="model-action hidden">
               <button id="modelDownloadBtn" class="primary-btn model-download-btn">Download</button>
@@ -147,21 +165,12 @@
         </section>
 
         <section class="settings-section">
-          <h3>Gemini <span class="settings-optional">optional</span></h3>
-          <p class="settings-desc">Use Google's Gemini models with your own API key — free to create at
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
-            Gemini models then appear in the model list above, marked ☁️.</p>
-          <div id="geminiKeyForm" class="gemini-key-form">
-            <input id="geminiKeyInput" type="password" class="settings-input" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" />
-            <button id="geminiSaveBtn" class="primary-btn" type="button">Save</button>
-          </div>
-          <div id="geminiKeySet" class="gemini-key-set hidden">
-            <span>✓ Key saved, stored encrypted on this computer.</span>
-            <button id="geminiRemoveBtn" class="text-btn danger" type="button">Remove key</button>
-          </div>
-          <p id="geminiNote" class="gemini-note hidden"></p>
-          <p class="settings-desc gemini-privacy">With a Gemini model, your question, the conversation, the related excerpts from your memory and attached files are sent to Google.
-            On Google's free plan, Google may use them to improve its products. Local models keep everything on this computer.</p>
+          <h3>Cloud models <span class="settings-optional">optional</span></h3>
+          <p class="settings-desc">Use Gemini, ChatGPT or Claude with your own API key. Their models then appear in the model list above.</p>
+          <div id="cloudProviders" class="cloud-providers"></div>
+          <p class="settings-desc cloud-privacy">With a cloud model, your question, the conversation and the related excerpts from your memory and attached files are sent to that company.
+            Gemini has a free plan, on which Google may use what you send to improve its products; ChatGPT and Claude API use is paid by you to OpenAI or Anthropic.
+            Local models keep everything on this computer.</p>
         </section>
 
         <section class="settings-section">

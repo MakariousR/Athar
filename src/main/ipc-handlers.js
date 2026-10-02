@@ -10,7 +10,7 @@ function indexInBackground(sessionId, resource) {
   resourceTools.indexResource(sessionId, resource).catch(() => {});
 }
 const ollama = require('./ollama/ollama-client');
-const gemini = require('./cloud/gemini');
+const cloud = require('./cloud/providers');
 const ollamaInstaller = require('./ollama/ollama-installer');
 const downloads = require('./downloads');
 const store  = require('./store/chat-store');
@@ -221,27 +221,19 @@ function registerIpcHandlers() {
 
   ipcMain.handle('ollama:open-download-page', () => shell.openExternal(ollamaInstaller.DOWNLOAD_PAGE));
 
-  // ── Gemini (the user's own API key) ──
+  // ── Cloud models: Gemini, ChatGPT, Claude (the user's own API keys) ──
   // The key goes main-ward only: the window learns whether one is set, never the key.
-  const geminiStatus = async () => {
-    if (!gemini.hasKey()) return { success: true, hasKey: false, models: [], recommended: null, encryption: gemini.encryptionAvailable() };
+  // The keys go main-ward only: the window learns whether one is set, never the key.
+  ipcMain.handle('cloud:status', () => cloud.status());
+  ipcMain.handle('cloud:set-key', async (event, provider, key) => {
     try {
-      const models = await gemini.listModels();
-      return { success: true, hasKey: true, models, recommended: gemini.recommendedModel(models), encryption: true };
+      await cloud.setKey(provider, key);
+      return { success: true, providers: await cloud.status() };
     } catch (err) {
-      return { success: false, hasKey: true, models: [], recommended: null, error: err.message };
-    }
-  };
-  ipcMain.handle('gemini:status', geminiStatus);
-  ipcMain.handle('gemini:set-key', async (event, key) => {
-    try {
-      await gemini.setKey(key);
-      return await geminiStatus();
-    } catch (err) {
-      return { success: false, hasKey: gemini.hasKey(), error: err.message };
+      return { success: false, error: err.message, providers: await cloud.status() };
     }
   });
-  ipcMain.handle('gemini:clear-key', () => { gemini.clearKey(); return { success: true, hasKey: false, models: [] }; });
+  ipcMain.handle('cloud:clear-key', async (event, provider) => { cloud.clearKey(provider); return { success: true, providers: await cloud.status() }; });
 
   ipcMain.handle('ollama:list-models', async () => {
     try { return { success: true, models: await ollama.listModels() }; }

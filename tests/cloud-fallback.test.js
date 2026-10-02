@@ -10,7 +10,7 @@ require.cache[require.resolve('electron', { paths: [ROOT] })].exports.safeStorag
   encryptString: (s) => Buffer.from(`enc:${Buffer.from(s).toString('base64')}`),
   decryptString: (b) => Buffer.from(b.toString().slice(4), 'base64').toString()
 };
-const gemini = require(path.join(ROOT, 'src/main/cloud/gemini'));
+const gemini = require(path.join(ROOT, 'src/main/cloud/providers'));
 const client = require(path.join(ROOT, 'src/main/ollama/ollama-client'));
 const req = createRequire(path.join(ROOT, 'package.json'));
 const { MockLanguageModelV4, simulateReadableStream } = req('ai/test');
@@ -38,9 +38,9 @@ test('why a model can\'t answer, and for how long it is set aside', () => {
 
 test('a set-aside model comes back when its limit resets; the order is the chosen model, then the best others', async () => {
   gemini._internals.resetUnavailable();
-  await gemini.setKey('AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl: async () => ({ ok: true, status: 200,
+  await gemini.setKey('gemini', 'AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl: async () => ({ ok: true, status: 200,
     json: async () => ({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] }) }) });
-  gemini._internals.setModels([{ name: 'gemini/a' }, { name: 'gemini/b' }, { name: 'gemini/c' }]);
+  gemini._internals.setModels('gemini', [{ name: 'gemini/a' }, { name: 'gemini/b' }, { name: 'gemini/c' }]);
   gemini.markUnavailable('gemini/b', { kind: 'minute', until: Date.now() + 50 });
   assert.deepStrictEqual(await gemini.fallbackOrder('gemini/c'), ['gemini/c', 'gemini/a']);
   assert.strictEqual(gemini.unavailableKind('gemini/b'), 'minute');
@@ -76,7 +76,7 @@ async function ask(modelName) {
 test('the chosen Gemini model reached its daily limit: the next one answers, and the answer says so', async () => {
   gemini._internals.resetUnavailable();
   const API = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].map((id) => ({ name: `models/${id}`, displayName: id.replace('gemini-', 'Gemini ').replace('-flash', ' Flash').replace('-lite', '-Lite'), supportedGenerationMethods: ['generateContent'] }));
-  await gemini.setKey('AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ models: API }) }) });
+  await gemini.setKey('gemini', 'AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ models: API }) }) });
   const calls = { n: 0 };
   const models = {
     'gemini/gemini-3.5-flash': failing(429, DAILY, calls),
@@ -118,7 +118,40 @@ test('every Gemini model at its limit: a plain message; a bad key: no switching'
     assert(/key isn't valid/.test(bad.text), bad.text);
   } finally {
     gemini.createModel = original;
-    gemini.clearKey();
+    gemini.clearKey('gemini');
+  }
+});
+
+test('ChatGPT at its rate limit: another ChatGPT model answers — never another provider; no credit: no switching', async () => {
+  gemini._internals.resetUnavailable();
+  const lists = {
+    openai: { data: [{ id: 'gpt-5-mini', created: 3 }, { id: 'gpt-4.1-mini', created: 2 }] },
+    gemini: { models: [{ name: 'models/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', supportedGenerationMethods: ['generateContent'] }] }
+  };
+  const fetchImpl = async (url) => ({ ok: true, status: 200, json: async () => (/openai/.test(url) ? lists.openai : lists.gemini) });
+  await gemini.setKey('openai', 'sk-proj-test_key_1234567890abcdefghij', { fetchImpl });
+  await gemini.setKey('gemini', 'AIzaSyD-test_key_1234567890abcdefghij', { fetchImpl });
+  const calls = { n: 0 };
+  const RATE = '{"error":{"message":"Rate limit reached for gpt-5-mini on requests per min (RPM): Limit 3. Please try again in 20s.","type":"requests","code":"rate_limit_exceeded"}}';
+  const original = gemini.createModel;
+  const used = [];
+  gemini.createModel = (name) => { used.push(name); return name === 'openai/gpt-5-mini' ? failing(429, RATE, calls) : answering(`from ${name}`); };
+  try {
+    const res = await ask('openai/gpt-5-mini');
+    assert(/^from openai\/gpt-4\.1-mini/i.test(res.text), res.text);
+    assert(/_Answered by GPT-4\.1 mini: GPT-5 mini reached its limit for this minute\._$/.test(res.text), res.text);
+    assert(!used.some((n) => n.startsWith('gemini/')), 'stays with ChatGPT');
+
+    gemini._internals.resetUnavailable();
+    used.length = 0;
+    gemini.createModel = (name) => { used.push(name); return failing(429, '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","code":"insufficient_quota"}}', calls); };
+    const broke = await ask('openai/gpt-5-mini');
+    assert.deepStrictEqual(used, ['openai/gpt-5-mini'], 'no credit is the whole account: not switched');
+    assert(/OpenAI account has no credit left/.test(broke.text), broke.text);
+  } finally {
+    gemini.createModel = original;
+    gemini.clearKey('openai');
+    gemini.clearKey('gemini');
   }
 });
 

@@ -48,10 +48,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('ollama:install-progress', (_e, progress) => cb(progress));
   },
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
-  // Gemini models with the user's own API key: the key is sent once to be saved, never read back
-  geminiStatus: () => ipcRenderer.invoke('gemini:status'),
-  geminiSetKey: (key) => ipcRenderer.invoke('gemini:set-key', key),
-  geminiClearKey: () => ipcRenderer.invoke('gemini:clear-key'),
+  // Cloud models (Gemini, ChatGPT, Claude) with the user's own API keys: a key is sent once to be saved, never read back
+  cloudStatus: () => ipcRenderer.invoke('cloud:status'),
+  cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
+  cloudClearKey: (provider) => ipcRenderer.invoke('cloud:clear-key', provider),
   pullModel: (modelName) => ipcRenderer.invoke('ollama:pull-model', modelName),
   pendingDownloads: () => ipcRenderer.invoke('downloads:pending'),
   discardPendingDownload: (modelName) => ipcRenderer.invoke('downloads:discard', modelName),

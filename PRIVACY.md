@@ -10,9 +10,9 @@ Athar is built to keep your conversations private: **it runs on your own compute
 - Your chats in Athar, your memory profile, and the search index built from them
 - Files and images you attach to a chat
 - Your settings, and the project folder you choose (Athar only reads it and never changes it)
-- Your Gemini API key, if you add one — stored encrypted with your operating system's protection
+- Your Gemini, OpenAI or Anthropic API keys, if you add them — stored encrypted with your operating system's protection
 
-All of this is stored in Athar's data folder (on Windows, `%APPDATA%\Athar`). By default, your questions are answered by an AI model running locally through Ollama, so your conversations are never sent to an AI company. If you choose to use a **Gemini model** with your own API key, see below: that is the only case in which your conversations leave your computer.
+All of this is stored in Athar's data folder (on Windows, `%APPDATA%\Athar`). By default, your questions are answered by an AI model running locally through Ollama, so your conversations are never sent to an AI company. If you choose a **cloud model** (Gemini, ChatGPT or Claude) with your own API key, see below: that is the only case in which your conversations leave your computer.
 
 ## What Athar sends over the internet, and why
 
@@ -22,14 +22,19 @@ Each request below goes directly from your computer to the service named; the au
 
 | When | Sent to | What is sent |
 |---|---|---|
-| You add a Gemini API key in Settings | Google (generativelanguage.googleapis.com) | The key, to check it and list the models it can use |
-| You chat with a Gemini model (marked ☁️) | Google (the Gemini API) | Your message, the conversation so far, the excerpts of your past conversations that Athar found relevant to it, excerpts of attached files, and images you attach |
+| You add an API key in Settings → Cloud models | Google (generativelanguage.googleapis.com), OpenAI (api.openai.com) or Anthropic (api.anthropic.com) | The key, to check it and list the models it can use |
+| You chat with a cloud model | The company of that model: Google (Gemini), OpenAI (ChatGPT) or Anthropic (Claude) | Your message, the conversation so far, the excerpts of your past conversations that Athar found relevant to it, excerpts of attached files, and images you attach |
 | You choose to install Ollama | ollama.com and GitHub | A download of the official Ollama installer |
 | You download an AI model | The Ollama model library, through Ollama | A download request for that model |
 
-These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Apart from the Gemini row above, Athar does not send your imported history, your chats, your memory profile or your files to any of them.
+These services receive the information any website receives when you visit it, such as your IP address, and handle it under their own privacy policies. Apart from the cloud-model rows above, Athar does not send your imported history, your chats, your memory profile or your files to any of them.
 
-**Gemini.** What you send to a Gemini model is handled by Google under the [Gemini API terms](https://ai.google.dev/gemini-api/terms) and [Google's privacy policy](https://policies.google.com/privacy). On Google's **free** plan, Google may use what you send to improve its products, and people at Google may review it — don't use a Gemini model for anything you wouldn't want Google to see. Athar sends only the excerpts relevant to each message, never your whole history; searching your memory always happens on your computer. To stop, choose a local model or remove the key in Settings.
+**Cloud models.** What you send to a cloud model is handled by its company under its own terms and privacy policy:
+- **Gemini** — Google, under the [Gemini API terms](https://ai.google.dev/gemini-api/terms) and [Google's privacy policy](https://policies.google.com/privacy). On Google's **free** plan, Google may use what you send to improve its products, and people at Google may review it — don't use a Gemini model for anything you wouldn't want Google to see.
+- **ChatGPT** — OpenAI, under the [OpenAI API terms](https://openai.com/policies/); API use is paid by you to OpenAI.
+- **Claude** — Anthropic, under [Anthropic's commercial terms](https://www.anthropic.com/legal/commercial-terms) and [privacy policy](https://www.anthropic.com/legal/privacy); API use is paid by you to Anthropic.
+
+Athar sends only the excerpts relevant to each message, never your whole history; searching your memory always happens on your computer. If a chosen model has reached its limit, another model **of the same company** may answer instead — never one of another company. To stop, choose a local model or remove the key in Settings.
 
 ## Your control
 

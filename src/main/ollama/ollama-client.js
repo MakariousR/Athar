@@ -31,8 +31,8 @@ const capabilityCache = new Map();
 
 /** e.g. ["completion", "tools", "vision"], or null if this Ollama doesn't report capabilities. */
 async function getModelCapabilities(modelName) {
-  if (gemini.isCloudModel(modelName)) {
-    const m = gemini.knownModel(modelName);
+  if (cloud.isCloudModel(modelName)) {
+    const m = cloud.knownModel(modelName);
     return ['completion', 'vision', ...(!m || m.tools ? ['tools'] : [])];
   }
   if (capabilityCache.has(modelName)) return capabilityCache.get(modelName);
@@ -194,7 +194,7 @@ const { gitStatusTool, gitLogTool, gitDiffTool } = require('../tools/git-tools')
 // ─── Agent loop (Vercel AI SDK + ai-sdk-ollama) ──────────────────────────────
 const { ollama } = require('ai-sdk-ollama');
 const { generateText } = require('ai');
-const gemini = require('../cloud/gemini');
+const cloud = require('../cloud/providers');
 const { runAgentLoop } = require('./agent-loop');
 const store = require('../store/chat-store');
 const { formatMemoryContext } = require('../memory/memory-index');
@@ -227,13 +227,13 @@ applyContextBudgets(NUM_CTX);
 
 // ─── Model profiles (see model-profile.js) ───────────────────────────────────
 const profileCache = new Map();
-// Gemini: a capable model with a large context. 32K keeps each request (and
+// Cloud models (Gemini, ChatGPT, Claude): capable, with a large context. 32K keeps each request (and
 // what it sends to Google) reasonable; memory and file budgets follow it.
 const CLOUD_PROFILE = { capabilities: ['completion', 'tools', 'vision'], tools: true, vision: true, thinking: false, paramsB: null, level: 'light', numCtx: 32768 };
 
 /** The model's profile: capabilities, helper level, context size. Cached once known. */
 async function getModelProfile(modelName) {
-  if (gemini.isCloudModel(modelName)) return CLOUD_PROFILE;
+  if (cloud.isCloudModel(modelName)) return CLOUD_PROFILE;
   if (profileCache.has(modelName)) return profileCache.get(modelName);
   let show = null;
   try {
@@ -269,7 +269,7 @@ const CHAT_TEMPERATURE = process.env.OLLAMA_TEMPERATURE && Number.isFinite(Numbe
   : undefined;
 
 function createChatModel(modelName) {
-  if (gemini.isCloudModel(modelName)) return gemini.createModel(modelName);
+  if (cloud.isCloudModel(modelName)) return cloud.createModel(modelName);
   const options = { num_ctx: numCtxFor(modelName) };
   if (CHAT_TEMPERATURE !== undefined) options.temperature = CHAT_TEMPERATURE;
   return ollama(modelName, { options, keep_alive: KEEP_ALIVE });
@@ -683,20 +683,20 @@ CRITICAL RULES:
  * isn't reloaded between these calls and normal chatting.
  */
 async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0.2, maxTokens = 600, signal } = {}) {
-  if (gemini.isCloudModel(modelName)) {
+  if (cloud.isCloudModel(modelName)) {
     let lastError = null;
-    for (const name of await gemini.fallbackOrder(modelName)) {
+    for (const name of await cloud.fallbackOrder(modelName)) {
       try {
-        const { text } = await generateText({ model: gemini.createModel(name), prompt, temperature, maxOutputTokens: maxTokens, abortSignal: signal, maxRetries: 1 });
+        const { text } = await generateText({ model: cloud.createModel(name), prompt, temperature, maxOutputTokens: maxTokens, abortSignal: signal, maxRetries: 1 });
         return String(text || '').trim();
       } catch (err) {
         lastError = err;
-        const info = gemini.classifyError(err);
+        const info = cloud.classifyError(err);
         if (!info || (signal && signal.aborted)) break;
-        gemini.markUnavailable(name, info); // the next model takes over
+        cloud.markUnavailable(name, info); // the next model takes over
       }
     }
-    throw new Error(lastError ? gemini.friendlyError(lastError, modelName) : 'All your Gemini models have reached their limits for now.');
+    throw new Error(lastError ? cloud.friendlyError(lastError, modelName) : `All your ${cloud.providerName(cloud.providerOf(modelName))} models have reached their limits for now.`);
   }
   const profile = await getModelProfile(modelName);
   const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
@@ -798,7 +798,7 @@ async function generate(
 
   // The marker on earlier replies must not end up in this one; nor an apology with nothing to apologize for
   let text = chatContext.stripUnpromptedApology(chatContext.stripMarker(loopResult.text), conversationHistory);
-  // Another Gemini model answered (the chosen one reached its limit…): it does the follow-up work too
+  // Another model of the same provider answered (the chosen one reached its limit…): it does the follow-up work too
   const answeredBy = loopResult.answeredBy ? loopResult.answeredBy.name : modelName;
 
   // The answer came out in the wrong language (usually the language of the
@@ -819,8 +819,8 @@ async function generate(
   }
   if (loopResult.answeredBy && text && text.trim()) {
     const first = loopResult.answeredBy.skipped[0];
-    const why = `${gemini.modelLabel(first.name)} ${gemini.unavailableReason(first.kind)}`;
-    const note = `\n\n_Answered by ${gemini.modelLabel(answeredBy)}: ${why}._`;
+    const why = `${cloud.modelLabel(first.name)} ${cloud.unavailableReason(first.kind)}`;
+    const note = `\n\n_Answered by ${cloud.modelLabel(answeredBy)}: ${why}._`;
     text += note;
     onToken(note);
   }
@@ -828,41 +828,41 @@ async function generate(
   return text;
 
   /**
-   * Gemini: the chosen model, or — when it reached its free limit, isn't in
-   * the plan, or was retired — the next Gemini model that can answer. Says
+   * A cloud model: the chosen one, or — when it reached its limit, isn't in
+   * the plan, or was retired — the next model of the same provider that can answer. Says
    * which model answered and why. Returns a string when none could.
    */
-  async function answerWithGemini(run) {
-    const candidates = await gemini.fallbackOrder(modelName);
+  async function answerWithCloud(run) {
+    const candidates = await cloud.fallbackOrder(modelName);
     const skipped = []; // [{ name, kind }]: why the chosen model (and others) didn't answer
     // The chosen model was set aside earlier (e.g. its daily limit, on a previous message)
-    if (!candidates.includes(modelName)) skipped.push({ name: modelName, kind: gemini.unavailableKind(modelName) });
+    if (!candidates.includes(modelName)) skipped.push({ name: modelName, kind: cloud.unavailableKind(modelName) });
     for (let i = 0; i < candidates.length; i++) {
       const name = candidates[i];
-      const known = gemini.knownModel(name);
+      const known = cloud.knownModel(name);
       try {
         const result = await run(toolsAvailable && (!known || known.tools), name);
         if (name !== modelName) result.answeredBy = { name, skipped };
         return result;
       } catch (err) {
         if (options.signal && options.signal.aborted) throw err; // stopped by the user
-        const info = gemini.classifyError(err);
+        const info = cloud.classifyError(err);
         if (!info) {
-          const message = gemini.friendlyError(err, name);
+          const message = cloud.friendlyError(err, name);
           onStatus({ icon: '⚠️', text: message });
           return message;
         }
-        gemini.markUnavailable(name, info);
+        cloud.markUnavailable(name, info);
         skipped.push({ name, kind: info.kind });
         const next = candidates[i + 1];
         onStatus({ type: 'reset' });
         onStatus({
           icon: '🔁',
-          text: `${gemini.modelLabel(name)} ${gemini.unavailableReason(info.kind)}${next ? ` — trying ${gemini.modelLabel(next)}…` : '.'}`
+          text: `${cloud.modelLabel(name)} ${cloud.unavailableReason(info.kind)}${next ? ` — trying ${cloud.modelLabel(next)}…` : '.'}`
         });
       }
     }
-    const message = 'All your Gemini models have reached their limits for now. Try again later (free limits reset daily), or choose a local model in Settings.';
+    const message = `All your ${cloud.providerName(cloud.providerOf(modelName))} models have reached their limits for now. Try again later, or choose another model in Settings.`;
     onStatus({ icon: '⚠️', text: message });
     return message;
   }
@@ -909,14 +909,14 @@ async function generate(
         maxSteps: 40,
         maxTotalMs: 600000, // 10 minutes max for the whole agent loop
         abortSignal: options.signal,
-        // Gemini: one retry (a brief overload); a model at its limit is switched, not retried
-        maxRetries: gemini.isCloudModel(useModel) ? 1 : undefined,
+        // Cloud: one retry (a brief overload); a model at its limit is switched, not retried
+        maxRetries: cloud.isCloudModel(useModel) ? 1 : undefined,
         needsWorkspaceRead: withTools && isProjectQuestion
       });
     };
 
     onStatus({ icon: '🧠', text: 'Thinking & synthesizing answer…' });
-    if (gemini.isCloudModel(modelName)) return answerWithGemini(run);
+    if (cloud.isCloudModel(modelName)) return answerWithCloud(run);
     try {
       return await run(toolsAvailable);
     } catch (err) {

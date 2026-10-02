@@ -340,7 +340,77 @@ body {
 .gemini-key-set { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text); }
 .gemini-note { font-size: 12px; line-height: 1.5; color: #f5b544; }
 .gemini-note.ok { color: var(--muted); }
-.gemini-privacy { font-size: 11.5px; }
+.cloud-privacy { font-size: 11.5px; }
+
+/* ── Cloud providers in Settings ── */
+.cloud-providers { display: flex; flex-direction: column; gap: 10px; }
+.cloud-provider { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+.cloud-provider-head { display: flex; align-items: center; gap: 10px; }
+.cloud-provider-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.cloud-provider-title strong { font-size: 13.5px; color: var(--text); }
+.cloud-provider-title span { font-size: 11.5px; color: var(--muted); }
+.cloud-provider-state { font-size: 11.5px; color: var(--success); white-space: nowrap; }
+.cloud-provider-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.cloud-provider-hint { font-size: 11.5px; color: var(--muted); }
+.cloud-provider-hint a { color: var(--accent); }
+
+/* ── Model picker: a categorised dropdown over the hidden <select> ── */
+.model-picker { position: relative; }
+.model-picker-btn {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.model-picker-btn:hover { border-color: rgba(0, 162, 255, 0.5); }
+.model-picker-btn:focus-visible, .model-picker-btn[aria-expanded="true"] { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.mp-current { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.mp-current-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-current-meta { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-chevron { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s; }
+.model-picker-btn[aria-expanded="true"] .mp-chevron { transform: rotate(180deg); }
+
+.model-picker-panel {
+  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0;
+  display: flex; flex-direction: column; max-height: 400px;
+  background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55); overflow: hidden;
+  animation: mp-in 0.12s ease-out;
+}
+@keyframes mp-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.mp-search-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.mp-search-row svg { width: 15px; height: 15px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+.mp-search { flex: 1; background: none; border: none; color: var(--text); font: inherit; font-size: 13px; outline: none; }
+.mp-list { overflow-y: auto; padding: 6px; }
+.mp-group + .mp-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+.mp-group-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px 4px; }
+.mp-group-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.mp-group-sub { font-size: 11px; color: var(--muted); opacity: 0.75; margin-left: auto; white-space: nowrap; }
+.mp-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: none; border-radius: 9px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.mp-item:hover, .mp-item:focus-visible { outline: none; background: var(--sidebar-hover); }
+.mp-item.selected { background: var(--accent-dim); }
+.mp-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.mp-item-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-item-meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-item-badge { flex: none; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; color: var(--accent); background: var(--accent-dim); }
+.mp-item-end { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.mp-item-end.muted { stroke: var(--muted); stroke-width: 2; }
+.mp-item.add { color: var(--accent); }
+.mp-empty { padding: 18px 8px; text-align: center; font-size: 12.5px; color: var(--muted); }
+
+/* The provider / place icon in front of a model */
+.mp-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; border-radius: 8px; font-size: 14px; font-weight: 700; color: #fff; }
+.mp-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mp-icon.small { width: 20px; height: 20px; border-radius: 6px; font-size: 11px; }
+.mp-icon.small svg { width: 12px; height: 12px; }
+.mp-icon-local { background: #1d2a40; color: #8fb8ff; }
+.mp-icon-download { background: #1a2130; color: var(--muted); }
+.mp-icon-gemini { background: linear-gradient(135deg, #4285f4, #9b72cb); }
+.mp-icon-openai { background: #10a37f; }
+.mp-icon-anthropic { background: #cc785c; }
 
 /* ── CHAT AREA ── */
 .chat-area {
