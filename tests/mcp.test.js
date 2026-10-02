@@ -15,9 +15,9 @@ async function waitIdle(mem) {
 }
 
 /** A userData folder like the Athar window leaves it: imported history, indexed, plus one in-app chat. */
-async function makeUserData() {
+async function makeUserData(embedTexts = fakeEmbed) {
   const userData = tempDir('athar-mcp-');
-  const mem = new MemoryIndex({ dir: path.join(userData, 'memory'), embedTexts: fakeEmbed, embedModel: 'fake' });
+  const mem = new MemoryIndex({ dir: path.join(userData, 'memory'), embedTexts, embedModel: 'fake' });
   for (const source of ['chatgpt', 'claude', 'gemini']) mem.importThreads(corpus.filter((t) => t.source === source), source);
   await waitIdle(mem);
   fs.mkdirSync(path.join(userData, 'chats'));
@@ -28,8 +28,8 @@ async function makeUserData() {
   return userData;
 }
 
-function toolsFor(userData, opts = {}) {
-  const getMemory = readOnlyMemory({ userData, embedTexts: fakeEmbed, embedModel: 'fake' });
+function toolsFor(userData, opts = {}, embedTexts = fakeEmbed) {
+  const getMemory = readOnlyMemory({ userData, embedTexts, embedModel: 'fake' });
   const tools = memoryTools({ getMemory, ...opts });
   return { call: (name, args) => tools.find((t) => t.name === name).run(args), tools, getMemory };
 }
@@ -149,6 +149,35 @@ test('the memory is only read — never written — and new imports show up with
     { role: 'user', text: 'How do I tune an oud?' }, { role: 'assistant', text: 'Common tuning: C F A D G C.' }] }], 'gemini');
   await waitIdle(writer);
   assert.match(await call('search_memory', { query: 'tune an oud' }), /Learning the oud/);
+});
+
+test('meaning search working: no note; without Ollama or bge-m3: keywords only, with the reason and what to try', async () => {
+  const userData = await makeUserData();
+  const meaning = await toolsFor(userData).call('search_memory', { query: 'docker compose error' });
+  assert(!/Search mode/.test(meaning) && /Docker compose error/.test(meaning), meaning);
+
+  const noOllama = () => Promise.reject(new TypeError('fetch failed'));
+  const off = await toolsFor(userData, {}, noOllama).call('search_memory', { query: 'docker compose error' });
+  assert.match(off, /^Search mode: keywords only, because Ollama isn't running or isn't installed on this computer. .*synonyms.*other language/);
+  assert(/Docker compose error/.test(off), 'keyword matches are still returned');
+  const none = await toolsFor(userData, {}, noOllama).call('search_memory', { query: 'vehicle maintenance' });
+  assert.match(none, /^Nothing in the user's past conversations matched "vehicle maintenance"\.\n\nSearch mode: keywords only/);
+
+  const noModel = () => Promise.reject(new Error('Embed failed: 404 {"error":"model \"bge-m3\" not found, try pulling it first"}'));
+  assert.match(await toolsFor(userData, {}, noModel).call('search_memory', { query: 'docker' }), /keywords only, because the bge-m3 model isn't installed in Ollama/);
+
+  // Ollama comes back while Claude is open: the next search uses meaning again
+  let up = false;
+  const tools = toolsFor(userData, {}, (t) => (up ? fakeEmbed(t) : noOllama()));
+  assert.match(await tools.call('search_memory', { query: 'docker' }), /keywords only/);
+  up = true;
+  assert(!/Search mode/.test(await tools.call('search_memory', { query: 'docker' })));
+});
+
+test('history never indexed for meaning (no Ollama when it was imported): keywords only, and why', async () => {
+  const userData = await makeUserData(() => Promise.reject(new TypeError('fetch failed')));
+  const text = await toolsFor(userData).call('search_memory', { query: 'docker compose error' });
+  assert.match(text, /keywords only, because the past chats haven't been indexed for meaning search yet/);
 });
 
 test('not activated: the tools say so instead of answering', async () => {

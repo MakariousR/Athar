@@ -27,6 +27,18 @@ function readOnlyMemory({ userData, embedTexts, embedModel }) {
   const watched = ['threads.json', 'vectors.json', 'vectors.bin'].map((f) => path.join(memoryDir, f)).concat(sessionsPath);
   let index = null;
   let stamp = '';
+  // Whether the last search could embed its words (Ollama running, with bge-m3)
+  const embedState = { ok: null, error: null };
+  const trackedEmbed = async (texts) => {
+    try {
+      const vectors = await embedTexts(texts);
+      Object.assign(embedState, { ok: true, error: null });
+      return vectors;
+    } catch (err) {
+      Object.assign(embedState, { ok: false, error: err.message || String(err) });
+      throw err;
+    }
+  };
 
   const signature = () => watched.map((f) => {
     try { const s = fs.statSync(f); return `${s.mtimeMs}:${s.size}`; } catch { return '-'; }
@@ -39,10 +51,10 @@ function readOnlyMemory({ userData, embedTexts, embedModel }) {
     } catch { return []; }
   };
 
-  return function getMemory() {
+  function getMemory() {
     const now = signature();
     if (!index || now !== stamp) {
-      const m = new MemoryIndex({ dir: memoryDir, embedTexts, embedModel, legacyDir: null });
+      const m = new MemoryIndex({ dir: memoryDir, embedTexts: trackedEmbed, embedModel, legacyDir: null });
       // Reading only: no background indexing, no saving
       m.scheduleEmbedding = () => {};
       m.saveVectors = () => {};
@@ -53,8 +65,37 @@ function readOnlyMemory({ userData, embedTexts, embedModel }) {
       stamp = now;
     }
     return index;
-  };
+  }
+  getMemory.embedState = embedState;
+  return getMemory;
 }
+
+/**
+ * How the last search matched: by meaning, or by keywords only — and why,
+ * so the model can make up for it (other words, the other language…).
+ */
+function searchMode(mem, embedState) {
+  const passages = mem.segments.imported.chunks.length + mem.segments.app.chunks.length;
+  const indexed = passages - mem.countPending();
+  if (embedState && embedState.ok === false) {
+    const err = String(embedState.error || '');
+    const reason = /not found|pull/i.test(err)
+      ? 'the bge-m3 model isn\'t installed in Ollama (the user can add it from Athar\'s setup)'
+      : /fetch failed|ECONNREFUSED|connect/i.test(err)
+        ? 'Ollama isn\'t running or isn\'t installed on this computer'
+        : 'Ollama couldn\'t run bge-m3';
+    return { meaning: false, reason };
+  }
+  if (indexed === 0) return { meaning: false, reason: 'the past chats haven\'t been indexed for meaning search yet (Athar does this when it\'s open with Ollama and bge-m3)' };
+  if (!embedState || embedState.ok !== true) return { meaning: false, reason: null }; // e.g. a date-only question: nothing to embed
+  // A few new chats not indexed yet don't matter; a large part (an import still being indexed) does
+  const share = Math.round((indexed / passages) * 100);
+  return { meaning: true, partial: share < 90 ? share : null };
+}
+
+const KEYWORD_TIP = 'Only passages containing most of the search words are found — no synonyms, and no matches across languages. ' +
+  'If the result looks incomplete, search again with other words or synonyms, in the other language (e.g. Arabic and English), ' +
+  'with fewer words, or use list_conversations and read_conversation.';
 
 const sourceName = (s) => SOURCE_NAMES[s] || s;
 const clampInt = (v, def, min, max) => {
@@ -97,7 +138,8 @@ function memoryTools({ getMemory, isUsable = () => true }) {
       'Search the user\'s own past conversations with ChatGPT, Claude and Gemini (imported into Athar) and their chats in the Athar app. ' +
       'Use it when the user refers to something they discussed before ("what did we decide about…", "the recipe I asked about", ' +
       '"my last chat about…"), or when their earlier work, preferences or decisions would help answer. ' +
-      'Searches by meaning and by keywords; understands dates and sources in the query ("last month", "in Claude"). ' +
+      'Searches by meaning and by keywords — or by keywords only when meaning search isn\'t available on this computer (the result says so); ' +
+      'understands dates and sources in the query ("last month", "in Claude"). ' +
       'Returns excerpts with the conversation id — read the whole conversation with read_conversation.',
     inputSchema: {
       type: 'object',
@@ -117,14 +159,20 @@ function memoryTools({ getMemory, isUsable = () => true }) {
       if (mem.allThreads().length === 0) return EMPTY_MEMORY;
       const opts = { limit: clampInt(args.limit, SEARCH_DEFAULT, 1, SEARCH_MAX) };
       if (source) opts.sources = [source];
+      const embedState = getMemory.embedState;
+      if (embedState) Object.assign(embedState, { ok: null, error: null });
       const { passages, note } = await mem.search(query, opts);
-      if (!passages.length) return `Nothing in the user's past conversations matched "${query}".`;
+      const mode = searchMode(mem, embedState);
+      const modeNote = mode.reason
+        ? `Search mode: keywords only, because ${mode.reason}. ${KEYWORD_TIP}`
+        : mode.partial ? `Search mode: by meaning and keywords, but only ${mode.partial}% of the past chats are indexed for meaning search yet; the rest are matched by keywords.` : '';
+      if (!passages.length) return `Nothing in the user's past conversations matched "${query}".${modeNote ? `\n\n${modeNote}` : ''}`;
       const blocks = passages.map((p, i) => {
         const where = p.text && Number.isInteger(p.msgStart) ? ` · from message ${p.msgStart + 1}` : '';
         const head = `[${i + 1}] ${p.sourceName} · "${p.title}"${p.date ? ` · ${p.date}` : ''} · id: ${p.threadId}${where}`;
         return p.text ? `${head}\n${p.text}` : head;
       });
-      return (note ? `Note: ${note}\n\n` : '') + blocks.join(passages.every((p) => !p.text) ? '\n' : '\n\n');
+      return (modeNote ? `${modeNote}\n\n` : '') + (note ? `Note: ${note}\n\n` : '') + blocks.join(passages.every((p) => !p.text) ? '\n' : '\n\n');
     }
   };
 
