@@ -9,6 +9,7 @@ const sessionList      = document.getElementById('sessionList');
 const historyList      = document.getElementById('historyList');
 const importZone       = document.getElementById('importZone');
 const importLabel      = document.getElementById('importLabel');
+const IMPORT_LABEL     = importLabel.textContent; // the button's normal text
 const fileInput        = document.getElementById('fileInput');
 const importStatus     = document.getElementById('importStatus');
 const emptyState       = document.getElementById('emptyState');
@@ -2256,11 +2257,17 @@ async function handleImportFile(file) {
 
   // The main process parses and indexes; embedding continues in the background
   // (progress arrives via onMemoryProgress) and chatting works meanwhile.
-  const result = await window.api.importHistory(window.api.getFilePath(file));
+  let result;
+  try {
+    result = await window.api.importHistory(window.api.getFilePath(file));
+  } catch (err) {
+    result = { success: false, error: (err && err.message) || 'the file could not be read' };
+  }
   importZone.classList.remove('loading');
+  importLabel.textContent = IMPORT_LABEL; // back to normal, whether it worked or not
+  fileInput.value = ''; // the same file can be chosen again
 
   if (!result.success) {
-    importLabel.textContent = '＋ Import chat history';
     importStatus.textContent = `Import failed: ${result.error}`;
     return;
   }
