@@ -40,6 +40,8 @@ These services receive the information any website receives when you visit it, s
 
 Athar sends only the excerpts relevant to each message, never your whole history; searching your memory always happens on your computer. If a chosen model has reached its limit, another Gemini model may answer instead. To stop, choose a local model or remove the key in Settings.
 
+**Claude Desktop and Claude Code (optional).** If you connect them in Settings → Use your memory in Claude, Claude can search your Athar memory while you chat with it. Athar itself sends nothing over the internet for this: the search runs on your computer, and Athar gives the results only to the Claude app that asked. Claude then sends the excerpts and conversations it looked up to Anthropic as part of your Claude chat, handled under [Anthropic's privacy policy](https://www.anthropic.com/legal/privacy) and your Claude plan's terms. Connecting adds an "athar" entry to Claude Desktop's settings file and changes nothing else in it. To stop, choose Disconnect in Settings (for Claude Code, run `claude mcp remove athar`).
+
 ## Your control
 
 - **Delete a chat**: it is removed from the chat list and from Athar's memory.

@@ -21,6 +21,11 @@ function moveDataFromOldName() {
   }
 }
 moveDataFromOldName();
+
+// Started by Claude Desktop / Claude Code as an MCP server: no window, memory tools over stdio
+const MCP_MODE = process.argv.includes('--mcp');
+if (MCP_MODE) require('./mcp').startMcpMode();
+
 const { registerIpcHandlers } = require('./ipc-handlers');
 const { getLicense } = require('./license');
 const downloads = require('./downloads');
@@ -100,7 +105,7 @@ function createWindow() {
   // mainWindow.webContents.openDevTools();
 }
 
-app.whenReady().then(() => {
+if (!MCP_MODE) app.whenReady().then(() => {
   Menu.setApplicationMenu(null); // remove File/Edit/View menu bar entirely
   registerIpcHandlers();
   createWindow();

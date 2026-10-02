@@ -3238,9 +3238,70 @@ document.getElementById('profileBackBtn').addEventListener('click', () => {
   if (!memoryResults.children.length) refreshMemoryResults();
 });
 
+// ── Your memory in Claude (Athar as an MCP server) ──────────────────────────
+const mcpAppsEl = document.getElementById('mcpApps');
+
+function renderMcpApps(st, note = '', ok = false) {
+  if (!mcpAppsEl) return;
+  if (!st || !st.success) {
+    mcpAppsEl.innerHTML = `<p class="gemini-note">${escapeHtml((st && st.error) || 'Couldn\'t check the Claude apps.')}</p>`;
+    return;
+  }
+  const d = st.desktop;
+  const state = d.connected ? '<span class="cloud-provider-state">✓ Connected</span>' : '';
+  const desktopAction = !d.installed
+    ? '<span>Not installed. Get it at <a href="https://claude.ai/download" target="_blank" rel="noopener">claude.ai/download</a>, open it once, then come back.</span>'
+    : d.connected
+      ? '<span>Restart Claude Desktop if Athar doesn\'t show in its tools.</span><button class="text-btn danger" type="button" data-action="disconnect">Disconnect</button>'
+      : `<span>${d.outdated ? 'Connected to another copy of Athar.' : 'Quit Claude Desktop first (also from the tray icon), then connect.'}</span><button class="primary-btn" type="button" data-action="connect">${d.outdated ? 'Reconnect' : 'Connect'}</button>`;
+  mcpAppsEl.innerHTML = `
+    <div class="cloud-provider">
+      <div class="cloud-provider-head">
+        ${modelIcon('anthropic')}
+        <div class="cloud-provider-title"><strong>Claude Desktop</strong><span>Anthropic · your Claude plan</span></div>
+        ${state}
+      </div>
+      <div class="cloud-provider-actions">${desktopAction}</div>
+      <p class="gemini-note${note ? '' : ' hidden'}${ok ? ' ok' : ''}">${escapeHtml(note)}</p>
+    </div>
+    <div class="cloud-provider">
+      <div class="cloud-provider-head">
+        ${modelIcon('local')}
+        <div class="cloud-provider-title"><strong>Claude Code</strong><span>Run this once in a terminal</span></div>
+      </div>
+      <div class="mcp-command"><code>${escapeHtml(st.claudeCode)}</code><button class="text-btn" type="button" data-action="copy">Copy</button></div>
+    </div>`;
+
+  const connect = mcpAppsEl.querySelector('[data-action="connect"]');
+  if (connect) connect.addEventListener('click', async () => {
+    connect.disabled = true;
+    const res = await window.api.mcpConnectDesktop();
+    renderMcpApps(res.success ? res : { ...st, success: true }, res.success
+      ? 'Connected. Open Claude Desktop and ask it about something from your past chats.'
+      : res.error, res.success);
+  });
+  const disconnect = mcpAppsEl.querySelector('[data-action="disconnect"]');
+  if (disconnect) disconnect.addEventListener('click', async () => {
+    const res = await window.api.mcpDisconnectDesktop();
+    renderMcpApps(res.success ? res : st, res.success ? 'Disconnected. Restart Claude Desktop to finish.' : res.error, res.success);
+  });
+  mcpAppsEl.querySelector('[data-action="copy"]').addEventListener('click', async (e) => {
+    try {
+      await navigator.clipboard.writeText(st.claudeCode);
+      e.target.textContent = 'Copied';
+      setTimeout(() => { e.target.textContent = 'Copy'; }, 1500);
+    } catch { /* clipboard unavailable */ }
+  });
+}
+
+async function loadMcpApps() {
+  try { renderMcpApps(await window.api.mcpStatus()); } catch (err) { renderMcpApps({ success: false, error: err.message }); }
+}
+
 // ── Settings Modal & Sidebar Toggle ──────────────────────────────────────────
 function openSettingsModal() {
   if (settingsModal) settingsModal.classList.remove('hidden');
+  loadMcpApps();
 }
 
 function closeSettingsModal() {

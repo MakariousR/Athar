@@ -16,6 +16,7 @@ const downloads = require('./downloads');
 const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
 const { getLicense } = require('./license');
+const mcpConnect = require('./mcp/connect');
 const { tokenize } = require('./memory/bm25');
 const { buildProfile, toChatGptInstructions, profileContext } = require('./memory/profile');
 
@@ -173,6 +174,23 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('app:version', () => app.getVersion());
+
+  // Your memory in other AI apps: Athar as an MCP server ("Athar --mcp")
+  const mcpLaunch = () => mcpConnect.launchCommand({ execPath: process.execPath, isPackaged: app.isPackaged, appPath: app.getAppPath() });
+  const mcpStatus = (desktop) => ({
+    success: true,
+    desktop: desktop || mcpConnect.desktopStatus(mcpLaunch()),
+    claudeCode: mcpConnect.claudeCodeCommand(mcpLaunch())
+  });
+  ipcMain.handle('mcp:status', () => {
+    try { return mcpStatus(); } catch (err) { return { success: false, error: err.message }; }
+  });
+  ipcMain.handle('mcp:connect-desktop', () => {
+    try { return mcpStatus(mcpConnect.connectDesktop(mcpLaunch())); } catch (err) { return { success: false, error: err.message }; }
+  });
+  ipcMain.handle('mcp:disconnect-desktop', () => {
+    try { return mcpStatus(mcpConnect.disconnectDesktop(mcpLaunch())); } catch (err) { return { success: false, error: err.message }; }
+  });
 
   // Beta license: the activation screen asks for the status and activates keys
   ipcMain.handle('license:status', () => getLicense().status());

@@ -28,6 +28,10 @@ Gemini model with your own API key.
   ~14B parameters or more (DuckDuckGo, no API key) and Gemini (Google Search on
   Gemini 3+). Smaller models never go online. With Search off, questions about things
   that change are answered from the model's training data, with a note saying so.
+- **Your memory in Claude.** Athar is also an MCP server (`Athar.exe --mcp`):
+  connect Claude Desktop in Settings with one click, or Claude Code with
+  `claude mcp add`, and Claude can search, list and read your past chats with
+  your own Claude plan. Read-only; the search runs on your computer.
 - **Attach files** (PDFs, text, code) and let the model read them on demand.
 - **Project folder (read-only)**: let the model read a folder and its git
   history to answer questions about it. It can never change your files.
@@ -137,6 +141,7 @@ src/main/                  Electron main process (the backend)
   index.js                 window + navigation lock
   ipc-handlers.js          IPC routes (only the app's own page may call them)
   memory/                  chunking, BM25 + vector search, query hints, profile
+  mcp/                     "Athar --mcp": memory tools for Claude Desktop / Claude Code
   ollama/                  Ollama client, agent loop (read-only tools)
   parser/                  ChatGPT / Claude / Gemini exports, PDF & text documents
   store/chat-store.js      in-app chats (sessions.json + per-file images/resources)
