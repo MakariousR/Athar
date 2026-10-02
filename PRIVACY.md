@@ -45,7 +45,7 @@ Athar sends only the excerpts relevant to each message, never your whole history
 ## Your control
 
 - **Delete a chat**: it is removed from the chat list and from Athar's memory.
-- **Delete chosen conversations**: in the Memory view, choose **Select**, tick conversations and delete them, or open one and choose **Delete**. Imported ones are removed from Athar and left out of later imports.
+- **Delete chosen conversations**: in the Memory view, choose **Select**, tick conversations and delete them, or open one and choose **Delete**. Imported ones are removed from Athar; importing an export that has them brings them back.
 - **Remove imported history**: in the Memory view, remove a source (ChatGPT, Claude or Gemini), or choose **Clear all imported history** to delete every imported conversation from Athar. Your export files are never touched.
 - **Edit or turn off the memory profile** in the Memory view.
 - **Delete everything**: uninstall Athar and delete its data folder (`%APPDATA%\Athar` on Windows).

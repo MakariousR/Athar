@@ -2452,7 +2452,6 @@ async function handleImportFile(file) {
     result.added ? `${result.added} new` : null,
     result.updated ? `${result.updated} updated` : null,
     result.unchanged ? `${result.unchanged} already imported` : null,
-    result.forgotten ? `${result.forgotten} you deleted before, left out` : null,
     result.skippedEmpty ? `${result.skippedEmpty} skipped (the export has no text for them)` : null
   ].filter(Boolean).join(', ');
   lastImportNote = `${sourceLabel}: ${changes || 'nothing new'}.`;
@@ -2595,8 +2594,8 @@ function memoryResultCard({ id, title, source, sourceName, date, meta, snippetHt
 }
 
 // ── Deleting conversations from the memory ──────────────────────────────────
-// Imported ones leave Athar (the export file is untouched) and stay out of later
-// imports; chats made in Athar are deleted, as from the chat list.
+// Imported ones leave Athar (the export file is untouched; importing it again brings
+// them back); chats made in Athar are deleted, as from the chat list.
 let memorySelecting = false;
 const memorySelected = new Map(); // thread id → source
 const memorySelectBar = document.getElementById('memorySelectBar');
@@ -2636,7 +2635,7 @@ async function deleteMemoryConversations(entries) {
   const appCount = entries.filter(([, src]) => src === 'app').length;
   const importedCount = entries.length - appCount;
   const lines = [entries.length === 1 ? 'Delete this conversation from your memory?' : `Delete ${entries.length} conversations from your memory?`, ''];
-  if (importedCount) lines.push(`${importedCount === entries.length ? 'They are' : `${importedCount} imported:`} removed from Athar and won't come back when you import a newer export. Your export file isn't touched.`);
+  if (importedCount) lines.push(`${importedCount === entries.length ? 'They are' : `${importedCount} imported:`} removed from Athar. Your export file isn't touched: importing it again brings them back.`);
   if (appCount) lines.push(`${appCount === entries.length ? (appCount === 1 ? 'It is a chat made in Athar: the chat itself is deleted.' : 'They are chats made in Athar: the chats themselves are deleted.') : `${appCount} made in Athar: those chats are deleted.`}`);
   if (!confirm(lines.join('\n'))) return false;
   const ids = entries.map(([id]) => id);

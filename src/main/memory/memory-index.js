@@ -154,7 +154,6 @@ class MemoryIndex extends EventEmitter {
     this.imported = new Map(); // id → thread
     this.appThreads = new Map();
     this.sources = {};         // source → { lastImport }
-    this.forgotten = new Map(); // id → source of imported conversations the user deleted: a later import skips them
     this.segments = { imported: new Segment(), app: new Segment() };
     this.vectors = new VectorStore(dir, embedModel);
 
@@ -176,7 +175,6 @@ class MemoryIndex extends EventEmitter {
       const data = JSON.parse(fs.readFileSync(this.threadsPath, 'utf8'));
       for (const t of data.threads || []) this.imported.set(t.id, t);
       this.sources = data.sources || {};
-      this.forgotten = new Map(Object.entries(data.forgotten || {}));
     } catch {
       this.migrateLegacy();
     }
@@ -215,7 +213,6 @@ class MemoryIndex extends EventEmitter {
     atomicWrite(this.threadsPath, JSON.stringify({
       version: 1,
       sources: this.sources,
-      forgotten: Object.fromEntries(this.forgotten),
       threads: [...this.imported.values()]
     }));
   }
@@ -256,11 +253,9 @@ class MemoryIndex extends EventEmitter {
     let added = 0;
     let updated = 0;
     let unchanged = 0;
-    let forgotten = 0;
     for (const raw of parsedThreads) {
       const thread = normalizeThread(raw, source);
       if (!thread.messages.length) continue;
-      if (this.forgotten.has(thread.id)) { forgotten++; continue; }
       const existing = this.imported.get(thread.id);
       if (!existing) { this.imported.set(thread.id, thread); added++; }
       else if (threadSignature(existing) !== threadSignature(thread)) { this.imported.set(thread.id, thread); updated++; }
@@ -272,7 +267,7 @@ class MemoryIndex extends EventEmitter {
     this.rebuild('imported');
     this.scheduleEmbedding();
     this.emitProgress();
-    return { source: src, added, updated, unchanged, forgotten, total: this.countBySource()[src] || 0 };
+    return { source: src, added, updated, unchanged, total: this.countBySource()[src] || 0 };
   }
 
   /** Removes every imported conversation from one source (e.g. "forget my Claude history"). */
@@ -283,8 +278,6 @@ class MemoryIndex extends EventEmitter {
       if (t.source === source) { this.imported.delete(id); removed++; }
     }
     delete this.sources[source];
-    // Starting this source over: a new import brings back everything in it
-    for (const [id, src] of [...this.forgotten]) if (src === source) this.forgotten.delete(id);
     this.saveThreads();
     this.rebuild('imported');
     this.saveVectors();
@@ -292,16 +285,12 @@ class MemoryIndex extends EventEmitter {
     return removed;
   }
 
-  /**
-   * Removes imported conversations, and remembers them so a later import of a
-   * newer export doesn't bring them back. Returns how many were removed.
-   */
+  /** Removes imported conversations (importing an export that has them brings them back). Returns how many were removed. */
   deleteThreads(ids) {
     this.load();
     let removed = 0;
     for (const id of ids || []) {
       if (!this.imported.has(id)) continue;
-      this.forgotten.set(id, this.imported.get(id).source);
       this.imported.delete(id);
       removed++;
     }
@@ -316,13 +305,12 @@ class MemoryIndex extends EventEmitter {
     return removed;
   }
 
-  /** Removes all imported history: a fresh start (importing again brings everything back). */
+  /** Removes all imported history (importing again brings it back). */
   clearImported() {
     this.load();
     const removed = this.imported.size;
     this.imported.clear();
     this.sources = {};
-    this.forgotten.clear();
     this.saveThreads();
     this.rebuild('imported');
     this.saveVectors();

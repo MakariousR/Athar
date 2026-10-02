@@ -27,30 +27,20 @@ test('deleting chosen conversations removes them from the list, search and saved
   const { passages } = await mem.search('docker compose port already allocated');
   assert(!passages.some((p) => p.threadId === 'gpt-docker'), 'no longer found by search');
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'threads.json'), 'utf8'));
-  assert(saved.threads.every((t) => t.id !== 'gpt-docker'), 'gone from the saved file (only its id is kept, to skip it in later imports)');
+  assert(!JSON.stringify(saved).includes('gpt-docker'), 'gone from the saved file');
   const again = reopen(dir);
   assert.deepStrictEqual(ids(again), ids(mem), 'still gone after a restart');
 });
 
-test('a deleted conversation stays out when a newer export is imported', async () => {
+test('a deleted conversation comes back when an export that has it is imported', async () => {
   const { mem, dir } = await makeIndex();
   mem.deleteThreads(['gpt-docker']);
-  const result = mem.importThreads(corpus.filter((t) => t.source === 'chatgpt'), 'chatgpt');
-  assert.strictEqual(result.forgotten, 1);
-  assert(!ids(mem).includes('gpt-docker'));
-  // ...also after a restart
-  const again = reopen(dir);
-  assert.strictEqual(again.importThreads(corpus.filter((t) => t.source === 'chatgpt'), 'chatgpt').forgotten, 1);
-});
-
-test('removing a whole source starts it over: re-importing brings everything back, other sources keep their deletions', async () => {
-  const { mem } = await makeIndex();
-  mem.deleteThreads(['gpt-docker', 'claude-react']);
-  mem.deleteSource('chatgpt');
-  assert(!mem.allThreads().some((t) => t.source === 'chatgpt'));
-  mem.importThreads(corpus.filter((t) => t.source === 'chatgpt'), 'chatgpt');
-  assert(ids(mem).includes('gpt-docker'), 'the ChatGPT one is back');
-  assert.strictEqual(mem.importThreads(corpus.filter((t) => t.source === 'claude'), 'claude').forgotten, 1, 'the Claude one stays deleted');
+  const again = reopen(dir); // also after a restart
+  const result = again.importThreads(corpus.filter((t) => t.source === 'chatgpt'), 'chatgpt');
+  assert.strictEqual(result.added, 1);
+  assert(ids(again).includes('gpt-docker'));
+  const { passages } = await again.search('docker compose port already allocated');
+  assert(passages.some((p) => p.threadId === 'gpt-docker'), 'found by search again');
 });
 
 test('clear all imported history: everything imported goes, chats made in Athar stay, importing again works', async () => {
@@ -62,7 +52,6 @@ test('clear all imported history: everything imported goes, chats made in Athar 
   assert.deepStrictEqual(ids(mem), ['app-1']);
   assert.deepStrictEqual(mem.stats().sources, { app: { name: 'This app', count: 1, lastImport: null } });
   assert.strictEqual(reopen(dir).allThreads().length, 0, 'nothing imported after a restart');
-  // A fresh start: even the one deleted before comes back
   for (const source of ['chatgpt', 'claude', 'gemini']) mem.importThreads(corpus.filter((t) => t.source === source), source);
   assert(ids(mem).includes('gpt-docker'));
 });

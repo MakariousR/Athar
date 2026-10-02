@@ -456,7 +456,7 @@ function registerIpcHandlers() {
     } catch (err) { return { success: false, error: err.message }; }
   });
 
-  // Chosen conversations: imported ones leave the memory (and stay out of later imports);
+  // Chosen conversations: imported ones leave the memory (a later import brings them back);
   // chats made in Athar are deleted, as from the chat list
   ipcMain.handle('memory:delete-threads', async (event, ids) => {
     try {
