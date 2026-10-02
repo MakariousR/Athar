@@ -17,6 +17,7 @@ const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
 const { getLicense } = require('./license');
 const mcpConnect = require('./mcp/connect');
+const { getHardware } = require('./hardware');
 const { tokenize } = require('./memory/bm25');
 const { buildProfile, toChatGptInstructions, profileContext } = require('./memory/profile');
 
@@ -174,6 +175,8 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('app:version', () => app.getVersion());
+  // Memory and graphics card, to show which local models fit this computer
+  ipcMain.handle('system:hardware', () => getHardware().catch(() => null));
 
   // Your memory in other AI apps: Athar as an MCP server ("Athar --mcp")
   const mcpLaunch = () => mcpConnect.launchCommand({ execPath: process.execPath, isPackaged: app.isPackaged, appPath: app.getAppPath() });

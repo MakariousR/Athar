@@ -42,14 +42,30 @@
         <button id="setupPathLocal" class="setup-path-card" type="button">
           <span class="setup-path-title">💻 Local model</span>
           <span class="setup-path-good">Private — nothing leaves your computer. Works offline. Free, no limits.</span>
-          <span class="setup-path-cost">Needs a ~6 GB download and a computer with 8–16 GB of memory. Slower answers.</span>
+          <span id="setupPathLocalCost" class="setup-path-cost">A free AI model downloaded to this computer. Athar suggests one that fits it. Slower answers than the cloud.</span>
         </button>
         <button id="setupPathCloud" class="setup-path-card" type="button">
-          <span class="setup-path-title">☁️ Gemini (cloud)</span>
-          <span class="setup-path-good">Faster, smarter answers. Works on any computer. Free API key from Google.</span>
-          <span class="setup-path-cost">Your messages and the related parts of your memory go to Google. Needs internet; daily limits.</span>
+          <span class="setup-path-title">☁️ Cloud model</span>
+          <span class="setup-path-good">Faster, smarter answers. Works on any computer.</span>
+          <span class="setup-path-cost">Gemini with a free key from Google, or your own Claude plan. Your questions and the related parts of your memory go to that company.</span>
         </button>
-        <p class="setup-path-note">You can switch between them any time in Settings.</p>
+        <p class="setup-path-note">You can switch or add another any time in Settings.</p>
+      </div>
+
+      <!-- Cloud: which provider (rendered from SETUP_CLOUD_OPTIONS in chat.js) -->
+      <div id="setupCloudChoice" class="setup-path hidden">
+        <div id="setupCloudOptions" class="setup-path-list"></div>
+        <button id="setupCloudChoiceBack" class="setup-link-btn" type="button">← Back</button>
+      </div>
+
+      <!-- Cloud → Claude: Athar's memory inside Claude Desktop / Claude Code -->
+      <div id="setupClaude" class="setup-cloud hidden">
+        <p class="settings-desc">Claude answers in its own app, with your Claude plan, and searches your past chats in Athar when it helps.
+          Athar keeps your history on this computer and gives Claude only what it looks up.</p>
+        <div id="setupClaudeApps" class="cloud-providers"></div>
+        <p class="settings-desc">Athar's own chat window needs a Gemini key or a local model. You can add one later in Settings; importing and searching your history work without one.</p>
+        <button id="setupClaudeDone" class="primary-btn setup-choice-btn" type="button">Continue to Athar</button>
+        <button id="setupClaudeBack" class="setup-link-btn" type="button">← Back</button>
       </div>
 
       <div id="setupCloud" class="setup-cloud hidden">
@@ -439,6 +455,7 @@
   </div>
 
   <script src="marked.umd.js"></script>
+  <script src="model-catalog.js"></script>
   <script src="chat.js"></script>
 </body>
 </html>

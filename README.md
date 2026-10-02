@@ -64,6 +64,18 @@ and adapts, so any model works without a hard-coded list:
 
 Overrides: `ATHAR_ASSIST=guided|light`, `OLLAMA_NUM_CTX=<tokens>`, `OLLAMA_KEEP_ALIVE`.
 
+### The model list
+
+`src/renderer/model-catalog.js` lists every chat model in the Ollama library, in every
+size (~380), made by `node scripts/update-model-catalog.js` from Ollama's own data:
+exact download sizes from the registry, and each model's architecture from its file
+header. For each one it gives the graphics memory to run it fully on the graphics card,
+and the RAM to run it without one, following the same rules as the context size above.
+Athar reads this computer's RAM and graphics card (Windows registry), marks each model
+as fast on the GPU / slower / tight / too big, hides the too-big ones, and recommends the
+strongest of Qwen 3 14B, Qwen 2.5 7B, Qwen 3 4B… that fits. Re-run the script to pick up
+new models.
+
 ## Setup
 
 ```bash

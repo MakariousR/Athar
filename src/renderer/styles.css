@@ -412,6 +412,9 @@ body {
 .mp-item-end { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .mp-item-end.muted { stroke: var(--muted); stroke-width: 2; }
 .mp-item.add { color: var(--accent); }
+.mp-more { display: block; width: 100%; margin: 4px 0 2px; padding: 8px; background: none; border: 1px dashed var(--border); border-radius: 8px;
+  font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.mp-more:hover { color: var(--text); border-color: var(--accent); }
 .mp-empty { padding: 18px 8px; text-align: center; font-size: 12.5px; color: var(--muted); }
 
 /* The provider / place icon in front of a model */
@@ -699,8 +702,13 @@ body {
   font-weight: 600;
 }
 .cap-badge.vision { background: rgba(16, 185, 129, 0.15); color: var(--success); }
-.cap-row { display: flex; justify-content: space-between; color: var(--muted); }
-.cap-val { color: var(--text); font-weight: 500; }
+.cap-row { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+.cap-row > span:first-child { white-space: nowrap; }
+.cap-val { color: var(--text); font-weight: 500; text-align: right; }
+.cap-dim { color: var(--muted); font-weight: 400; }
+.cap-fit.fit-gpu .cap-val { color: var(--success); }
+.cap-fit.fit-ram .cap-val, .cap-fit.fit-tight .cap-val { color: #f5b544; }
+.cap-fit.fit-no .cap-val { color: var(--danger); }
 .cap-desc { color: var(--muted); line-height: 1.4; margin-top: 2px; }
 
 /* Setup choices overlay */
@@ -723,6 +731,8 @@ body {
 .setup-path-good { font-size: 13px; line-height: 1.45; }
 .setup-path-cost { font-size: 12px; line-height: 1.45; color: var(--muted); }
 .setup-path-note { font-size: 12px; color: var(--muted); text-align: center; }
+.setup-path-list { display: flex; flex-direction: column; gap: 10px; }
+.setup-path-card .setup-path-head { display: flex; align-items: center; gap: 10px; }
 .setup-cloud { display: flex; flex-direction: column; gap: 12px; text-align: left; }
 .setup-cloud-steps { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: var(--text); }
 .setup-cloud-steps a { color: var(--accent); }

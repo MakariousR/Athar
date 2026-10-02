@@ -78,8 +78,6 @@ let attachedDocuments    = [];   // metadata only: [{ id, name, ext, size, pageC
 
 const CHAT_MODEL  = 'qwen2.5:7b';
 const EMBED_MODEL = 'bge-m3';
-const CHAT_MODEL_LABEL  = 'Qwen 2.5 7B';
-const CHAT_MODEL_SIZE   = '~4.7 GB';
 const EMBED_MODEL_SIZE  = '~1.2 GB';
 const ACTIVE_MODEL_KEY  = 'activeModel';
 
@@ -105,47 +103,65 @@ function isCloudModel(name) { return cloudProviderOf(name) !== null; }
 let cloudState = {}; // provider → { hasKey, models, recommended, error }
 let setupNeedsEmbed = false;
 
-// Curated catalog of popular Ollama chat models with rich capability metadata.
-const MODEL_CATALOG = [
-  { name: 'qwen3:0.6b',           label: 'Qwen 3 · 0.6B',            sizeBytes:    522_653_767, ram: '~2.0 GB', vision: false, thinking: true , desc: 'Tiny model for very old or low-memory PCs. Thinks before answering; limited knowledge.' },
-  { name: 'gemma3:1b',            label: 'Gemma 3 · 1B',             sizeBytes:    815_319_791, ram: '~2.5 GB', vision: false, thinking: false, desc: 'Google lightweight model. Fast, low resource use; basic answers.' },
-  { name: 'qwen2.5:1.5b',         label: 'Qwen 2.5 · 1.5B',          sizeBytes:    986_061_892, ram: '~2.5 GB', vision: false, thinking: false, desc: 'Good balance of speed and multilingual understanding for small PCs.' },
-  { name: 'deepseek-r1:1.5b',     label: 'DeepSeek R1 · 1.5B',       sizeBytes:  1_117_322_768, ram: '~3.0 GB', vision: false, thinking: true , desc: 'Small reasoning model: thinks step by step before answering (slower replies).' },
-  { name: 'llama3.2:1b',          label: 'Llama 3.2 · 1B',           sizeBytes:  1_321_098_329, ram: '~3.0 GB', vision: false, thinking: false, desc: 'Meta lightweight model. Quick summaries and simple chat.' },
-  { name: 'qwen3:1.7b',           label: 'Qwen 3 · 1.7B',            sizeBytes:  1_359_293_444, ram: '~3.0 GB', vision: false, thinking: true , desc: 'Small Qwen 3: tools, multilingual, can think before answering.' },
-  { name: 'qwen3-vl:2b',          label: 'Qwen 3 VL · 2B',           sizeBytes:  1_889_519_687, ram: '~4.0 GB', vision: true , thinking: false, desc: 'Smallest Qwen 3 vision model: reads images and screenshots.' },
-  { name: 'qwen2.5:3b',           label: 'Qwen 2.5 · 3B',            sizeBytes:  1_929_912_432, ram: '~4.0 GB', vision: false, thinking: false, desc: 'Multilingual reasoning, tool calling and history search on modest hardware.' },
-  { name: 'llama3.2:3b',          label: 'Llama 3.2 · 3B',           sizeBytes:  2_019_393_189, ram: '~4.0 GB', vision: false, thinking: false, desc: 'Meta efficient model. Good instruction following and writing.' },
-  { name: 'phi4-mini',            label: 'Phi 4 Mini · 3.8B',        sizeBytes:  2_491_876_774, ram: '~4.5 GB', vision: false, thinking: false, desc: 'Microsoft compact model. Strong at math and logic.' },
-  { name: 'qwen3:4b',             label: 'Qwen 3 · 4B',              sizeBytes:  2_497_293_931, ram: '~4.5 GB', vision: false, thinking: true , desc: 'Capable small model: tools, 100+ languages, thinks before hard answers. Good for 8 GB RAM.' },
-  { name: 'qwen2.5vl:3b',         label: 'Qwen 2.5 VL · 3B',         sizeBytes:  3_200_627_168, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Compact vision model: understands images and screenshots.' },
-  { name: 'qwen3-vl:4b',          label: 'Qwen 3 VL · 4B',           sizeBytes:  3_295_636_135, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Qwen 3 vision model: images, screenshots and documents.' },
-  { name: 'gemma3:4b',            label: 'Gemma 3 · 4B',             sizeBytes:  3_338_801_804, ram: '~5.5 GB', vision: true , thinking: false, desc: 'Google model with vision and 140+ languages. Reads images and screenshots.' },
-  { name: 'mistral',              label: 'Mistral · 7B',             sizeBytes:  4_372_824_384, ram: '~6.5 GB', vision: false, thinking: false, desc: 'Classic 7B model. Solid writing and code.' },
-  { name: 'deepseek-r1:7b',       label: 'DeepSeek R1 · 7B',         sizeBytes:  4_683_075_440, ram: '~7.0 GB', vision: false, thinking: true , desc: 'Reasoning model: thinks step by step (slower, strong at math and logic).' },
-  { name: 'qwen2.5:7b',           label: 'Qwen 2.5 · 7B',            sizeBytes:  4_683_087_332, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Recommended default. Strong all-round 7B: multilingual (incl. Arabic) with reliable tool calling.' },
-  { name: 'qwen2.5-coder:7b',     label: 'Qwen 2.5 Coder · 7B',      sizeBytes:  4_683_087_561, ram: '~7.0 GB', vision: false, thinking: false, desc: 'Code-focused 7B with reliable tool calling for workspace file & Git tasks.' },
-  { name: 'llama3.1:8b',          label: 'Llama 3.1 · 8B',           sizeBytes:  4_920_753_328, ram: '~7.5 GB', vision: false, thinking: false, desc: 'Meta 8B model. Good reasoning and longer tasks.' },
-  { name: 'deepseek-r1:8b',       label: 'DeepSeek R1 · 8B',         sizeBytes:  5_225_376_047, ram: '~8.0 GB', vision: false, thinking: true , desc: 'Reasoning model on a Qwen 3 base: thinks step by step (slower, stronger on hard problems).' },
-  { name: 'qwen3:8b',             label: 'Qwen 3 · 8B',              sizeBytes:  5_225_388_164, ram: '~8.0 GB', vision: false, thinking: true , desc: 'Newer Qwen generation: tools, 100+ languages, thinks before hard answers. Best all-rounder for 16 GB RAM.' },
-  { name: 'qwen2.5vl:7b',         label: 'Qwen 2.5 VL · 7B',         sizeBytes:  5_969_245_856, ram: '~8.5 GB', vision: true , thinking: false, desc: 'Stronger vision model: image understanding and document reading.' },
-  { name: 'qwen3-vl:8b',          label: 'Qwen 3 VL · 8B',           sizeBytes:  6_140_415_879, ram: '~9.0 GB', vision: true , thinking: false, desc: 'Qwen 3 vision model: images, charts and documents with better reasoning.' },
-  { name: 'llama3.2-vision:11b',  label: 'Llama 3.2 Vision · 11B',   sizeBytes:  7_816_589_186, ram: '~11 GB',  vision: true , thinking: false, desc: 'Meta vision model. Image understanding and document reading.' },
-  { name: 'gemma3:12b',           label: 'Gemma 3 · 12B',            sizeBytes:  8_149_190_253, ram: '~11 GB',  vision: true , thinking: false, desc: 'Powerful multimodal model. Reasoning, coding and visual document analysis.' },
-  { name: 'deepseek-r1:14b',      label: 'DeepSeek R1 · 14B',        sizeBytes:  8_988_112_209, ram: '~12 GB',  vision: false, thinking: true , desc: 'Stronger reasoning model: thinks step by step. Needs a powerful PC.' },
-  { name: 'qwen2.5:14b',          label: 'Qwen 2.5 · 14B',           sizeBytes:  8_988_124_069, ram: '~12 GB',  vision: false, thinking: false, desc: 'Higher-tier reasoning and long documents, for PCs with 16 GB+ of fast memory.' },
-  { name: 'qwen2.5-coder:14b',    label: 'Qwen 2.5 Coder · 14B',     sizeBytes:  8_988_124_298, ram: '~12 GB',  vision: false, thinking: false, desc: 'Stronger coding model with tool calling, for powerful PCs.' },
-  { name: 'phi4',                 label: 'Phi 4 · 14B',              sizeBytes:  9_053_116_391, ram: '~12 GB',  vision: false, thinking: false, desc: 'Microsoft 14B model for logic and math.' },
-  { name: 'qwen3:14b',            label: 'Qwen 3 · 14B',             sizeBytes:  9_276_198_565, ram: '~13 GB',  vision: false, thinking: true , desc: 'Capable Qwen 3: tools, multilingual, thinks before hard answers. For PCs with 24 GB+ RAM or a strong GPU.' },
-  { name: 'gpt-oss:20b',          label: 'GPT-OSS · 20B',            sizeBytes: 13_793_441_244, ram: '~18 GB',  vision: false, thinking: true , desc: 'OpenAI open-weight reasoning model with tools. For high-end PCs.' },
-  { name: 'mistral-small3.2:24b', label: 'Mistral Small 3.2 · 24B',  sizeBytes: 15_177_384_862, ram: '~20 GB',  vision: true , thinking: false, desc: 'Strong multilingual model with vision and tools. For high-end PCs.' },
-  { name: 'gemma3:27b',           label: 'Gemma 3 · 27B',            sizeBytes: 17_396_936_941, ram: '~22 GB',  vision: true , thinking: false, desc: 'Google flagship open model with vision. For high-end PCs / GPUs.' },
-  { name: 'qwen3:30b',            label: 'Qwen 3 · 30B (MoE)',       sizeBytes: 18_556_699_314, ram: '~24 GB',  vision: false, thinking: true , desc: 'Mixture-of-experts: runs faster than its size suggests. Needs a lot of memory.' },
-  { name: 'qwen3-coder:30b',      label: 'Qwen 3 Coder · 30B (MoE)', sizeBytes: 18_556_700_761, ram: '~24 GB',  vision: false, thinking: false, desc: 'Qwen 3 coding model with tools. Needs a lot of memory.' },
-  { name: 'qwen3:32b',            label: 'Qwen 3 · 32B',             sizeBytes: 20_201_253_829, ram: '~26 GB',  vision: false, thinking: true , desc: 'Top Qwen 3 dense model. Workstation hardware.' },
-  { name: 'llama3.3:70b',         label: 'Llama 3.3 · 70B',          sizeBytes: 42_520_413_916, ram: '~53 GB',  vision: false, thinking: false, desc: 'Enterprise-grade 70B model. Workstation with a large GPU.' },
-  { name: 'qwen2.5:72b',          label: 'Qwen 2.5 · 72B',           sizeBytes: 47_415_724_625, ram: '~58 GB',  vision: false, thinking: false, desc: 'Top-of-the-line 72B model. Workstation hardware.' }
-];
+// Every local model in the Ollama library, in every size, with what it needs to
+// run: MODEL_CATALOG, in model-catalog.js (scripts/update-model-catalog.js makes it).
+
+/** The catalog entry for a model name: "qwen2.5:7b", "mistral" or "mistral:latest" (= mistral:7b). */
+function catalogEntry(name) {
+  const n = String(name || '').replace(/:latest$/, '');
+  return MODEL_CATALOG.find((m) => m.name === n || (m.aliases || []).includes(n)) || null;
+}
+/** Whether an installed model name ("mistral:latest") is this catalog entry. */
+function isCatalogModel(entry, installedName) {
+  return catalogEntry(installedName) === entry;
+}
+
+// This computer's memory and graphics card ({ ramGB, gpu: { name, vramGB } | null }), to show which models fit
+let hardware = null;
+let hardwareLoading = null;
+function loadHardware() {
+  if (!hardwareLoading) {
+    hardwareLoading = window.api.getHardware().then((h) => { hardware = h && h.ramGB ? h : null; return hardware; }).catch(() => null);
+  }
+  return hardwareLoading;
+}
+
+/**
+ * How a local model would run on this computer:
+ *   gpu    all of it on the graphics card — fast
+ *   ram    in the computer's memory (partly on the graphics card if there is one) — slower
+ *   tight  only with a shorter context, and little memory left for other programs
+ *   no     too big for this computer
+ */
+function modelFit(entry) {
+  if (!entry || !hardware || entry.vram === undefined) return null;
+  if (hardware.gpu && entry.vram <= hardware.gpu.vramGB) return 'gpu';
+  if (entry.ram <= hardware.ramGB) return 'ram';
+  if (entry.ramMin <= hardware.ramGB) return 'tight';
+  return 'no';
+}
+function fitText(fit) {
+  return {
+    gpu: 'Fast on your graphics card',
+    ram: hardware && hardware.gpu ? 'Runs on this PC, partly on the processor (slower)' : 'Runs on this PC\'s processor (slower)',
+    tight: 'Runs, but tight on memory (shorter chat context)',
+    no: 'Too big for this PC'
+  }[fit] || '';
+}
+const FIT_SHORT = { gpu: 'fast on your GPU', ram: 'slower on this PC', tight: 'tight on memory', no: 'too big for this PC' };
+
+// The best default for this computer: the strongest of these that runs fast on its
+// graphics card, else one that runs in its memory. All of them handle tools and Arabic.
+const RECOMMENDED_ORDER = ['qwen3:14b', 'qwen2.5:7b', 'qwen3:4b', 'qwen2.5:3b', 'qwen3:1.7b', 'qwen3:0.6b'];
+function recommendedModel() {
+  if (!hardware) return CHAT_MODEL;
+  const fit = (name) => modelFit(catalogEntry(name));
+  return RECOMMENDED_ORDER.find((n) => fit(n) === 'gpu')
+    || RECOMMENDED_ORDER.slice(1).find((n) => fit(n) === 'ram')
+    || RECOMMENDED_ORDER[RECOMMENDED_ORDER.length - 1];
+}
+
+const gb = (n) => `${Number.isInteger(n) ? n : n.toFixed(1)} GB`;
 
 // What Ollama reports each INSTALLED model can do, e.g. ["completion","tools","vision"].
 // Authoritative when present; the catalog's `vision` flag is only a fallback.
@@ -165,16 +181,31 @@ function getModelInfo(modelName) {
       desc: `${p.name} model, on ${p.company}'s servers with your API key (${p.plan}). Your question, the conversation and related memory and file excerpts are sent to ${p.company}.`
     };
   }
-  const info = MODEL_CATALOG.find((m) => m.name === modelName || m.name.startsWith(modelName + ':')) || {
+  const info = catalogEntry(modelName) || {
     name: modelName,
-    label: modelName,
-    ram: 'Unknown',
+    label: modelName.replace(/:latest$/, ''),
     vision: false,
-    desc: 'Custom installed model.'
+    desc: 'A model installed in Ollama that isn\'t in Ollama\'s public library.'
   };
   const caps = installedCapabilities.get(modelName);
   if (!caps) return info;
   return { ...info, vision: caps.includes('vision'), tools: caps.includes('tools'), thinking: caps.includes('thinking') || Boolean(info.thinking) };
+}
+
+/** Download, graphics card and memory needs of a local model, and whether it fits this computer. */
+function localRequirementRows(info) {
+  if (info.vram === undefined) return '';
+  const row = (label, value, cls = '') => `<div class="cap-row${cls}"><span>${label}</span> <span class="cap-val">${value}</span></div>`;
+  const what = [info.params && `${escapeHtml(info.params)} parameters`, info.quant && escapeHtml(info.quant),
+    info.experts && `mixture of experts, ${info.experts[0]} of ${info.experts[1]} active`].filter(Boolean).join(' · ');
+  const fit = modelFit(info);
+  const hw = hardware
+    ? `${hardware.gpu ? `${escapeHtml(hardware.gpu.name)}, ${gb(hardware.gpu.vramGB)}` : 'no graphics card Ollama can use'} · ${gb(hardware.ramGB)} RAM`
+    : '';
+  return row('Download:', `${formatBytes(info.sizeBytes)}${what ? ` <span class="cap-dim">(${what})</span>` : ''}`) +
+    row('Graphics card:', `${gb(info.vram)} of graphics memory to run fully on it (fast)`) +
+    row('Without one:', `${gb(info.ram)} RAM <span class="cap-dim">(at least ${gb(info.ramMin)}, with a shorter chat context)</span>`) +
+    (fit ? row('This PC:', `${fitText(fit)}${hw ? ` <span class="cap-dim">— ${hw}</span>` : ''}`, ` cap-fit fit-${fit}`) : '');
 }
 
 function renderCapCard(modelName, containerEl) {
@@ -190,7 +221,7 @@ function renderCapCard(modelName, containerEl) {
     </div>
     ${info.cloud
     ? `<div class="cap-row"><span>Runs on:</span> <span class="cap-val">${CLOUD_PROVIDERS[info.cloud].company}'s servers (needs internet)</span></div>`
-    : `<div class="cap-row"><span>RAM Required:</span> <span class="cap-val">${info.ram}</span></div>`}
+    : localRequirementRows(info)}
     ${toolsRow}
     ${info.thinking ? '<div class="cap-row"><span>Reasoning:</span> <span class="cap-val">thinks before answering (slower, better on hard questions)</span></div>' : ''}
     <div class="cap-desc">${escapeHtml(info.desc)}</div>
@@ -339,6 +370,7 @@ function addThoughtStep(bubble, info) {
 
 // ── Setup flow ────────────────────────────────────────────────────────────────
 async function checkSetup() {
+  if (setupMode() === 'claude') { enterApp(); return; }
   // A cloud model chosen and its key saved: no local AI needed
   if (isCloudModel(activeModel)) {
     const providers = await window.api.cloudStatus().catch(() => null);
@@ -389,25 +421,75 @@ const setupGeminiSave  = document.getElementById('setupGeminiSave');
 const setupGeminiNote  = document.getElementById('setupGeminiNote');
 let setupPathChosen = false; // "local" chosen: the Ollama + model setup follows
 
+// Chose "Claude": Athar is used as Claude's memory, so its own chat may have no model
+const SETUP_MODE_KEY = 'athar.setupMode';
+function setupMode() { try { return localStorage.getItem(SETUP_MODE_KEY); } catch { return null; } }
+function saveSetupMode(mode) { try { localStorage.setItem(SETUP_MODE_KEY, mode); } catch { /* storage unavailable */ } }
+
+// Cloud providers offered at setup. Add one here (and its panel) to offer it.
+const SETUP_CLOUD_OPTIONS = [
+  { id: 'gemini', icon: 'gemini', title: 'Gemini', sub: 'Google',
+    good: 'Answers here in Athar. Free API key from Google; fast, with Google Search.',
+    cost: 'Your questions and the related parts of your memory go to Google. Daily limits on the free plan.' },
+  { id: 'claude', icon: 'anthropic', title: 'Claude', sub: 'Anthropic · your Claude plan',
+    good: 'Use your Athar memory inside Claude Desktop or Claude Code, with the Claude plan you already have.',
+    cost: 'Claude answers in its own app. Only what Claude looks up in your memory goes to Anthropic.' }
+];
+
+const setupCloudChoice = document.getElementById('setupCloudChoice');
+const setupClaude = document.getElementById('setupClaude');
+const setupPanels = () => [setupPath, setupCloudChoice, setupCloud, setupClaude];
+function showSetupPanel(panel, status) {
+  for (const p of setupPanels()) p.classList.toggle('hidden', p !== panel);
+  if (status) setupStatus.textContent = status;
+}
+
 function showSetupPath() {
-  setupStatus.textContent = 'How do you want Athar to answer you?';
-  setupCloud.classList.add('hidden');
-  setupPath.classList.remove('hidden');
+  showSetupPanel(setupPath, 'How do you want Athar to answer you?');
+  // Name the model that fits this computer, once its memory and graphics card are known
+  loadHardware().then(() => {
+    if (!hardware) return;
+    const info = getModelInfo(recommendedModel());
+    document.getElementById('setupPathLocalCost').textContent =
+      `For this computer: ${info.label}, a ${formatBytes(info.sizeBytes)} download (${fitText(modelFit(info)).toLowerCase()}). Slower answers than the cloud.`;
+  });
+}
+
+function showCloudChoice() {
+  document.getElementById('setupCloudOptions').innerHTML = SETUP_CLOUD_OPTIONS.map((o) => `
+    <button class="setup-path-card" type="button" data-cloud="${o.id}">
+      <span class="setup-path-head">${modelIcon(o.icon)}<span><span class="setup-path-title">${escapeHtml(o.title)}</span><br><span class="setup-path-cost">${escapeHtml(o.sub)}</span></span></span>
+      <span class="setup-path-good">${escapeHtml(o.good)}</span>
+      <span class="setup-path-cost">${escapeHtml(o.cost)}</span>
+    </button>`).join('');
+  showSetupPanel(setupCloudChoice, 'Which cloud AI?');
 }
 
 document.getElementById('setupPathLocal').addEventListener('click', () => {
   setupPathChosen = true;
-  setupPath.classList.add('hidden');
-  setupStatus.textContent = 'Checking your local AI engine…';
+  showSetupPanel(null, 'Checking your local AI engine…');
   checkSetup();
 });
-document.getElementById('setupPathCloud').addEventListener('click', () => {
-  setupPath.classList.add('hidden');
-  setupCloud.classList.remove('hidden');
-  setupStatus.textContent = 'Use Gemini with your own free API key.';
-  setupGeminiKey.focus();
+document.getElementById('setupPathCloud').addEventListener('click', showCloudChoice);
+document.getElementById('setupCloudChoiceBack').addEventListener('click', showSetupPath);
+document.getElementById('setupCloudOptions').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-cloud]');
+  if (!card) return;
+  if (card.dataset.cloud === 'gemini') {
+    showSetupPanel(setupCloud, 'Use Gemini with your own free API key.');
+    setupGeminiKey.focus();
+  } else if (card.dataset.cloud === 'claude') {
+    showSetupPanel(setupClaude, 'Use your memory in Claude.');
+    loadMcpApps(document.getElementById('setupClaudeApps'));
+  }
 });
-document.getElementById('setupCloudBack').addEventListener('click', showSetupPath);
+document.getElementById('setupCloudBack').addEventListener('click', showCloudChoice);
+document.getElementById('setupClaudeBack').addEventListener('click', showCloudChoice);
+document.getElementById('setupClaudeDone').addEventListener('click', () => {
+  saveSetupMode('claude');
+  showSetupPanel(null);
+  enterApp();
+});
 
 setupGeminiSave.addEventListener('click', async () => {
   const key = setupGeminiKey.value.trim();
@@ -427,7 +509,8 @@ setupGeminiSave.addEventListener('click', async () => {
   setupGeminiKey.value = '';
   activeModel = status.recommended;
   saveActiveModel(activeModel);
-  setupCloud.classList.add('hidden');
+  saveSetupMode('gemini');
+  showSetupPanel(null);
   enterApp();
 });
 setupGeminiKey.addEventListener('keydown', (e) => { if (e.key === 'Enter') setupGeminiSave.click(); });
@@ -552,8 +635,8 @@ function startSetupInstall(modelName) {
   const info = getModelInfo(modelName);
   const steps = [{
     model: modelName,
-    label: modelName === CHAT_MODEL ? `Default Chat model (${CHAT_MODEL_LABEL})` : `Chat model (${info.label})`,
-    size: modelName === CHAT_MODEL ? CHAT_MODEL_SIZE : `~${formatBytes(info.sizeBytes)}`
+    label: `${modelName === recommendedModel() ? 'Recommended chat model' : 'Chat model'} (${info.label})`,
+    size: `~${formatBytes(info.sizeBytes)}`
   }];
   if (setupNeedsEmbed) steps.push(embedSetupStep());
 
@@ -565,25 +648,42 @@ function startSetupInstall(modelName) {
   renderSetupSteps(steps);
 }
 
-function populateSetupModelSelect() {
-  setupModelSelect.innerHTML = '';
-  for (const m of MODEL_CATALOG) {
-    const opt = document.createElement('option');
-    opt.value = m.name;
-    opt.textContent = `${m.label} (~${formatBytes(m.sizeBytes)})`;
-    setupModelSelect.appendChild(opt);
-  }
-  setupModelSelect.value = CHAT_MODEL;
-  renderCapCard(CHAT_MODEL, setupCapCard);
+// The setup list: every model, grouped by how it would run on this computer
+const SETUP_FIT_GROUPS = [
+  ['gpu', 'Fast on your graphics card'],
+  ['ram', 'Runs on this PC (slower)'],
+  ['tight', 'Tight on memory'],
+  ['no', 'Too big for this PC'],
+  [null, 'All models']
+];
 
-  setupModelSelect.addEventListener('change', () => {
-    renderCapCard(setupModelSelect.value, setupCapCard);
-  });
+async function populateSetupModelSelect() {
+  await loadHardware();
+  const recommended = recommendedModel();
+  const info = getModelInfo(recommended);
+  setupDefaultBtn.textContent = `⬇ Install the recommended model: ${info.label} (${formatBytes(info.sizeBytes)})`;
+  setupModelSelect.innerHTML = '';
+  for (const [fit, title] of SETUP_FIT_GROUPS) {
+    const models = MODEL_CATALOG.filter((m) => modelFit(m) === fit);
+    if (!models.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = `${title} (${models.length})`;
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = `${m.label} — ${formatBytes(m.sizeBytes)}${m.name === recommended ? ' — recommended' : ''}`;
+      group.appendChild(opt);
+    }
+    setupModelSelect.appendChild(group);
+  }
+  setupModelSelect.value = recommended;
+  renderCapCard(recommended, setupCapCard);
 }
 
-setupDefaultBtn.addEventListener('click', () => startSetupInstall(CHAT_MODEL));
+setupModelSelect.addEventListener('change', () => renderCapCard(setupModelSelect.value, setupCapCard));
+setupDefaultBtn.addEventListener('click', () => startSetupInstall(recommendedModel()));
 if (setupSelectedBtn) {
-  setupSelectedBtn.addEventListener('click', () => startSetupInstall(setupModelSelect.value || CHAT_MODEL));
+  setupSelectedBtn.addEventListener('click', () => startSetupInstall(setupModelSelect.value || recommendedModel()));
 }
 
 function renderSetupSteps(missing) {
@@ -950,20 +1050,25 @@ async function loadModelSelector() {
     const EMBED_FILTER = /bge-m3|embed|nomic-embed/i;
     const installed = installedRaw.filter((m) => !EMBED_FILTER.test(m.name));
 
-    // Helper: does the catalog name match an installed model?
-    function findInstalled(catalogName) {
-      return installed.find(
-        (m) => m.name === catalogName || m.name.startsWith(catalogName + ':')
-      );
-    }
+    await loadHardware();
+    const recommended = recommendedModel();
+    // Installed models, matched to the catalog ("mistral:latest" is mistral:7b)
+    const findInstalled = (entry) => installed.find((m) => isCatalogModel(entry, m.name));
 
     // Build list: catalog entries merged with any extra installed chat models
     const extras = installed
-      .filter((m) => !MODEL_CATALOG.some((c) => m.name === c.name || m.name.startsWith(c.name + ':')))
+      .filter((m) => !catalogEntry(m.name))
       .map((m) => ({ name: m.name, label: m.name.replace(/:latest$/, ''), sizeBytes: m.size || 0, _extra: true }));
 
-    const allEntries = [...MODEL_CATALOG, ...extras]
-      .sort((a, b) => a.sizeBytes - b.sizeBytes);
+    // Installed models smallest first; models to download: the recommended one, then the most
+    // used families first (each family's sizes together, smallest first)
+    const allEntries = [...MODEL_CATALOG, ...extras].sort((a, b) => {
+      const ia = Boolean(a._extra || findInstalled(a));
+      const ib = Boolean(b._extra || findInstalled(b));
+      if (ia || ib) return ia && ib ? a.sizeBytes - b.sizeBytes : ia ? -1 : 1;
+      if ((a.name === recommended) !== (b.name === recommended)) return a.name === recommended ? -1 : 1;
+      return (b.popularity || 0) - (a.popularity || 0) || a.family.localeCompare(b.family) || a.sizeBytes - b.sizeBytes;
+    });
 
     modelSelect.innerHTML = '';
     installedCapabilities.clear();
@@ -980,22 +1085,26 @@ async function loadModelSelector() {
     const onThisPc = group('local', 'On this computer');
     const toDownload = group('download', 'Download to this computer');
     for (const entry of allEntries) {
-      const inst = findInstalled(entry.name);
+      const inst = entry._extra ? installed.find((m) => m.name === entry.name) : findInstalled(entry);
       const caps = inst && Array.isArray(inst.capabilities) ? inst.capabilities : null;
       if (caps) {
         installedCapabilities.set(entry.name, caps);
         installedCapabilities.set(inst.name, caps);
       }
       const opt  = document.createElement('option');
-      opt.value  = entry.name;
+      // Installed: the name Ollama has it under ("mistral:latest"); else the one to download
+      opt.value  = inst ? inst.name : entry.name;
       opt.dataset.installed = inst ? 'true' : 'false';
       opt.dataset.label = entry.label;
-      const sizeStr = inst ? formatBytes(inst.size) : `~${formatBytes(entry.sizeBytes)}`;
-      const noTools = caps && !caps.includes('tools');
+      const fit = modelFit(entry);
+      if (fit) opt.dataset.fit = fit;
+      const sizeStr = inst ? formatBytes(inst.size) : `${formatBytes(entry.sizeBytes)} download`;
+      const noTools = caps ? !caps.includes('tools') : entry.tools === false;
       const vision = caps ? caps.includes('vision') : entry.vision;
-      opt.dataset.meta = [sizeStr, entry.ram && !inst ? `${entry.ram} RAM` : null, vision ? 'sees images' : null,
-        entry.thinking ? 'reasoning' : null, noTools ? 'no tools' : null].filter(Boolean).join(' · ');
-      if (entry.name === CHAT_MODEL) opt.dataset.badge = 'Recommended';
+      opt.dataset.meta = [fit && !inst ? FIT_SHORT[fit] : null, sizeStr,
+        entry.vram !== undefined && !inst ? `GPU ${gb(entry.vram)} or RAM ${gb(entry.ram)}` : null,
+        vision ? 'sees images' : null, entry.thinking ? 'reasoning' : null, noTools ? 'no tools' : null].filter(Boolean).join(' · ');
+      if (entry.name === recommended) opt.dataset.badge = 'Recommended';
       opt.textContent = inst
         ? `✓  ${entry.label}  (${sizeStr})${noTools ? '  · no tools' : ''}`
         : `${entry.label}  (${sizeStr}) · not downloaded`;
@@ -1085,9 +1194,12 @@ function renderModelPicker() {
   if (!modelPickerPanel.classList.contains('hidden')) renderModelPickerList();
 }
 
+let pickerShowTooBig = false;
+
 function renderModelPickerList() {
   const q = modelPickerSearch.value.trim().toLowerCase();
-  const matches = (opt) => !q || `${opt.dataset.label || opt.textContent} ${opt.dataset.meta || ''}`.toLowerCase().includes(q);
+  // "qwen3" finds "Qwen 3 · 8B" (its real name is qwen3:8b), and so does "qwen 3"
+  const matches = (opt) => !q || `${opt.value} ${opt.dataset.label || opt.textContent} ${opt.dataset.meta || ''}`.toLowerCase().includes(q);
   // Groups as in the <select>; options outside a group go under "Other"
   const groups = [];
   const loose = [];
@@ -1099,8 +1211,11 @@ function renderModelPickerList() {
 
   const html = [];
   for (const { category, options } of groups) {
-    const shown = options.filter(matches);
-    if (!shown.length) continue;
+    let shown = options.filter(matches);
+    // Models too big for this computer: hidden until asked for
+    const tooBig = category === 'download' ? shown.filter((o) => o.dataset.fit === 'no') : [];
+    if (tooBig.length && !pickerShowTooBig) shown = shown.filter((o) => o.dataset.fit !== 'no');
+    if (!shown.length && !tooBig.length) continue;
     const info = MODEL_CATEGORIES[category] || MODEL_CATEGORIES.other;
     html.push(`<div class="mp-group"><div class="mp-group-head">${modelIcon(category === 'other' ? 'local' : category, true)}` +
       `<span class="mp-group-title">${escapeHtml(info.title)}</span><span class="mp-group-sub">${escapeHtml(info.sub)}</span></div>`);
@@ -1111,6 +1226,11 @@ function renderModelPickerList() {
         `<span class="mp-item-meta">${escapeHtml(opt.dataset.meta || '')}</span></span>` +
         `${opt.dataset.badge ? `<span class="mp-item-badge">${escapeHtml(opt.dataset.badge)}</span>` : ''}` +
         `${selected ? CHECK_SVG : category === 'download' ? DOWNLOAD_SVG : ''}</button>`);
+    }
+    if (tooBig.length) {
+      html.push(`<button type="button" class="mp-more" data-toggle-too-big="1">${pickerShowTooBig
+        ? 'Hide the models too big for this PC'
+        : `Show ${tooBig.length} more model${tooBig.length === 1 ? '' : 's'} too big for this PC`}</button>`);
     }
     html.push('</div>');
   }
@@ -1150,6 +1270,11 @@ modelPickerBtn.addEventListener('click', () => {
 });
 modelPickerSearch.addEventListener('input', renderModelPickerList);
 modelPickerList.addEventListener('click', (e) => {
+  if (e.target.closest('[data-toggle-too-big]')) {
+    pickerShowTooBig = !pickerShowTooBig;
+    renderModelPickerList();
+    return;
+  }
   const item = e.target.closest('.mp-item');
   if (!item) return;
   if (item.dataset.add) {
@@ -2161,6 +2286,14 @@ async function sendMessage() {
   if (liveRun || !activeSessionId) return;
   const text = messageInput.value.trim();
   if (!text && attachedImages.length === 0 && attachedDocuments.length === 0) return;
+  // No model to answer here (e.g. Athar is used as Claude's memory): say how to add one
+  const selected = modelSelect.options[modelSelect.selectedIndex];
+  if (!selected || selected.dataset.installed !== 'true') {
+    showComposerNotice(setupMode() === 'claude'
+      ? 'Athar\'s own chat needs a model: add a Gemini key or download a local model in Settings. Your memory already works in Claude.'
+      : 'Choose a model first: download a local one or add a Gemini key in Settings.');
+    return;
+  }
 
   const currentImagesBase64 = attachedImages.map((i) => i.base64);
   const currentImagesDataUrl = attachedImages.map((i) => i.dataUrl);
@@ -3241,10 +3374,10 @@ document.getElementById('profileBackBtn').addEventListener('click', () => {
 // ── Your memory in Claude (Athar as an MCP server) ──────────────────────────
 const mcpAppsEl = document.getElementById('mcpApps');
 
-function renderMcpApps(st, note = '', ok = false) {
-  if (!mcpAppsEl) return;
+function renderMcpApps(st, note = '', ok = false, el = mcpAppsEl) {
+  if (!el) return;
   if (!st || !st.success) {
-    mcpAppsEl.innerHTML = `<p class="gemini-note">${escapeHtml((st && st.error) || 'Couldn\'t check the Claude apps.')}</p>`;
+    el.innerHTML = `<p class="gemini-note">${escapeHtml((st && st.error) || 'Couldn\'t check the Claude apps.')}</p>`;
     return;
   }
   const d = st.desktop;
@@ -3254,7 +3387,7 @@ function renderMcpApps(st, note = '', ok = false) {
     : d.connected
       ? '<span>Not in Claude\'s tools? Quit Claude Desktop from its tray icon, then open it again.</span><button class="text-btn danger" type="button" data-action="disconnect">Disconnect</button>'
       : `<span>${d.outdated ? 'Connected to another copy of Athar.' : 'Quit Claude Desktop first (also from the tray icon), then connect.'}</span><button class="primary-btn" type="button" data-action="connect">${d.outdated ? 'Reconnect' : 'Connect'}</button>`;
-  mcpAppsEl.innerHTML = `
+  el.innerHTML = `
     <div class="cloud-provider">
       <div class="cloud-provider-head">
         ${modelIcon('anthropic')}
@@ -3272,20 +3405,20 @@ function renderMcpApps(st, note = '', ok = false) {
       <div class="mcp-command"><code>${escapeHtml(st.claudeCode)}</code><button class="text-btn" type="button" data-action="copy">Copy</button></div>
     </div>`;
 
-  const connect = mcpAppsEl.querySelector('[data-action="connect"]');
+  const connect = el.querySelector('[data-action="connect"]');
   if (connect) connect.addEventListener('click', async () => {
     connect.disabled = true;
     const res = await window.api.mcpConnectDesktop();
     renderMcpApps(res.success ? res : { ...st, success: true }, res.success
       ? 'Connected. If Claude Desktop is still running (check the tray icon by the clock), right-click it → Quit, then open it again. Then ask it about something from your past chats.'
-      : res.error, res.success);
+      : res.error, res.success, el);
   });
-  const disconnect = mcpAppsEl.querySelector('[data-action="disconnect"]');
+  const disconnect = el.querySelector('[data-action="disconnect"]');
   if (disconnect) disconnect.addEventListener('click', async () => {
     const res = await window.api.mcpDisconnectDesktop();
-    renderMcpApps(res.success ? res : st, res.success ? 'Disconnected. Restart Claude Desktop to finish.' : res.error, res.success);
+    renderMcpApps(res.success ? res : st, res.success ? 'Disconnected. Restart Claude Desktop to finish.' : res.error, res.success, el);
   });
-  mcpAppsEl.querySelector('[data-action="copy"]').addEventListener('click', async (e) => {
+  el.querySelector('[data-action="copy"]').addEventListener('click', async (e) => {
     try {
       await navigator.clipboard.writeText(st.claudeCode);
       e.target.textContent = 'Copied';
@@ -3294,8 +3427,8 @@ function renderMcpApps(st, note = '', ok = false) {
   });
 }
 
-async function loadMcpApps() {
-  try { renderMcpApps(await window.api.mcpStatus()); } catch (err) { renderMcpApps({ success: false, error: err.message }); }
+async function loadMcpApps(el = mcpAppsEl) {
+  try { renderMcpApps(await window.api.mcpStatus(), '', false, el); } catch (err) { renderMcpApps({ success: false, error: err.message }, '', false, el); }
 }
 
 // ── Settings Modal & Sidebar Toggle ──────────────────────────────────────────

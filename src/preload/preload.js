@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('api', {
   cloudStatus: () => ipcRenderer.invoke('cloud:status'),
   cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
   cloudClearKey: (provider) => ipcRenderer.invoke('cloud:clear-key', provider),
+  getHardware: () => ipcRenderer.invoke('system:hardware'),
   mcpStatus: () => ipcRenderer.invoke('mcp:status'),
   mcpConnectDesktop: () => ipcRenderer.invoke('mcp:connect-desktop'),
   mcpDisconnectDesktop: () => ipcRenderer.invoke('mcp:disconnect-desktop'),
