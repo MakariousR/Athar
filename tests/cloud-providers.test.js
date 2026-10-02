@@ -72,7 +72,11 @@ test('Google\'s errors in plain words', () => {
   const fe = (err) => cloud.friendlyError(err, 'gemini/gemini-3.1-pro-preview');
   assert(/Gemini API key isn't valid/.test(fe({ status: 400, message: 'API key not valid. [reason: API_KEY_INVALID]' })));
   assert(/isn't available on your free Gemini plan/.test(fe({ status: 429, message: 'generate_content_free_tier_requests, limit: 0' })));
-  assert(/Gemini usage limit for now/.test(fe({ status: 429, message: 'Resource has been exhausted (e.g. check quota). limit: 10' })));
+  assert(/Gemini usage limit for the moment/.test(fe({ status: 429, message: 'Resource has been exhausted (e.g. check quota). limit: 10' })));
+  // Google says "check your plan and billing details" for every free limit: it's a limit, not "no credit"
+  const daily = { status: 429, message: 'You exceeded your current quota, please check your plan and billing details. Quota exceeded for metric: generate_content_free_tier_requests, limit: 20. GenerateRequestsPerDayPerProjectPerModel-FreeTier' };
+  assert(/reached its free Gemini limit for today/.test(fe(daily)) && !/credit/.test(fe(daily)), fe(daily));
+  assert.strictEqual(cloud.classifyError(daily).kind, 'daily', 'so another Gemini model answers');
   assert(/region/.test(fe({ status: 403, message: 'User location is not supported for the API use.' })));
   assert(/isn't available anymore/.test(fe({ status: 404, message: 'models/gemini-1.5-flash is not found' })));
   assert(/check your internet connection/.test(fe(new Error('fetch failed'))));

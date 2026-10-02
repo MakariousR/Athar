@@ -268,14 +268,16 @@ function friendlyError(err, name = null, provider = providerOf(name)) {
   if (/API_KEY_INVALID|API key not valid|invalid.{0,10}api.?key|incorrect api key|authentication_error|invalid x-api-key/i.test(message) || status === 401) {
     return `The ${p.name} API key isn't valid. Copy it again from ${p.keyUrl} and paste the whole key.`;
   }
-  if (/insufficient_quota|credit balance is too low|billing|exceeded your current quota, please check your plan/i.test(message)) {
-    return `Your ${p.company} account has no credit left for the API. Add credit on ${p.company}'s site, or choose another model.`;
-  }
+  // Google's limit errors say "You exceeded your current quota, please check your plan and billing
+  // details" for every free-plan limit — which limit it is, is in the details
   if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(message)) {
     if (/limit:\s*0\b/.test(message)) {
       return `${which}isn't available on your free ${p.name} plan. Choose another ${p.name} model in Settings.`;
     }
-    return `You've reached your ${p.name} usage limit for now. Wait a minute and try again, or choose another model.`;
+    if (/PerDay/i.test(message)) {
+      return `${which}reached its free ${p.name} limit for today. It resets at midnight California time (around 10–11 AM in Egypt); meanwhile choose another model.`;
+    }
+    return `You've reached your ${p.name} usage limit for the moment. Wait a minute and try again, or choose another model.`;
   }
   if (status === 529 || /overloaded/i.test(message)) return `${p.company}'s servers are busy right now. Try again in a moment.`;
   if (status === 403 || /PERMISSION_DENIED|does not have access|not available in your (country|region)|location is not supported|unsupported_country/i.test(message)) {
@@ -309,12 +311,11 @@ function msUntilPacificMidnight(now = new Date()) {
  * Whether another model may answer instead, and for how long this one is set
  * aside: 'not-in-plan' and 'gone' (this session), 'daily' (until the daily
  * reset), 'minute' (the provider's "retry in Ns", else a minute). null: an
- * error every model would hit too (bad key, no credit, no internet, region).
+ * error every model would hit too (bad key, no internet, region).
  */
 function classifyError(err, now = new Date()) {
   const status = err && (err.status || err.statusCode);
   const message = String((err && (err.message || err.responseBody)) || '');
-  if (/insufficient_quota|credit balance is too low|billing/i.test(message)) return null; // the whole account
   if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate_limit/i.test(message)) {
     if (/limit:\s*0\b/.test(message)) return { kind: 'not-in-plan', until: Infinity };
     if (/PerDay/i.test(message)) return { kind: 'daily', until: now.getTime() + msUntilPacificMidnight(now) };
