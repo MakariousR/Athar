@@ -2522,12 +2522,47 @@ const TOOL_ICONS = {
   terminal: svgIcon('<path d="M5 17l5-5-5-5M12 18h7"/>'),
   chevron: svgIcon('<path d="M9 6l6 6-6 6"/>')
 };
-const TOOL_NOTE_RE = /^(Viewed|Searched the web|Opened|Shared|Asked you|Used) /;
+const TOOL_NOTE_RE = /^(Viewed|Searched the web|Opened|Shared|Asked you|Used|Tried to) /;
 const FILE_ACTION_RE = /^(Created|Edited|Artifact|Updated artifact|Attached|Shared) (.+)$/;
 const FILE_ACTION_LABEL = { Created: 'Created file', Edited: 'Edited file', Artifact: 'Artifact', 'Updated artifact': 'Updated artifact', Attached: 'Attached file', Shared: 'Shared file' };
 
-// Files created in the conversation being shown, by path — a "Shared" card opens the file Claude created
-let threadFiles = new Map();
+// The files of the conversation being shown, by name: Claude often writes in
+// /home/claude and copies to /mnt/user-data/outputs, and uploads get a number
+// in front. Each keeps its text as it is at that point in the conversation —
+// the created (or uploaded) file with the edits after it applied — so a
+// "Shared" card opens the version Claude shared.
+let threadFiles = new Map(); // key → { text, lang, edits, broken, from: 'created' | 'uploaded' }
+const fileKey = (path) => fileBaseName(String(path).replace(/\\_/g, '_')).replace(/^\d{6,}_/, '').toLowerCase();
+
+/** Applies an edit card's diff ("- old" lines, then "+ new" lines) to a file's text; null if it doesn't fit. */
+function applyDiff(text, diff) {
+  if (/… \([\d,]+ more characters\)\s*$/.test(diff)) return null; // a shortened edit can't be applied
+  // Windows line endings (an uploaded file) vs Claude's edits: compared without them
+  text = String(text).replace(/\r\n/g, '\n');
+  const lines = String(diff).replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+  const oldStr = lines.filter((l) => l.startsWith('-')).map((l) => l.replace(/^- ?/, '')).join('\n');
+  const newStr = lines.filter((l) => l.startsWith('+')).map((l) => l.replace(/^\+ ?/, '')).join('\n');
+  if (!oldStr || !String(text).includes(oldStr)) return null;
+  return text.replace(oldStr, () => newStr);
+}
+
+/** Follows a file through the conversation (in the order its cards appear). */
+function trackFile({ action, path, text, lang }) {
+  const key = fileKey(path);
+  const entry = threadFiles.get(key);
+  if (/^(Created|Artifact)$/.test(action) && text !== null) {
+    threadFiles.set(key, { text, lang, edits: 0, applied: 0, broken: false, from: 'created' });
+  } else if (action === 'Attached' && text !== null && !entry) {
+    threadFiles.set(key, { text, lang, edits: 0, applied: 0, broken: false, from: 'uploaded' });
+  } else if (action === 'Edited' && text !== null) {
+    if (!entry) { threadFiles.set(key, { text: null, lang: '', edits: 1, broken: true, from: null }); return; }
+    entry.edits += 1;
+    if (!entry.broken) {
+      const next = applyDiff(entry.text, text);
+      if (next === null) entry.broken = true; else { entry.text = next; entry.applied += 1; }
+    }
+  }
+}
 
 /** The "_description_" paragraph the importer writes just above a command. */
 function toolDescriptionBefore(el) {
@@ -2549,14 +2584,59 @@ function compactToolBlocks(root) {
   for (const box of containers) compactToolBlocksIn(box);
 }
 
+/** "<strong>Shared <code>path</code></strong>" in its own paragraph. */
+function fileLine(action, path) {
+  const p = document.createElement('p');
+  const strong = document.createElement('strong');
+  const code = document.createElement('code');
+  code.textContent = path;
+  strong.append(`${action} `, code);
+  p.appendChild(strong);
+  return p;
+}
+
+// Chats imported before the file cards: "_Shared a, b_", "**Attached file: x**", "**Attached: x**"
+const OLD_SHARED_RE = /^Shared ((?:\/|[A-Za-z]:\\)[\s\S]+)$/;
+const OLD_ATTACHED_RE = /^Attached(?: file)?: (.+)$/;
+
 function compactToolBlocksIn(root) {
-  // Several files in one paragraph ("**Shared `a`**<br>**Shared `b`**"): one paragraph each
+  // Older imports: "_Shared /mnt/…/a.py, /mnt/…/b.py_" → one file line each
   for (const p of Array.from(root.querySelectorAll(':scope > p'))) {
-    const kids = [...p.childNodes].filter((n) => !(n.nodeType === Node.TEXT_NODE && !n.textContent.trim()));
-    const strongs = kids.filter((n) => n.nodeName === 'STRONG');
-    if (strongs.length < 2 || kids.some((n) => n.nodeName !== 'STRONG' && n.nodeName !== 'BR') ||
-        !strongs.every((s) => FILE_ACTION_RE.test(s.textContent.trim()) && s.querySelector('code'))) continue;
-    p.replaceWith(...strongs.map((s) => { const one = document.createElement('p'); one.appendChild(s); return one; }));
+    const em = p.children.length === 1 && p.firstElementChild.tagName === 'EM' ? p.firstElementChild : null;
+    const m = em && p.textContent.trim() === em.textContent.trim() && OLD_SHARED_RE.exec(em.textContent.trim());
+    if (m) p.replaceWith(...m[1].split(/,\s*(?=\/|[A-Za-z]:\\)/).map((path) => fileLine('Shared', path.trim())));
+  }
+  // Older imports: "**Attached file: x**" / "**Attached: x**" → "Attached `x`"
+  for (const strong of Array.from(root.querySelectorAll(':scope > p > strong'))) {
+    const m = !strong.querySelector('code') && OLD_ATTACHED_RE.exec(strong.textContent.trim());
+    if (m && strong.parentElement.lastElementChild === strong) strong.replaceWith(fileLine('Attached', m[1].trim()).firstElementChild);
+  }
+
+  // File lines sharing a paragraph with other lines ("**Shared `a`**<br>**Shared `b`**<br>**What changed:**"):
+  // each file line becomes its own paragraph, the other lines stay together around them
+  const isFileLine = (nodes) => {
+    const real = nodes.filter((n) => !(n.nodeType === Node.TEXT_NODE && !n.textContent.trim()));
+    return real.length === 1 && real[0].nodeName === 'STRONG' && real[0].querySelector('code') && FILE_ACTION_RE.test(real[0].textContent.trim());
+  };
+  for (const p of Array.from(root.querySelectorAll(':scope > p'))) {
+    if (!p.querySelector(':scope > br') || !p.querySelector(':scope > strong > code')) continue;
+    const lines = [[]];
+    for (const n of [...p.childNodes]) { if (n.nodeName === 'BR') lines.push([]); else lines[lines.length - 1].push(n); }
+    if (!lines.some(isFileLine)) continue;
+    const out = [];
+    let rest = null;
+    for (const line of lines) {
+      if (isFileLine(line)) {
+        rest = null;
+        const one = document.createElement('p');
+        one.append(...line);
+        out.push(one);
+      } else {
+        if (!rest) { rest = document.createElement('p'); out.push(rest); } else rest.appendChild(document.createElement('br'));
+        rest.append(...line);
+      }
+    }
+    p.replaceWith(...out.filter((x) => x.childNodes.length));
   }
 
   // Files: <p>[<em>desc</em><br>]<strong>Created|Edited|… <code>path</code></strong></p>[<pre>…</pre>]
@@ -2571,7 +2651,12 @@ function compactToolBlocksIn(root) {
     const em = p.querySelector(':scope > em');
     if (pre) pre.remove();
     const file = { action: m[1], path: m[2], description: em ? em.textContent.trim() : '', text: pre ? pre.textContent : null, lang: codeLang(pre) };
-    if (file.text !== null && /^(Created|Artifact)$/.test(file.action)) threadFiles.set(file.path, file);
+    trackFile(file);
+    // A shared file: the version Claude had at this point, if the conversation has it
+    if (file.action === 'Shared') {
+      const entry = threadFiles.get(fileKey(file.path));
+      file.shared = entry ? { ...entry } : null;
+    }
     p.replaceWith(createFileCard(file));
   }
 
@@ -2637,7 +2722,7 @@ const lineCount = (text) => String(text || '').replace(/\n$/, '').split('\n').le
 const linesLabel = (text) => { const n = lineCount(text); return `${n.toLocaleString()} line${n === 1 ? '' : 's'}`; };
 
 /** A small card for a file (created, edited, an artifact, attached or shared) that opens it in the viewer. */
-function createFileCard({ action, path, description, text, lang }) {
+function createFileCard({ action, path, description, text, lang, shared = null }) {
   const name = fileBaseName(path);
   const ext = name.includes('.') ? '.' + name.split('.').pop().toLowerCase() : (LANG_EXT[lang] || '');
   const card = document.createElement('button');
@@ -2656,22 +2741,37 @@ function createFileCard({ action, path, description, text, lang }) {
     '<span class="tool-file-text"><span class="tool-file-name"></span><span class="tool-file-action" dir="auto"></span></span>' + stats;
   card.querySelector('.tool-file-name').textContent = name;
   const known = text !== null && text !== undefined;
-  card.querySelector('.tool-file-action').textContent = description ||
-    `${FILE_ACTION_LABEL[action] || action}${known && !stats ? ` · ${linesLabel(text)}` : ''}`;
+  // A shared file: the version Claude had when it shared it, if the conversation has it
+  const sharedText = shared ? shared.text : null; // when an edit couldn't be matched: the last version that could be rebuilt
+  card.querySelector('.tool-file-action').textContent = description || (action === 'Shared'
+    ? (sharedText === null ? 'Shared file · not in the export'
+      : shared.broken ? `Shared file · partly rebuilt (${shared.applied} of ${shared.edits} edits)` : `Shared file · ${linesLabel(sharedText)}`)
+    : `${FILE_ACTION_LABEL[action] || action}${known && !stats ? ` · ${linesLabel(text)}` : ''}`);
+  if (action === 'Shared' && sharedText === null) card.classList.add('missing');
 
   card.addEventListener('click', () => {
     if (card.classList.contains('active')) { closeContentViewer(); return; }
-    // A shared file: the content Claude created earlier in this conversation, if it's there
-    const created = !known && action === 'Shared' ? threadFiles.get(path) : null;
+    let meta = action === 'Pasted' ? `${linesLabel(text)} · ${String(text).length.toLocaleString()} characters` : `${FILE_ACTION_LABEL[action] || action} · ${path}`;
+    if (sharedText !== null) {
+      meta = `Shared · ${path} · ${shared.broken
+        ? `the ${shared.from} file with ${shared.applied} of Claude's ${shared.edits} edits — a later edit didn't match it, so what Claude shared may differ`
+        : shared.edits
+          ? `the ${shared.from} file with Claude's ${shared.edits} edit${shared.edits === 1 ? '' : 's'} applied`
+          : `as Claude ${shared.from === 'uploaded' ? 'received' : 'created'} it`}`;
+    }
     openContentViewer({
       card,
       name,
-      meta: action === 'Pasted' ? `${linesLabel(text)} · ${String(text).length.toLocaleString()} characters` : `${FILE_ACTION_LABEL[action] || action} · ${path}`,
-      text: known ? text : created ? created.text : null,
-      lang: known ? lang : created ? created.lang : '',
-      missing: action === 'Shared'
-        ? 'Claude shared this file, but Claude\'s export doesn\'t include its contents (for example a Word or PDF file made by a script). You can download it from the conversation on claude.ai.'
-        : 'This file was attached, but the export doesn\'t include its text (for example an image or a scanned PDF).'
+      meta,
+      text: known ? text : sharedText,
+      lang: known ? lang : (shared && shared.lang) || '',
+      missing: action !== 'Shared'
+        ? 'This file was attached, but the export doesn\'t include its text (for example an image or a scanned PDF).'
+        : shared && shared.edits && (shared.broken || shared.text === null)
+          ? `Claude changed this file ${shared.edits} time${shared.edits === 1 ? '' : 's'} in this conversation, but the export doesn't include the full file it started from ` +
+            '(for example a file you uploaded without its text), so the final version can\'t be rebuilt. The edits themselves are shown as "Edited" cards above.'
+          : 'Claude shared this file, but Claude\'s export doesn\'t include its contents — for example a CSV, Word, PDF or zip file made by a script or command. ' +
+            'You can download it from the conversation on claude.ai.'
     });
   });
   return card;
@@ -2753,6 +2853,8 @@ function splitLongText(text) {
 
 /** The card for a long piece of a prompt. */
 function createTextBlockCard(piece) {
+  // An uploaded file's text is where Claude's later edits to it start from
+  if (piece.kind === 'Attached') trackFile({ action: 'Attached', path: piece.title, text: piece.text, lang: piece.lang });
   const card = createFileCard({ action: piece.kind === 'Attached' ? 'Attached' : 'Pasted', path: piece.title, description: '', text: piece.text, lang: piece.lang });
   const firstLine = piece.text.split('\n').find((l) => l.trim()) || '';
   card.querySelector('.tool-file-action').textContent = `${piece.kind === 'Attached' ? 'Attached file' : linesLabel(piece.text)} · ${firstLine.trim().slice(0, 80)}`;

@@ -61,6 +61,15 @@ test('older export formats: artifacts and analysis-tool code', () => {
   // Files Claude shared: one line each (the app shows each as a card)
   const shared = messageText({ sender: 'assistant', text: '', content: [{ type: 'tool_use', name: 'present_files', input: { filepaths: ['/out/a.md', '/out/b.docx'] } }] });
   assert.strictEqual(shared, '**Shared `/out/a.md`**\n\n**Shared `/out/b.docx`**');
+  // An edit Claude's tool refused didn't change the file: a note, not an "Edited" card
+  const failed = messageText({ sender: 'assistant', text: '', content: [
+    { type: 'tool_use', id: 'e1', name: 'str_replace', input: { path: '/home/claude/window.py', old_str: 'a', new_str: 'b' } },
+    { type: 'tool_result', tool_use_id: 'e1', is_error: true, content: [{ type: 'text', text: 'String to replace not found in /home/claude/window.py.' }] },
+    { type: 'tool_use', id: 'e2', name: 'str_replace', input: { path: '/home/claude/window.py', old_str: 'c', new_str: 'd' } },
+    { type: 'tool_result', tool_use_id: 'e2', content: [{ type: 'text', text: 'Successfully replaced string in /home/claude/window.py' }] }
+  ] });
+  assert.strictEqual((failed.match(/\*\*Edited /g) || []).length, 1, failed);
+  assert(/_Tried to edit \/home\/claude\/window\.py — it didn't work_/.test(failed), failed);
 });
 
 test('plain-text messages are unchanged; unknown tools are named', () => {

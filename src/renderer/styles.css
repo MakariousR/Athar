@@ -2004,6 +2004,7 @@ body {
 .tool-command-output-label { font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
 .tool-command.is-error .tool-command-body pre:last-child { color: #fda4af; }
 
+.tool-file-card.missing { opacity: 0.7; border-style: dashed; }
 .tool-file-card {
   display: flex; align-items: center; gap: 10px; width: fit-content; max-width: min(100%, 420px);
   margin: 6px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 12px;

@@ -68,6 +68,12 @@ function renderToolUse(block, result) {
   const name = block.name || 'tool';
   const note = input.description ? `${italic(input.description)}\n` : '';
 
+  // A file change Claude's tool refused ("String to replace not found", "File not found"): the file
+  // didn't change — a note, not a file card (so it isn't applied when the file is rebuilt)
+  if ((name === 'str_replace' || name === 'create_file') && result && result.is_error) {
+    return italic(`${name === 'str_replace' ? 'Tried to edit' : 'Tried to create'} ${input.path || 'a file'} — it didn't work`);
+  }
+
   switch (name) {
     case 'bash_tool': {
       const output = resultText(result);
