@@ -42,7 +42,7 @@ const PROVIDERS = {
         const id = String(m.name || '').replace(/^models\//, '');
         const methods = m.supportedGenerationMethods || [];
         if (!/^(gemini|gemma)-/.test(id) || GEMINI_NOT_CHAT_RE.test(id) || !methods.includes('generateContent')) continue;
-        out.push({ id, label: m.displayName || id, tools: !/^gemma-/.test(id), preview: /preview|exp/i.test(id) });
+        out.push({ id, label: m.displayName || id, tools: !/^gemma-/.test(id), preview: /preview|exp/i.test(id), contextTokens: m.inputTokenLimit || null });
       }
       const tier = (id) => (/flash-lite/.test(id) ? 2 : /flash/.test(id) ? 0 : /pro/.test(id) ? 1 : 3);
       const family = (id) => (/^gemma-/.test(id) ? 1 : 0); // Gemma (smaller, open models) after Gemini

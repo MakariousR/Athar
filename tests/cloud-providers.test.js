@@ -83,6 +83,17 @@ test('Google\'s errors in plain words', () => {
   assert.strictEqual(cloud.friendlyError(new Error('No Gemini API key is set. Add one in Settings, or choose a local model.')), 'No Gemini API key is set. Add one in Settings, or choose a local model.');
 });
 
+test('Gemini gets its whole context: the window Google lists, and the whole conversation', async () => {
+  const withLimit = GEMINI.map((m) => ({ ...m, inputTokenLimit: 1048576 }));
+  const list = await cloud._internals.fetchModels('gemini', KEY, { fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ models: withLimit }) }) });
+  assert(list.every((m) => m.contextTokens === 1048576));
+  const { buildMessages } = client._internals;
+  const history = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `message ${i}` }));
+  const count = (ctx) => buildMessages('next', ctx, history, [], null, [], null, '').filter((m) => m.role !== 'system').length;
+  assert.strictEqual(count({ toolsAvailable: true }), 12, 'a local model: the last 12 messages');
+  assert.strictEqual(count({ toolsAvailable: true, wholeConversation: true }), 30, 'a cloud model: all of them');
+});
+
 test('a Gemini model needs its key; loading the app asks Google nothing', () => {
   assert.throws(() => cloud.createModel('gemini/gemini-2.5-flash'), /No Gemini API key/);
   assert.throws(() => cloud.createModel('openai/gpt-5-mini'), /not a cloud model/);

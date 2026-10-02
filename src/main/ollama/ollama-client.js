@@ -228,13 +228,16 @@ applyContextBudgets(NUM_CTX);
 
 // ─── Model profiles (see model-profile.js) ───────────────────────────────────
 const profileCache = new Map();
-// Cloud models (Gemini, ChatGPT, Claude): capable, with a large context. 32K keeps each request (and
-// what it sends to Google) reasonable; memory and file budgets follow it.
-const CLOUD_PROFILE = { capabilities: ['completion', 'tools', 'vision'], tools: true, vision: true, thinking: false, paramsB: null, level: 'light', numCtx: 32768 };
+// Cloud models (Gemini): capable, with the model's whole context window (Google's model list gives it —
+// about 1 million tokens for most); memory, file and tool budgets follow it.
+const CLOUD_PROFILE = { capabilities: ['completion', 'tools', 'vision'], tools: true, vision: true, thinking: false, paramsB: null, level: 'light', numCtx: 1048576 };
 
 /** The model's profile: capabilities, helper level, context size. Cached once known. */
 async function getModelProfile(modelName) {
-  if (cloud.isCloudModel(modelName)) return CLOUD_PROFILE;
+  if (cloud.isCloudModel(modelName)) {
+    const known = cloud.knownModel(modelName);
+    return { ...CLOUD_PROFILE, numCtx: (known && known.contextTokens) || CLOUD_PROFILE.numCtx };
+  }
   if (profileCache.has(modelName)) return profileCache.get(modelName);
   let show = null;
   try {
@@ -689,7 +692,7 @@ CRITICAL RULES:
 
   // Conversation history
   if (conversationHistory && conversationHistory.length > 0) {
-    const recent = conversationHistory.slice(-12);
+    const recent = memory && memory.wholeConversation ? conversationHistory : conversationHistory.slice(-12);
     for (let i = 0; i < recent.length; i++) {
       const msg  = recent[i];
       let text = msg.role === 'assistant' && markUnchecked ? chatContext.markEarlierReply(msg) : (msg.text || msg.content || '');
@@ -943,6 +946,7 @@ async function generate(
         // "continue" picks up the last reply as it was: no note, no marks
         earlierReplies: options.continuation ? '' : chatContext.earlierRepliesNote(conversationHistory),
         replyLanguage: replyLang,
+        wholeConversation: cloud.isCloudModel(modelName),
         webAccess: canSearch,
         offlineInstruction: instruction || null
       };

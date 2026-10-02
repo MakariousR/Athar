@@ -521,7 +521,8 @@ function registerIpcHandlers() {
       const memoryQuery = isContinuation ? null : buildMemoryQuery(userText, conversationHistory);
       if (memoryQuery) {
         try {
-          memoryResult = await memory.search(memoryQuery, { excludeThreadIds: [sessionId], limit: 6 });
+          // A cloud model's large context takes more past-chat excerpts (still only relevant ones)
+          memoryResult = await memory.search(memoryQuery, { excludeThreadIds: [sessionId], limit: cloud.isCloudModel(chosenModel) ? 15 : 6 });
         } catch (err) {
           console.warn('Memory search failed:', err.message);
         }
