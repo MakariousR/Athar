@@ -45,8 +45,9 @@ run('npm', ['run', 'notices']);
 // ─── 3. Installer ───────────────────────────────────────────────────────────
 step(3, 'Building the installer (electron-builder, fuses on)');
 // Run electron-builder's own script with Node directly (no shell): the project
-// path may contain spaces
-run(process.execPath, [require.resolve('electron-builder/cli.js'), '--win', `-c.directories.output=${DIST}`], { shell: false });
+// path may contain spaces. --publish never: run as "npm run release", it would
+// otherwise try to upload to GitHub on its own; publishing is done by hand.
+run(process.execPath, [require.resolve('electron-builder/cli.js'), '--win', '--publish', 'never', `-c.directories.output=${DIST}`], { shell: false });
 const installer = path.join(DIST, `${pkg.build.productName} Setup ${pkg.version}.exe`);
 if (!fs.existsSync(installer)) fail(`Installer not found: ${installer}`);
 console.log(`  ✓ ${path.relative(ROOT, installer)}  (${(fs.statSync(installer).size / 1048576).toFixed(0)} MB)`);
