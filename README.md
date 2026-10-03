@@ -6,6 +6,8 @@ discussed before, citing the conversations it used. Your history stays on your c
 
 Athar (أثر) means "trace": what your past conversations leave behind.
 
+![Athar's main window: the sidebar with New chat, Memory and Import chat history, and the home screen with New chat and Search my memory](assets/app.png)
+
 Copyright (C) 2026 Makarious Robert. Free and open source under the
 [GNU AGPL v3](#license).
 
