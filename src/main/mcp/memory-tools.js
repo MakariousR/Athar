@@ -123,13 +123,9 @@ const EMPTY_MEMORY = 'Athar\'s memory is empty: no conversations have been impor
 /**
  * @param {object} opts
  * @param {() => MemoryIndex} opts.getMemory
- * @param {() => boolean} [opts.isUsable]   false while Athar isn't activated
  */
-function memoryTools({ getMemory, isUsable = () => true }) {
-  const memory = () => {
-    if (!isUsable()) throw new Error('Athar is not activated. Open the Athar app and enter your beta key, then try again.');
-    return getMemory();
-  };
+function memoryTools({ getMemory }) {
+  const memory = () => getMemory();
 
   const searchMemory = {
     name: 'search_memory',

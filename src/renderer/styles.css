@@ -2240,18 +2240,6 @@ body {
 
 /* "Search" toggle in the message box */
 
-/* Beta activation screen */
-.license-card { max-width: 480px; }
-.license-logo { width: 56px; height: 56px; margin: 0 auto 14px; display: block; }
-.license-computer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); text-align: start; }
-.license-computer-label { font-size: 12px; color: var(--muted); }
-.license-computer-id { font-family: Consolas, "Cascadia Mono", monospace; font-size: 20px; letter-spacing: 0.08em; color: var(--text); margin-top: 2px; }
-.license-hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 8px 2px 14px; text-align: start; }
-.license-key-input { width: 100%; resize: none; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; line-height: 1.5; word-break: break-all; }
-.license-key-input:focus { outline: none; border-color: var(--accent); }
-.license-message { min-height: 20px; margin: 8px 2px 10px; font-size: 12.5px; color: #f5b544; text-align: start; line-height: 1.45; }
-.license-line.warn { color: #f5b544; }
-
 /* "X did not finish downloading" bar (sidebar bottom) */
 .resume-download { margin: 0 2px 6px; padding: 10px 12px; border-radius: 10px; background: var(--sidebar-active); font-size: 12.5px; line-height: 1.45; color: var(--text); }
 .resume-download-actions { display: flex; gap: 14px; margin-top: 6px; }

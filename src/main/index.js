@@ -27,7 +27,6 @@ const MCP_MODE = process.argv.includes('--mcp');
 if (MCP_MODE) require('./mcp').startMcpMode();
 
 const { registerIpcHandlers } = require('./ipc-handlers');
-const { getLicense } = require('./license');
 const downloads = require('./downloads');
 const { cleanupLeftoverInstallers } = require('./ollama/ollama-installer');
 
@@ -110,15 +109,6 @@ if (!MCP_MODE) app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
   cleanupLeftoverInstallers(); // half-downloaded Ollama installers from a closed session
-
-  // A key can run out while the app is open: re-check hourly, and show the
-  // activation screen again if it's no longer valid.
-  setInterval(() => {
-    const status = getLicense().status();
-    if (!['ok', 'dev'].includes(status.state) && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('license:changed', status);
-    }
-  }, 60 * 60 * 1000).unref();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

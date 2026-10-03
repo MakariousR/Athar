@@ -8,29 +8,6 @@
 </head>
 <body>
 
-  <!-- BETA ACTIVATION (shown before setup when the build needs a license key) -->
-  <div id="licenseOverlay" class="setup-overlay hidden">
-    <div class="setup-card license-card">
-      <img src="../../assets/icon.png" alt="" class="license-logo">
-      <h1>Activate Athar</h1>
-      <p class="setup-sub">This is a beta. Enter the license key you received from the developer.</p>
-
-      <div class="license-computer">
-        <div>
-          <div class="license-computer-label">Your computer ID</div>
-          <div id="licenseComputerId" class="license-computer-id">…</div>
-        </div>
-        <button id="licenseCopyIdBtn" class="secondary-btn" type="button">Copy</button>
-      </div>
-      <p class="license-hint">Don't have a key yet? Send this computer ID to the developer; your key will only work on this computer.</p>
-
-      <textarea id="licenseKeyInput" class="license-key-input" rows="3" spellcheck="false" autocomplete="off"
-                placeholder="ATHAR-B1-…" aria-label="License key"></textarea>
-      <p id="licenseMessage" class="license-message" role="alert"></p>
-      <button id="licenseActivateBtn" class="primary-btn setup-choice-btn" type="button">Activate</button>
-    </div>
-  </div>
-
   <!-- SETUP OVERLAY -->
   <div id="setupOverlay" class="setup-overlay">
     <div class="setup-card">
@@ -209,7 +186,7 @@
 
         <footer class="settings-about">
           <img src="../../assets/icon.png" alt="" class="settings-about-icon">
-          <span>Athar <span id="appVersion"></span><span id="licenseLine" class="license-line"></span></span>
+          <span>Athar <span id="appVersion"></span></span>
           <span class="settings-about-links">
             <button class="text-btn" data-doc="license">License</button>
             <button class="text-btn" data-doc="privacy">Privacy</button>

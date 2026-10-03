@@ -38,14 +38,12 @@ function startMcpMode() {
   if (app.dock) app.dock.hide();
 
   const ollama = require('../ollama/ollama-client');
-  const { getLicense } = require('../license');
   const server = createMcpServer({
     info: { name: 'athar', title: 'Athar', version: app.getVersion() },
     instructions: INSTRUCTIONS,
     tools: memoryTools({
       // Meaning search needs Ollama with bge-m3; without it, keyword search still works
-      getMemory: readOnlyMemory({ userData: app.getPath('userData'), embedTexts: ollama.embedTexts, embedModel: ollama.EMBED_MODEL }),
-      isUsable: () => getLicense().isUsable()
+      getMemory: readOnlyMemory({ userData: app.getPath('userData'), embedTexts: ollama.embedTexts, embedModel: ollama.EMBED_MODEL })
     })
   });
   const { input, output } = stdio();

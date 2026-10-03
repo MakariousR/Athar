@@ -180,11 +180,6 @@ test('history never indexed for meaning (no Ollama when it was imported): keywor
   assert.match(text, /keywords only, because the past chats haven't been indexed for meaning search yet/);
 });
 
-test('not activated: the tools say so instead of answering', async () => {
-  const { call } = toolsFor(await makeUserData(), { isUsable: () => false });
-  await assert.rejects(call('search_memory', { query: 'docker' }), /Athar is not activated/);
-});
-
 test('an empty memory explains how to import', async () => {
   const { call } = toolsFor(tempDir('athar-mcp-empty-'));
   assert.match(await call('search_memory', { query: 'anything' }), /memory is empty/);

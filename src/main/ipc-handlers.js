@@ -15,7 +15,6 @@ const ollamaInstaller = require('./ollama/ollama-installer');
 const downloads = require('./downloads');
 const store  = require('./store/chat-store');
 const { getMemory, getProfileStore } = require('./memory');
-const { getLicense } = require('./license');
 const mcpConnect = require('./mcp/connect');
 const { getHardware } = require('./hardware');
 const { tokenize } = require('./memory/bm25');
@@ -195,9 +194,6 @@ function registerIpcHandlers() {
     try { return mcpStatus(mcpConnect.disconnectDesktop(mcpLaunch())); } catch (err) { return { success: false, error: err.message }; }
   });
 
-  // Beta license: the activation screen asks for the status and activates keys
-  ipcMain.handle('license:status', () => getLicense().status());
-  ipcMain.handle('license:activate', (event, key) => getLicense().activate(String(key || '').slice(0, 2000)));
 
   // License, privacy policy, open-source notices and the export guide shipped with the app (these files only)
   const APP_DOCUMENTS = { license: 'LICENSE.txt', privacy: 'PRIVACY.md', notices: 'THIRD-PARTY-NOTICES.txt', 'export-guide': 'src/renderer/export-guide.md' };
@@ -324,7 +320,6 @@ function registerIpcHandlers() {
   setTimeout(syncAppMemory, 800);
 
   ipcMain.handle('memory:import', async (event, filePath) => {
-    if (!getLicense().isUsable()) return { success: false, error: 'Athar is not activated. Enter your beta key to continue.', notActivated: true };
     try {
       const threads = parseAnyExport(filePath);
       if (threads.length === 0) return { success: false, error: 'No conversations found in this file.' };
@@ -515,7 +510,6 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = [], options = {}) => {
-    if (!getLicense().isUsable()) return { success: false, error: 'Athar is not activated. Enter your beta key to continue.', notActivated: true };
     // Background memory indexing competes with the chat model for the GPU —
     // pause it while answering, resume (and index this chat) afterwards.
     memory.pause();
