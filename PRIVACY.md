@@ -1,6 +1,6 @@
 # Athar — Privacy Policy
 
-_Effective 2 October 2026 · Applies to Athar 1.0.0-beta.1 and later_
+_Effective 3 October 2026 · Applies to Athar 1.0.0 and later_
 
 Athar is built to keep your conversations private: **it runs on your own computer, has no account, and sends nothing to the author.** There is no analytics, no tracking, no advertising and no crash reporting.
 
