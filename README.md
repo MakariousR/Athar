@@ -6,7 +6,8 @@ discussed before, citing the conversations it used. Your history stays on your c
 
 Athar (أثر) means "trace": what your past conversations leave behind.
 
-Copyright (c) 2026 Makarious Robert. See [License](#license).
+Copyright (C) 2026 Makarious Robert. Free and open source under the
+[GNU AGPL v3](#license).
 
 ## What it does
 
@@ -236,10 +237,28 @@ tests/                    test suites (npm test)
 
 ## License
 
-Copyright (c) 2026 Makarious Robert. All rights reserved.
+Athar — one private memory for all your AI chats
+Copyright (C) 2026 Makarious Robert
 
-Athar is provided under the terms in [LICENSE.txt](LICENSE.txt). It includes
-open-source components under their own licenses, listed in
-[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU Affero General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along with
+this program (see [LICENSE.txt](LICENSE.txt)). If not, see
+<https://www.gnu.org/licenses/>.
+
+In short: you may use, study, change and share Athar. If you share a changed
+version, or run one for others over a network, you must release its source code
+under the same license and keep this copyright notice.
+
+Athar includes open-source components under their own licenses, and uses Ollama,
+AI models, Gemini and Claude under their own terms; all are listed in
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). "Athar" and its icon identify
+this project; please give a changed version a different name.
 
 Questions: mekorobert2010@gmail.com

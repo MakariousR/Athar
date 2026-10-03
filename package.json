@@ -5,7 +5,12 @@
   "description": "One private memory for all your AI chats: import ChatGPT, Claude and Gemini history, search it, and let a local Ollama model remember and cite it.",
   "main": "src/main/index.js",
   "author": "Makarious Robert",
-  "license": "UNLICENSED",
+  "homepage": "https://github.com/MakariousR/Athar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MakariousR/Athar.git"
+  },
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "scripts": {
     "start": "electron .",

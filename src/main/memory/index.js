@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * The app-wide memory instance and profile store (lazily created on first
  * use, after Electron is ready).

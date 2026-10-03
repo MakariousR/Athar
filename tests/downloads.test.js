@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Downloads: warning before closing, unfinished model downloads, leftover installer cleanup.
 const fs = require('fs');
 const path = require('path');

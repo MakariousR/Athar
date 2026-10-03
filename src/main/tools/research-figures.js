@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Deterministic helpers that make web research easier for a small local model:
  *

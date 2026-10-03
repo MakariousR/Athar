@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * A realistic multi-section document (like an uploaded PDF report) used to test
  * that follow-up questions find the right part of an attached file.

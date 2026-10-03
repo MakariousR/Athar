@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 const https = require('https');
 const http  = require('http');
 const zlib  = require('zlib');

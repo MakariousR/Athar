@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 const OLLAMA_BASE  = 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'qwen2.5:7b';

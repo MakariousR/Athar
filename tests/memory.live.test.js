@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Needs Ollama running with bge-m3. Run with: npm run test:live
 // Real-model checks of the relevance gate: right conversation at rank 1 for
 // related questions (incl. English ↔ Arabic), nothing for unrelated ones.

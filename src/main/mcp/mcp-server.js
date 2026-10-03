@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * A small Model Context Protocol server (JSON-RPC 2.0 over stdio, one JSON
  * message per line). Claude Desktop, Claude Code and other MCP apps start

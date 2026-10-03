@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Which language the answer must be in, decided in code rather than left to
  * the model: small local models drift into the language of the context they

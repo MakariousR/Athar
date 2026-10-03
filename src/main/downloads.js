@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Downloads in progress (so closing the app can warn about them), and model
  * downloads that haven't finished yet (so they can be continued after a

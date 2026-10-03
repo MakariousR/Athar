@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Needs Ollama running with bge-m3. Run with: npm run test:live
 // Real-model checks of the automatic file-passage search used on every message:
 // follow-up questions (paraphrased, Arabic) find the right section of an

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Claude exports replace code/commands in `text` with a placeholder; the real
 // content is in the `content` blocks. These tests use the structure of a real
 // export (bash_tool, create_file, str_replace, view, web_search, thinking,

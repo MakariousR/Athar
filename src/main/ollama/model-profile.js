@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * What the selected model is and what it needs — worked out from Ollama's own
  * description of the model (/api/show), so any model the user switches to is

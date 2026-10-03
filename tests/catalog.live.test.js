@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Needs internet. Every model offered in the app's model list must exist in the
 // Ollama library — a wrong name (e.g. "qwen2.5-vl" instead of "qwen2.5vl")
 // makes "Download" fail for that entry.

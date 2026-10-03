@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 'use strict';
 
 // Cloud models with the user's own API key: Gemini (Google).

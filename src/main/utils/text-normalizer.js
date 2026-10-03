@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Independent text normalization utilities.
  * Has zero external dependencies to prevent circular require warnings.

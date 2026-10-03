@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 const path = require('path');
 const assert = require('assert');
 const { test, done, ROOT } = require('./helpers');

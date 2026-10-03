@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Ollama installer pieces: download with progress, signature check (the
 // installer only runs if it is signed by Ollama Inc.), finding an install.
 // Windows-only parts are skipped elsewhere.

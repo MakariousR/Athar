@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // A Claude export with the structure of a real one (made-up content): the
 // `text` field has "not supported" placeholders; the real code/commands are
 // in the `content` blocks. Used by tests/claude-export.test.js.

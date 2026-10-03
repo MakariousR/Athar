@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Model profiles: helper level, context size per model and computer, thinking models.
 const path = require('path');
 const assert = require('assert');

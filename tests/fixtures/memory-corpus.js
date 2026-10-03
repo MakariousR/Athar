@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Small realistic history used by memory tests and threshold calibration:
  * several sources, dates, English + Arabic, long and short conversations.

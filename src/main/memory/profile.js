@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Portable memory profile: a short, user-reviewed summary of who the user is,
  * distilled from their own messages across ChatGPT, Claude, Gemini and this

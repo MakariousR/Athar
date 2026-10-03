@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Attached files: follow-up questions must see the relevant part of the file,
 // even when they don't name it and weren't asked about when it was attached.
 const path = require('path');

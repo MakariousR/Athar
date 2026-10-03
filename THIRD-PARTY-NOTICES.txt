@@ -1,12 +1,31 @@
 THIRD-PARTY NOTICES — Athar
 
-Athar includes the open-source software listed below. Each component is
-licensed by its authors under the license shown; those licenses apply to that
-component only, not to Athar itself. Electron and Chromium, which Athar runs
-on, are covered by LICENSE.electron.txt and LICENSES.chromium.html in the
-installation folder.
+Athar is Copyright (C) 2026 Makarious Robert and is licensed under the GNU
+Affero General Public License, version 3 or later (see LICENSE.txt). Its source
+code is at https://github.com/MakariousR/Athar.
 
-Components (21): @ai-sdk/gateway, @ai-sdk/google, @ai-sdk/provider, @ai-sdk/provider, @ai-sdk/provider-utils, @ai-sdk/provider-utils, @standard-schema/spec, @vercel/oidc, @workflow/serde, ai, ai-sdk-ollama, eventsource-parser, json-schema, jsonrepair, marked, node-ensure, ollama, pdf-parse, undici, whatwg-fetch, zod
+INCLUDED IN ATHAR
+Athar includes the open-source software listed at the end of this file. Each
+component is licensed by its authors under the license shown, which applies to
+that component. Electron and Chromium, which Athar runs on, are covered by
+LICENSE.electron.txt and LICENSES.chromium.html in the installation folder.
+
+USED BY ATHAR, NOT INCLUDED
+These are downloaded or used separately, under their own terms:
+- Ollama (https://ollama.com, MIT License): the local AI engine. Athar can
+  download Ollama's official installer for you.
+- AI models run through Ollama, such as the chat model you choose and bge-m3
+  (MIT License), the model used for search by meaning. Each model is
+  downloaded from the Ollama library under its own license, shown on its page
+  at https://ollama.com/library. You are responsible for following it.
+- The model list in Athar (model names, sizes and short descriptions) is built
+  from the Ollama library at https://ollama.com/library.
+- Gemini models, used with your own API key, are provided by Google under the
+  Gemini API terms (https://ai.google.dev/gemini-api/terms).
+- Claude Desktop and Claude Code, which can use Athar's memory, are products
+  of Anthropic under their own terms.
+
+Components included (21): @ai-sdk/gateway, @ai-sdk/google, @ai-sdk/provider, @ai-sdk/provider, @ai-sdk/provider-utils, @ai-sdk/provider-utils, @standard-schema/spec, @vercel/oidc, @workflow/serde, ai, ai-sdk-ollama, eventsource-parser, json-schema, jsonrepair, marked, node-ensure, ollama, pdf-parse, undici, whatwg-fetch, zod
 
 ==============================================================================
 @ai-sdk/gateway 4.0.85  (Apache-2.0)

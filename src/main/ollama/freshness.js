@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * "Is this answer likely out of date?" — decided in code, because a small
  * local model is bad at noticing that its own knowledge stops at its training

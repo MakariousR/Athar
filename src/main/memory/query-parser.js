@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Pulls time and source hints out of a memory question:
  *   "what did I ask Claude about Postgres last spring?"

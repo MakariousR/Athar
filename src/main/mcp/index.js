@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * "Athar --mcp": no window — Athar's memory served to Claude Desktop, Claude
  * Code or another MCP app over stdin/stdout, until that app closes the pipe.

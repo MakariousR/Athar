@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Memory citation labels ([M1]…) are hidden from answers in the chat view.
 // stripCitations lives in the renderer script, so it is loaded from there.
 const fs = require('fs');

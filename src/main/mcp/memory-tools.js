@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * The tools Athar gives other AI apps over MCP: search the user's imported
  * ChatGPT / Claude / Gemini history (and chats made in Athar), list it, and

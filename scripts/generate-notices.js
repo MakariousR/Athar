@@ -1,7 +1,11 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Writes THIRD-PARTY-NOTICES.txt: the license of every open-source package
- * shipped inside Athar (production dependencies, plus the copy of marked in
- * src/renderer). Their licenses require these notices to ship with the app.
+ * Writes THIRD-PARTY-NOTICES.txt: Athar's own license, what it uses without
+ * shipping it (Ollama, AI models, Gemini, Claude), and the license of every
+ * open-source package shipped inside Athar (production dependencies, plus the
+ * copy of marked in src/renderer). Their licenses require these notices to
+ * ship with the app.
  * Electron's and Chromium's own licenses are added to the installer by
  * electron-builder (LICENSE.electron.txt, LICENSES.chromium.html).
  *
@@ -130,13 +134,32 @@ const body = sorted.map((e) => [
 
 const header = `THIRD-PARTY NOTICES — Athar
 
-Athar includes the open-source software listed below. Each component is
-licensed by its authors under the license shown; those licenses apply to that
-component only, not to Athar itself. Electron and Chromium, which Athar runs
-on, are covered by LICENSE.electron.txt and LICENSES.chromium.html in the
-installation folder.
+Athar is Copyright (C) 2026 Makarious Robert and is licensed under the GNU
+Affero General Public License, version 3 or later (see LICENSE.txt). Its source
+code is at https://github.com/MakariousR/Athar.
 
-Components (${sorted.length}): ${sorted.map((e) => e.name).join(', ')}
+INCLUDED IN ATHAR
+Athar includes the open-source software listed at the end of this file. Each
+component is licensed by its authors under the license shown, which applies to
+that component. Electron and Chromium, which Athar runs on, are covered by
+LICENSE.electron.txt and LICENSES.chromium.html in the installation folder.
+
+USED BY ATHAR, NOT INCLUDED
+These are downloaded or used separately, under their own terms:
+- Ollama (https://ollama.com, MIT License): the local AI engine. Athar can
+  download Ollama's official installer for you.
+- AI models run through Ollama, such as the chat model you choose and bge-m3
+  (MIT License), the model used for search by meaning. Each model is
+  downloaded from the Ollama library under its own license, shown on its page
+  at https://ollama.com/library. You are responsible for following it.
+- The model list in Athar (model names, sizes and short descriptions) is built
+  from the Ollama library at https://ollama.com/library.
+- Gemini models, used with your own API key, are provided by Google under the
+  Gemini API terms (https://ai.google.dev/gemini-api/terms).
+- Claude Desktop and Claude Code, which can use Athar's memory, are products
+  of Anthropic under their own terms.
+
+Components included (${sorted.length}): ${sorted.map((e) => e.name).join(', ')}
 
 `;
 fs.writeFileSync(OUT, header + body);

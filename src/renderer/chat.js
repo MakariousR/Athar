@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Makarious Robert
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const setupOverlay     = document.getElementById('setupOverlay');
 const setupStatus      = document.getElementById('setupStatus');
@@ -3577,7 +3579,7 @@ if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', toggleSidebar);
 
 // License, privacy policy and open-source notices (Settings footer)
 const docModal = document.getElementById('docModal');
-const DOC_TITLES = { license: 'License agreement', privacy: 'Privacy policy', notices: 'Open-source licenses', 'export-guide': 'How to export your chats' };
+const DOC_TITLES = { license: 'License: GNU Affero General Public License v3', privacy: 'Privacy policy', notices: 'Third-party notices', 'export-guide': 'How to export your chats' };
 const MARKDOWN_DOCS = new Set(['privacy', 'export-guide']);
 
 async function openDocument(name) {
