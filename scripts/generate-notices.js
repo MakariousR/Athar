@@ -75,16 +75,16 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.`;
 
-// Packages published without a license file: give the standard text of the
-// license they declare (Apache-2.0: its full text is already in this file).
+// Packages published without a license file: give the full standard text of
+// the license they declare, so every entry stands on its own (Apache-2.0: the
+// text another package ships, from the same authors' release).
+const apacheText = ([...entries.values()].find((o) => o.license === 'Apache-2.0' && o.text && /Apache License\s+Version 2\.0/.test(o.text)) || {}).text;
 for (const e of entries.values()) {
-  if (e.text) continue;
-  if (e.license === 'MIT') {
+  if (e.license === 'Apache-2.0' && apacheText && !(e.text && /TERMS AND CONDITIONS/.test(e.text))) {
+    // No license file, or only a pointer ("See the LICENSE file in the root of this repository")
+    e.text = e.text ? `${e.text}\n\n${apacheText}` : apacheText;
+  } else if (!e.text && e.license === 'MIT') {
     e.text = MIT_TEXT(e.author || `the ${e.name} authors`);
-  } else if (e.license === 'Apache-2.0') {
-    const withText = [...entries.values()].find((o) => o.license === 'Apache-2.0' && o.text);
-    e.text = `Licensed under the Apache License, Version 2.0` +
-      (withText ? ` — its full text is included in this file under "${withText.name}".` :': https://www.apache.org/licenses/LICENSE-2.0');
   }
 }
 
