@@ -754,7 +754,7 @@ async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0
       messages: [{ role: 'user', content: prompt }],
       stream: false,
       keep_alive: KEEP_ALIVE,
-      // Short helper calls (checks, rewrites, translations) don't need a thinking model's reasoning
+      // Short helper calls (checks, rewrites) don't need a thinking model's reasoning
       ...(profile.thinking ? { think: false } : {}),
       options: { temperature, num_predict: maxTokens, num_ctx: numCtxFor(modelName) }
     })
@@ -762,15 +762,6 @@ async function completeText(prompt, modelName = DEFAULT_MODEL, { temperature = 0
   if (!res.ok) throw new Error(`Ollama chat failed: ${await res.text().catch(() => res.status)}`);
   const data = await res.json();
   return modelProfiles.stripThinking(data.message && data.message.content ? data.message.content : '').trim();
-}
-
-/** Translates an answer, keeping code, links, names and Markdown as they are. */
-async function translateText(text, lang, modelName) {
-  const prompt = `Translate the text below into ${lang.name} (${lang.native}). Keep code blocks, inline code, URLs, file names, ` +
-    'product names, titles in quotes and numbers exactly as they are, and keep the Markdown formatting. ' +
-    `Output only the translation.\n\n<text>\n${text}\n</text>`;
-  const out = await completeText(prompt, modelName, { temperature: 0.2, maxTokens: Math.min(4000, Math.ceil(text.length / 2) + 300) });
-  return out.replace(/^<text>\s*|\s*<\/text>$/g, '').trim();
 }
 
 const toolNoticeShown = new Set(); // models we've already explained "no tools" for (once per app session)
@@ -855,16 +846,6 @@ async function generate(
   let text = chatContext.stripUnpromptedApology(chatContext.stripMarker(loopResult.text), conversationHistory);
   // Another model of the same provider answered (the chosen one reached its limit…): it does the follow-up work too
   const answeredBy = loopResult.answeredBy ? loopResult.answeredBy.name : modelName;
-
-  // The answer came out in the wrong language (usually the language of the
-  // memories or file it was given): translate it before it's shown for good.
-  if (!stopped() && replyLang && text && text.trim() && !language.matchesLanguage(text, replyLang)) {
-    onStatus({ icon: '🌐', text: `Rewriting the answer in ${replyLang.name}…` });
-    try {
-      const translated = await translateText(text, replyLang, answeredBy);
-      if (translated && language.matchesLanguage(translated, replyLang)) text = translated;
-    } catch { /* keep the original answer */ }
-  }
 
   // Current information: make sure the answer says it's as of the training data, even if the model forgot to
   if (dated && !canSearch && text && text.trim() && !freshness.hasTrainingDisclaimer(text)) {

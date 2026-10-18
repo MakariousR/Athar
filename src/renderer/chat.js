@@ -2121,7 +2121,7 @@ function renderSourceChips(bubbleEl, sources) {
     chip.style.borderColor = color;
     chip.style.color = color;
     const sourceName = SOURCE_LABELS[s.source] || s.sourceName || s.source;
-    chip.title = `${s.ref ? `[${s.ref}] ` : ''}${sourceName}${s.date ? ` · ${s.date}` : ''}` +
+    chip.title = `${sourceName}${s.date ? ` · ${s.date}` : ''}` +
       `${anyCitedInfo ? (s.cited ? ' · used in this answer' : ' · found, not used') : ''} — click to open`;
     chip.textContent = `${sourceName}: ${s.title.slice(0, 35)}${s.title.length > 35 ? '…' : ''}`;
     chip.addEventListener('click', () => {

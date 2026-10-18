@@ -8,7 +8,7 @@ const { test, done, stubElectron, ROOT } = require('./helpers');
 const userData = stubElectron();
 const store = require(path.join(ROOT, 'src/main/store/chat-store'));
 const { parseAnyExport } = require(path.join(ROOT, 'src/main/parser/chatgpt-parser'));
-const { isContinuationRequest, looksCutOff } = require(path.join(ROOT, 'src/main/ipc-handlers'))._internals;
+const { isContinuationRequest, looksCutOff, citedRefs } = require(path.join(ROOT, 'src/main/ipc-handlers'))._internals;
 
 const tmpFile = (name, data) => { const p = path.join(userData, name); fs.writeFileSync(p, JSON.stringify(data)); return p; };
 
@@ -65,6 +65,17 @@ test('continuation only for explicit phrases after a cut-off reply', () => {
   }
   assert(!looksCutOff('Done 🎉'));
   assert(looksCutOff('The results show that'));
+});
+
+test('memory citations are counted in every form the window hides', () => {
+  const refs = (t) => [...citedRefs(t)].sort();
+  assert.deepStrictEqual(refs('You chose Postgres [M1].'), ['M1']);
+  assert.deepStrictEqual(refs('Both chats agree [M1, M3].'), ['M1', 'M3']);
+  assert.deepStrictEqual(refs('See [M1][M2]'), ['M1', 'M2']);
+  assert.deepStrictEqual(refs('Over several chats [M2–M4]'), ['M2', 'M3', 'M4']);
+  assert.deepStrictEqual(refs('Over several chats [M2-4]'), ['M2', 'M3', 'M4']);
+  assert.deepStrictEqual(refs('[M10] only'), ['M10']); // not M1
+  assert.deepStrictEqual(refs('arr[i] and no citations'), []);
 });
 
 // ── Chat store ──

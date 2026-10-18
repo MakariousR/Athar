@@ -1,38 +1,37 @@
 // Copyright (C) 2026 Makarious Robert
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Which language the answer must be in, decided in code rather than left to
- * the model: small local models drift into the language of the context they
- * were given (English memories, an English web page) instead of the
- * question's.
+ * Which language the answer should be in, worked out in code and passed to
+ * the model as a note on the user's message: small local models drift into
+ * the language of the context they were given (English memories, an English
+ * web page) instead of the question's. The answer itself is shown as the
+ * model wrote it.
  *
  *   replyLanguage(text, history) → the language the user asked for
  *     ("answer in English", "ترجم إلى الفرنسية"), else the language of the
  *     message, else (for "ok", "why?") the language of their previous messages.
- *   matchesLanguage(answer, lang) → is the answer (code, links and product
- *     names aside) actually written in that language?
  */
 const { normalizeArabicText } = require('../utils/text-normalizer');
 
 const LANGUAGES = {
-  en: { name: 'English', native: 'English', say: 'Reply in English.', names: ['english', 'انجليزي', 'انجليزيه', 'انكليزي', 'انكليزيه'] },
-  ar: { name: 'Arabic', native: 'العربية', say: 'أجب باللغة العربية.', names: ['arabic', 'عربي', 'عربيه'] },
-  fr: { name: 'French', native: 'français', say: 'Réponds en français.', names: ['french', 'فرنسي', 'فرنسيه'] },
-  es: { name: 'Spanish', native: 'español', say: 'Responde en español.', names: ['spanish', 'اسباني', 'اسبانيه'] },
-  de: { name: 'German', native: 'Deutsch', say: 'Antworte auf Deutsch.', names: ['german', 'الماني', 'المانيه'] },
-  it: { name: 'Italian', native: 'italiano', say: 'Rispondi in italiano.', names: ['italian', 'ايطالي', 'ايطاليه'] },
-  pt: { name: 'Portuguese', native: 'português', say: 'Responda em português.', names: ['portuguese', 'برتغالي', 'برتغاليه'] },
-  nl: { name: 'Dutch', native: 'Nederlands', say: 'Antwoord in het Nederlands.', names: ['dutch', 'هولندي', 'هولنديه'] },
-  tr: { name: 'Turkish', native: 'Türkçe', say: 'Türkçe cevap ver.', names: ['turkish', 'تركي', 'تركيه'] },
-  id: { name: 'Indonesian', native: 'Bahasa Indonesia', say: 'Jawab dalam bahasa Indonesia.', names: ['indonesian', 'اندونيسي', 'اندونيسيه'] },
-  ru: { name: 'Russian', native: 'русский', say: 'Отвечай по-русски.', names: ['russian', 'روسي', 'روسيه'] },
-  fa: { name: 'Persian', native: 'فارسی', say: 'به فارسی پاسخ بده.', names: ['persian', 'farsi', 'فارسي', 'فارسيه'] },
-  ur: { name: 'Urdu', native: 'اردو', say: 'اردو میں جواب دیں۔', names: ['urdu', 'اردو', 'اورديه'] },
-  he: { name: 'Hebrew', native: 'עברית', say: 'ענה בעברית.', names: ['hebrew', 'عبري', 'عبريه'] },
-  hi: { name: 'Hindi', native: 'हिन्दी', say: 'हिंदी में जवाब दें।', names: ['hindi', 'هندي', 'هنديه'] },
-  zh: { name: 'Chinese', native: '中文', say: '请用中文回答。', names: ['chinese', 'mandarin', 'صيني', 'صينيه'] },
-  ja: { name: 'Japanese', native: '日本語', say: '日本語で答えてください。', names: ['japanese', 'ياباني', 'يابانيه'] },
-  ko: { name: 'Korean', native: '한국어', say: '한국어로 답해 주세요.', names: ['korean', 'كوري', 'كوريه'] }
+  en: { name: 'English', say: 'Reply in English.', names: ['english', 'انجليزي', 'انجليزيه', 'انكليزي', 'انكليزيه'] },
+  ar: { name: 'Arabic', say: 'أجب باللغة العربية.', names: ['arabic', 'عربي', 'عربيه'] },
+  fr: { name: 'French', say: 'Réponds en français.', names: ['french', 'فرنسي', 'فرنسيه'] },
+  es: { name: 'Spanish', say: 'Responde en español.', names: ['spanish', 'اسباني', 'اسبانيه'] },
+  de: { name: 'German', say: 'Antworte auf Deutsch.', names: ['german', 'الماني', 'المانيه'] },
+  it: { name: 'Italian', say: 'Rispondi in italiano.', names: ['italian', 'ايطالي', 'ايطاليه'] },
+  pt: { name: 'Portuguese', say: 'Responda em português.', names: ['portuguese', 'برتغالي', 'برتغاليه'] },
+  nl: { name: 'Dutch', say: 'Antwoord in het Nederlands.', names: ['dutch', 'هولندي', 'هولنديه'] },
+  tr: { name: 'Turkish', say: 'Türkçe cevap ver.', names: ['turkish', 'تركي', 'تركيه'] },
+  id: { name: 'Indonesian', say: 'Jawab dalam bahasa Indonesia.', names: ['indonesian', 'اندونيسي', 'اندونيسيه'] },
+  ru: { name: 'Russian', say: 'Отвечай по-русски.', names: ['russian', 'روسي', 'روسيه'] },
+  fa: { name: 'Persian', say: 'به فارسی پاسخ بده.', names: ['persian', 'farsi', 'فارسي', 'فارسيه'] },
+  ur: { name: 'Urdu', say: 'اردو میں جواب دیں۔', names: ['urdu', 'اردو', 'اورديه'] },
+  he: { name: 'Hebrew', say: 'ענה בעברית.', names: ['hebrew', 'عبري', 'عبريه'] },
+  hi: { name: 'Hindi', say: 'हिंदी में जवाब दें।', names: ['hindi', 'هندي', 'هنديه'] },
+  zh: { name: 'Chinese', say: '请用中文回答。', names: ['chinese', 'mandarin', 'صيني', 'صينيه'] },
+  ja: { name: 'Japanese', say: '日本語で答えてください。', names: ['japanese', 'ياباني', 'يابانيه'] },
+  ko: { name: 'Korean', say: '한국어로 답해 주세요.', names: ['korean', 'كوري', 'كوريه'] }
 };
 for (const [code, lang] of Object.entries(LANGUAGES)) lang.code = code;
 
@@ -152,29 +151,4 @@ function replyLanguage(userText, history = []) {
   return own || earlierLanguage();
 }
 
-/**
- * Whether an answer is written in `lang`. Code, links and short answers pass;
- * product names and technical terms in English don't make an Arabic answer fail.
- */
-function matchesLanguage(answer, lang) {
-  if (!lang) return true;
-  // Quoted titles and names ("Using the Weather API") are kept as written
-  const prose = proseOf(answer).replace(QUOTED_RE, ' ');
-  // Qwen models sometimes slip a Chinese phrase ("主要内容") into another language
-  if (!['zh', 'ja', 'ko'].includes(lang.code) && /[一-鿿぀-ヿ]{2,}/.test(prose)) return false;
-  const letters = (prose.match(/\p{L}/gu) || []).length;
-  if (letters < 40) return true; // mostly code, a number, a name…
-  const script = SCRIPTS.find(([code]) => code === (['fa', 'ur'].includes(lang.code) ? 'ar' : lang.code));
-  if (script) {
-    const inScript = (prose.match(script[1]) || []).length;
-    return inScript / letters >= 0.35;
-  }
-  // Latin-alphabet target: no other alphabet may dominate, and a clearly
-  // detected Latin language must be the right one
-  const other = SCRIPTS.some(([, re]) => (prose.match(re) || []).length / letters > 0.3);
-  if (other) return false;
-  const found = detectLanguage(prose);
-  return !found || found.code === lang.code || !COMMON[found.code];
-}
-
-module.exports = { LANGUAGES, detectLanguage, requestedLanguage, replyLanguage, matchesLanguage };
+module.exports = { LANGUAGES, detectLanguage, requestedLanguage, replyLanguage };

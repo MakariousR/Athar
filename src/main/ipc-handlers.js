@@ -92,6 +92,29 @@ function buildMemoryQuery(userText, history) {
   return prevUser ? `${prevUser.text.trim().slice(0, 300)} ${text}` : text;
 }
 
+// The memory citations an answer makes: [M1], [M1, M3], [M2–M4] / [M2-4].
+// Same forms the window hides from the answer (CITATION in chat.js), so a
+// citation the user doesn't see is still counted.
+const CITATION_RE = /\[M\d+(?:\s*[,–-]\s*M?\d+)*\]/g;
+
+/** "…as decided [M1, M3–M4]." → Set {'M1', 'M3', 'M4'} */
+function citedRefs(text) {
+  const refs = new Set();
+  for (const [group] of String(text || '').matchAll(CITATION_RE)) {
+    const parts = group.slice(1, -1).split(/\s*(,|[–-])\s*/);
+    let prev = null;
+    for (let i = 0; i < parts.length; i += 2) {
+      const n = Number(parts[i].replace(/^M/, ''));
+      if (parts[i - 1] && parts[i - 1] !== ',' && prev !== null && n > prev && n - prev <= 50) {
+        for (let k = prev + 1; k < n; k++) refs.add(`M${k}`);
+      }
+      refs.add(`M${n}`);
+      prev = n;
+    }
+  }
+  return refs;
+}
+
 function isContinuationRequest(userText, history) {
   if (!CONTINUE_TRIGGERS.test(String(userText || '').trim())) return false;
   const lastAssistant = [...(history || [])].reverse().find((m) => m.role === 'assistant');
@@ -655,7 +678,8 @@ function registerIpcHandlers() {
 
       // Remember which memories were offered and which the answer actually
       // cited ([M1]…), so the source chips survive reopening the chat.
-      const sources = memorySources.map((s) => ({ ...s, cited: new RegExp(`\\[${s.ref}\\]`).test(reply) }));
+      const cited = citedRefs(reply);
+      const sources = memorySources.map((s) => ({ ...s, cited: cited.has(s.ref) }));
       store.appendMessage(sessionId, 'assistant', reply, [], [], { sources, steps, stopped });
 
       const updated = store.getSession(sessionId);
@@ -675,5 +699,5 @@ function registerIpcHandlers() {
 module.exports = {
   registerIpcHandlers,
   // exported for tests
-  _internals: { isContinuationRequest, looksCutOff, buildMemoryQuery }
+  _internals: { isContinuationRequest, looksCutOff, buildMemoryQuery, citedRefs }
 };

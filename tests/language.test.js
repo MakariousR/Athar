@@ -4,7 +4,7 @@
 const path = require('path');
 const assert = require('assert');
 const { test, done, ROOT } = require('./helpers');
-const { detectLanguage, requestedLanguage, replyLanguage, matchesLanguage, LANGUAGES } = require(path.join(ROOT, 'src/main/ollama/language'));
+const { detectLanguage, requestedLanguage, replyLanguage } = require(path.join(ROOT, 'src/main/ollama/language'));
 
 const code = (lang) => (lang ? lang.code : null);
 
@@ -61,19 +61,6 @@ test('replyLanguage: the request wins, then the message, then earlier messages',
   assert.strictEqual(replyLanguage('ok', []), null);
   // The history as the app passes it: already ending with the current message
   assert.strictEqual(code(replyLanguage('why?', [...history, { role: 'user', text: 'why?' }])), 'ar');
-});
-
-test('matchesLanguage: English terms and code inside an Arabic answer are fine', () => {
-  const ar = LANGUAGES.ar;
-  assert(matchesLanguage('لديك ثلاث محادثات مع Claude: "Using the Weather API" و "Garden planning notes" و "Bakery price list".', ar));
-  assert(matchesLanguage('استخدم الأمر التالي:\n```bash\ndocker compose up -d --build\n```\nثم افتح المتصفح على العنوان المحلي.', ar));
-  assert(!matchesLanguage('You have three conversations with Claude about the Weather API, garden planning notes and a bakery price list.', ar));
-  assert(!matchesLanguage('لديك ثلاث محادثات مع كلود حول واجهة برمجة التطبيقات وتطبيق الذاكرة', LANGUAGES.en));
-  assert(matchesLanguage('You have three conversations with Claude about the Weather API and garden notes.', LANGUAGES.en));
-  assert(!matchesLanguage('Vous avez trois conversations avec Claude sur une application de mémoire et une API.', LANGUAGES.en));
-  assert(matchesLanguage('42', ar), 'short answers pass');
-  assert(!matchesLanguage('الصفحة تقدم معلومات عن الشركة. فيما يلي ملخص لل主要内容: رحلات مخصصة في مصر.', ar), 'a stray Chinese phrase');
-  assert(!matchesLanguage('The page describes 主要内容 of the company and its tours in Egypt.', LANGUAGES.en));
 });
 
 done();
