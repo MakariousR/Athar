@@ -142,51 +142,6 @@ function removeResourceFiles(sessionId, resId) {
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
-/**
- * One-time migration: older versions stored full `pages`/`text` inline on
- * each session resource. Move that content into per-file storage.
- */
-function migrateLegacyResources(sessions) {
-  let changed = false;
-  for (const s of sessions) {
-    if (!Array.isArray(s.resources)) { s.resources = []; continue; }
-    for (const r of s.resources) {
-      if (!Array.isArray(r.pages) && typeof r.text !== 'string') continue;
-      const pages = Array.isArray(r.pages) && r.pages.length > 0
-        ? r.pages
-        : [{ page: 1, text: r.text || '' }];
-      try {
-        writeResourceContent(s.id, r.id, pages);
-      } catch { continue; } // keep inline data if we couldn't write it out
-      r.hash = r.hash || sha1(pages.map((p) => p.text).join('\n'));
-      r.charCount = r.charCount || pages.reduce((n, p) => n + (p.text || '').length, 0);
-      r.pageCount = r.pageCount || pages.length;
-      delete r.pages;
-      delete r.text;
-      changed = true;
-    }
-  }
-  return changed;
-}
-
-/**
- * One-time migration: older versions stored every attached image as base64
- * inside sessions.json. Move each into its own file and keep a reference.
- */
-function migrateLegacyImages(sessions) {
-  let changed = false;
-  for (const s of sessions) {
-    for (const m of s.messages || []) {
-      if (!Array.isArray(m.images) || m.images.every((img) => typeof img === 'string' && img.startsWith(IMAGE_REF_PREFIX))) continue;
-      try {
-        m.images = m.images.map((img) => storeImage(s.id, img)).filter(Boolean);
-        changed = true;
-      } catch { /* keep inline data if it couldn't be written out */ }
-    }
-  }
-  return changed;
-}
-
 function loadSessions() {
   const p = getStorePath();
   if (!fs.existsSync(p)) return [];
@@ -196,11 +151,7 @@ function loadSessions() {
   } catch {
     return [];
   }
-  if (!Array.isArray(sessions)) return [];
-  const migratedResources = migrateLegacyResources(sessions);
-  const migratedImages = migrateLegacyImages(sessions);
-  if (migratedResources || migratedImages) saveSessions(sessions);
-  return sessions;
+  return Array.isArray(sessions) ? sessions : [];
 }
 
 function saveSessions(sessions) {
@@ -345,24 +296,15 @@ function appendMessage(sessionId, role, text, images = [], documents = [], extra
     message.images = images.map((img) => storeImage(sessionId, img)).filter(Boolean);
   }
   if (documents && documents.length > 0) {
-    message.documents = documents.map((d) => {
-      let ref = d;
-      // Legacy path: caller passed a fully-parsed document. Register it on the
-      // SAME in-memory session we're about to save, so the single save below
-      // can't overwrite it (the old code saved a second, stale copy).
-      if (d.pages || d.text) {
-        ref = upsertResource(session, d).resource;
-      }
-      return {
-        id: ref.id,
-        name: ref.name,
-        ext: ref.ext,
-        size: ref.size,
-        pageCount: ref.pageCount,
-        lineCount: ref.lineCount,
-        charCount: ref.charCount
-      };
-    });
+    message.documents = documents.map((d) => ({
+      id: d.id,
+      name: d.name,
+      ext: d.ext,
+      size: d.size,
+      pageCount: d.pageCount,
+      lineCount: d.lineCount,
+      charCount: d.charCount
+    }));
   }
   if (Array.isArray(extra.sources) && extra.sources.length > 0) message.sources = extra.sources;
   // The "Thought process" steps shown while answering, so they're still there when the chat is reopened
@@ -390,15 +332,6 @@ function deleteSession(id) {
   try { fs.rmSync(getImageDir(id), { recursive: true, force: true }); } catch {}
 }
 
-function renameSession(id, title) {
-  const sessions = loadSessions();
-  const session = sessions.find((s) => s.id === id);
-  if (session) {
-    session.title = title;
-    saveSessions(sessions);
-  }
-}
-
 module.exports = {
   loadSessions,
   createSession,
@@ -410,6 +343,5 @@ module.exports = {
   setResourceEmbeddings,
   removeSessionResource,
   appendMessage,
-  deleteSession,
-  renameSession
+  deleteSession
 };

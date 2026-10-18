@@ -22,8 +22,7 @@ function getMemory() {
     memory = new MemoryIndex({
       dir: memoryDir(),
       embedTexts: ollama.embedTexts,
-      embedModel: ollama.EMBED_MODEL,
-      legacyDir: app.getPath('userData')
+      embedModel: ollama.EMBED_MODEL
     });
   }
   return memory;

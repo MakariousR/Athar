@@ -91,18 +91,10 @@ function reconstructThread(conversation) {
 }
 
 /**
- * Parses a ChatGPT `conversations.json` export file into an array of
- * normalized, chronologically-ordered thread objects.
- *
- * Also tolerates a single-conversation object or an already-flat array
- * of { role, text } style exports, so other export formats degrade
- * gracefully instead of throwing.
+ * Parses an already-parsed ChatGPT `conversations.json` into an array of
+ * normalized, chronologically-ordered thread objects. Entries of any other
+ * shape are skipped instead of throwing.
  */
-function parseExportFile(filePath) {
-  return parseChatGptData(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
-}
-
-/** Same as parseExportFile, for already-parsed JSON. */
 function parseChatGptData(data) {
   const conversations = Array.isArray(data) ? data : [data];
 
@@ -167,4 +159,4 @@ function parseAnyExport(filePath) {
   );
 }
 
-module.exports = { parseExportFile, parseChatGptData, parseAnyExport, reconstructThread, extractText, contentId };
+module.exports = { parseChatGptData, parseAnyExport, reconstructThread, extractText, contentId };

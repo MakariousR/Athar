@@ -827,11 +827,6 @@ function isSearchResult(text) {
   return typeof text === 'string' && text.startsWith(RESEARCH_HEADER);
 }
 
-/** A page fetch_web_page actually read (not an error, "could not extract" or a timeout). */
-function isPageResult(text) {
-  return typeof text === 'string' && text.startsWith('Page: ');
-}
-
 /**
  * Web text goes into the model's prompt. Take out what could pass for the
  * app's own structure there: the tags around the research block, the
@@ -1120,7 +1115,6 @@ module.exports = {
   fetchWebPageContent,
   formatKnowledgeBase,
   isSearchResult,
-  isPageResult,
   sanitizeWebText,
   // exported for tests
   _internals: { parseDdgHtml, parseDdgLite, resolveDdgHref, extractPageDate, htmlToText, checkFetchableUrl, isPrivateAddress, decodeBody, readBody, readDdgPage, ddgSearch,

@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   listModels: () => ipcRenderer.invoke('ollama:list-models'),
   modelCanSearch: (modelName) => ipcRenderer.invoke('model:can-search', modelName),
-  // Cloud models (Gemini, ChatGPT, Claude) with the user's own API keys: a key is sent once to be saved, never read back
+  // Cloud models (Gemini) with the user's own API key: a key is sent once to be saved, never read back
   cloudStatus: () => ipcRenderer.invoke('cloud:status'),
   cloudSetKey: (provider, key) => ipcRenderer.invoke('cloud:set-key', provider, key),
   cloudClearKey: (provider) => ipcRenderer.invoke('cloud:clear-key', provider),
@@ -80,10 +80,9 @@ contextBridge.exposeInMainWorld('api', {
   chatCreate: () => ipcRenderer.invoke('chat:create'),
   chatGet: (id) => ipcRenderer.invoke('chat:get', id),
   chatDelete: (id) => ipcRenderer.invoke('chat:delete', id),
-  chatRename: (id, title) => ipcRenderer.invoke('chat:rename', id, title),
   // The main process owns the memory and the project folder; only the message goes over IPC.
   chatSend: (sessionId, userText, modelName, images = [], documents = [], options = {}) =>
-    ipcRenderer.invoke('chat:send', sessionId, userText, null, modelName, images, null, documents, options),
+    ipcRenderer.invoke('chat:send', sessionId, userText, modelName, images, documents, options),
 
   chatStop: (sessionId) => ipcRenderer.invoke('chat:stop', sessionId),
   // Streamed updates carry { sessionId, … } so they reach the right chat

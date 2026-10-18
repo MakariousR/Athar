@@ -253,10 +253,6 @@ test('research results are recognised by how they start, not by words in the que
   for (const t of ['Web search for "x" returned no results.', 'Web research for "x" timed out.', 'Web research for "x" found no readable content.', 'ERROR: offline']) {
     assert(!web.isSearchResult(t), t);
   }
-  assert(web.isPageResult('Page: Title\nURL: https://x.com\n\ntext'));
-  for (const t of ['Could not extract content from: https://example.com/a-long-path', 'Fetching https://x.com timed out.', 'ERROR: blocked']) {
-    assert(!web.isPageResult(t), t);
-  }
 });
 
 test('page text cannot close the research block or fake a source / URL line', () => {

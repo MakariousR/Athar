@@ -104,9 +104,8 @@ function getElectron() {
   return electron;
 }
 
-let dataDirOverride = null; // tests
 function keyPath(provider) {
-  const dir = dataDirOverride || getElectron().app.getPath('userData');
+  const dir = getElectron().app.getPath('userData');
   return path.join(dir, `${provider}-key.bin`);
 }
 
@@ -403,7 +402,6 @@ module.exports = {
   _internals: {
     PROVIDERS, versionOf, fetchModels, msUntilPacificMidnight,
     setModels: (provider, list) => { models.set(provider, list); },
-    resetUnavailable: () => unavailable.clear(),
-    setDataDir: (dir) => { dataDirOverride = dir; cachedKeys.clear(); models.clear(); }
+    resetUnavailable: () => unavailable.clear()
   }
 };

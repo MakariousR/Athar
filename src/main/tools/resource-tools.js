@@ -36,7 +36,6 @@ function setOutputBudget(chars) {
 function setRangeBudget(chars) {
   if (Number.isFinite(chars) && chars >= 2000) rangeBudget = Math.floor(chars);
 }
-function getOutputBudget() { return outputBudget; }
 function setEmbedder(fn, id = 'default') { embedder = typeof fn === 'function' ? fn : null; embedderId = id; }
 let batchEmbedder = null;    // async (texts[]) => number[][] — optional, much faster for indexing
 function setBatchEmbedder(fn) { batchEmbedder = typeof fn === 'function' ? fn : null; }
@@ -581,11 +580,6 @@ async function searchResources(sessionId, targets, query, args, ctx) {
  * @param {object} ctx   { onStatus? }
  */
 async function readChatResourceTool(sessionId, args = {}, ctx = {}) {
-  // Legacy positional signature: (sessionId, fileName, page, searchQuery)
-  if (typeof args === 'string') {
-    args = { file_name: args, page: arguments[2], search_query: arguments[3] };
-    ctx = {};
-  }
   if (!sessionId) return 'ERROR: No active chat session specified.';
 
   const resources = store.getSessionResources(sessionId);
@@ -632,7 +626,6 @@ module.exports = {
   renderOverview,
   setOutputBudget,
   setRangeBudget,
-  getOutputBudget,
   setEmbedder,
   setBatchEmbedder,
   indexResource,

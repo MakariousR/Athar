@@ -497,21 +497,13 @@ function registerIpcHandlers() {
     catch (err) { return { success: false, error: err.message }; }
   });
 
-  ipcMain.handle('chat:rename', async (event, id, title) => {
-    try { store.renameSession(id, title); syncAppMemory(); return { success: true }; }
-    catch (err) { return { success: false, error: err.message }; }
-  });
-
-  // `_workspaceDir` from the renderer is deliberately ignored: the only
-  // workspace the tools may touch is the one the user picked in the native
-  // folder dialog (workspace:select), tracked here in the main process.
   ipcMain.handle('chat:stop', (event, sessionId) => {
     const controller = activeRuns.get(sessionId);
     if (controller) controller.abort();
     return { success: Boolean(controller) };
   });
 
-  ipcMain.handle('chat:send', async (event, sessionId, userText, _legacyThreads, modelName, images = [], _workspaceDir = null, documents = [], options = {}) => {
+  ipcMain.handle('chat:send', async (event, sessionId, userText, modelName, images = [], documents = [], options = {}) => {
     // Background memory indexing competes with the chat model for the GPU —
     // pause it while answering, resume (and index this chat) afterwards.
     memory.pause();

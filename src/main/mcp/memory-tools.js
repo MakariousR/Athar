@@ -56,7 +56,7 @@ function readOnlyMemory({ userData, embedTexts, embedModel }) {
   function getMemory() {
     const now = signature();
     if (!index || now !== stamp) {
-      const m = new MemoryIndex({ dir: memoryDir, embedTexts: trackedEmbed, embedModel, legacyDir: null });
+      const m = new MemoryIndex({ dir: memoryDir, embedTexts: trackedEmbed, embedModel });
       // Reading only: no background indexing, no saving
       m.scheduleEmbedding = () => {};
       m.saveVectors = () => {};

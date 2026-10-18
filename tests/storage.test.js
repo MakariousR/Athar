@@ -70,20 +70,6 @@ test('continuation only for explicit phrases after a cut-off reply', () => {
 // ── Chat store ──
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-test('legacy inline images migrate to files; sessions.json no longer holds base64', () => {
-  const chats = path.join(userData, 'chats');
-  fs.mkdirSync(chats, { recursive: true });
-  fs.writeFileSync(path.join(chats, 'sessions.json'), JSON.stringify([
-    { id: 's_legacy', title: 'Old', messages: [{ role: 'user', text: 'look', images: [PNG_B64, `data:image/png;base64,${PNG_B64}`] }], resources: [] }
-  ]));
-  const imgs = store.loadSessions()[0].messages[0].images;
-  assert(imgs.every((i) => i.startsWith('ref:')), JSON.stringify(imgs));
-  assert.strictEqual(new Set(imgs).size, 1, 'same image stored once');
-  assert(!fs.readFileSync(path.join(chats, 'sessions.json'), 'utf8').includes(PNG_B64.slice(0, 40)));
-  assert.deepStrictEqual(store.getSession('s_legacy', { withImages: true }).messages[0].images, [PNG_B64, PNG_B64]);
-  assert(store.getSession('s_legacy').messages[0].images[0].startsWith('ref:'), 'default getSession stays lightweight');
-});
-
 test('appendMessage stores images as refs; deleting the session removes them', () => {
   const s = store.createSession();
   store.appendMessage(s.id, 'user', 'with image', [PNG_B64]);

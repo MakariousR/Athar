@@ -144,14 +144,12 @@ class MemoryIndex extends EventEmitter {
    * @param {string} opts.dir               storage directory
    * @param {(texts: string[]) => Promise<number[][]>} opts.embedTexts
    * @param {string} opts.embedModel        used in cache keys; changing it re-embeds
-   * @param {string} [opts.legacyDir]       userData dir of the old whole-thread store, migrated once
    */
-  constructor({ dir, embedTexts, embedModel, legacyDir = null }) {
+  constructor({ dir, embedTexts, embedModel }) {
     super();
     this.dir = dir;
     this.embedTexts = embedTexts;
     this.embedModel = embedModel;
-    this.legacyDir = legacyDir;
 
     this.imported = new Map(); // id → thread
     this.appThreads = new Map();
@@ -178,37 +176,11 @@ class MemoryIndex extends EventEmitter {
       for (const t of data.threads || []) this.imported.set(t.id, t);
       this.sources = data.sources || {};
     } catch {
-      this.migrateLegacy();
+      // no imports yet
     }
     this.vectors.load();
     this.rebuild('imported');
     this.loaded = true;
-  }
-
-  /** One-time import of the previous whole-thread store (history/threads.json). */
-  migrateLegacy() {
-    if (!this.legacyDir) return;
-    const legacyThreads = path.join(this.legacyDir, 'history', 'threads.json');
-    try {
-      const old = JSON.parse(fs.readFileSync(legacyThreads, 'utf8'));
-      for (const t of old) {
-        if (!t || !t.id || t.source === 'app') continue;
-        const thread = normalizeThread(t, t.source);
-        if (thread.messages.length) this.imported.set(thread.id, thread);
-      }
-      for (const t of this.imported.values()) {
-        this.sources[t.source] = this.sources[t.source] || { lastImport: null };
-      }
-      this.saveThreads();
-      // The old files held whole-thread embeddings that the new index can't
-      // use. Keep the history as a backup (without the embeddings), drop the cache.
-      atomicWrite(path.join(this.legacyDir, 'history', 'threads.backup.json'),
-        JSON.stringify(old.map(({ embedding, ...rest }) => rest)));
-      fs.rmSync(legacyThreads, { force: true });
-      fs.rmSync(path.join(this.legacyDir, 'embeddings'), { recursive: true, force: true });
-    } catch {
-      // nothing to migrate
-    }
   }
 
   saveThreads() {

@@ -206,21 +206,6 @@ test('keyword search works before embeddings exist (Ollama down)', async () => {
   assert.strictEqual(r.passages[0].threadId, 'gpt-docker');
 });
 
-test('migrates the old whole-thread store once', async () => {
-  const userData = tempDir('cm-legacy-');
-  fs.mkdirSync(path.join(userData, 'history'), { recursive: true });
-  fs.mkdirSync(path.join(userData, 'embeddings'), { recursive: true });
-  const old = corpus.slice(0, 3).map((t) => ({ ...t, fullText: 'x', embedding: [0.1, 0.2] }));
-  fs.writeFileSync(path.join(userData, 'history', 'threads.json'), JSON.stringify(old));
-  fs.writeFileSync(path.join(userData, 'embeddings', 'cache.json'), '{}');
-  const mem = new MemoryIndex({ dir: path.join(userData, 'memory'), embedTexts: fakeEmbed, embedModel: 'fake', legacyDir: userData });
-  mem.load();
-  assert.strictEqual(mem.stats().threads, 3);
-  assert(!fs.existsSync(path.join(userData, 'embeddings')));
-  assert(fs.existsSync(path.join(userData, 'history', 'threads.backup.json')));
-  assert(!fs.readFileSync(path.join(userData, 'history', 'threads.backup.json'), 'utf8').includes('embedding'));
-});
-
 test('memory prompt block has citations and respects the size budget', () => {
   const passages = [1, 2, 3].map((i) => ({ sourceName: 'ChatGPT', title: `T${i}`, date: '2025-01-0' + i, text: 'x'.repeat(2000) }));
   const block = formatMemoryContext(passages, { maxChars: 3000 });

@@ -4,8 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Best-effort realpath resolution for a path that may not exist yet (e.g. a
- * write_file target). Walks up to the nearest existing ancestor, resolves
+ * Best-effort realpath resolution for a path that may not exist. Walks up to the nearest existing ancestor, resolves
  * *that* through the filesystem (following any symlinks), then re-attaches
  * the non-existent tail. Returns null only if even the root can't be
  * resolved (should not happen in practice).
@@ -153,19 +152,11 @@ function formatFileSlice(relPath, slice) {
 
   let footer = '';
   if (slice.endLine < slice.totalLines) {
-    footer = `\n\n[File continues. To read more call read_file with rel_path="${relPath}", start_line=${slice.endLine + 1}. ` +
-      `To change this file use edit_file on the part you need; do not rewrite it with write_file unless you have read all of it.]`;
+    footer = `\n\n[File continues. To read more call read_file with rel_path="${relPath}", start_line=${slice.endLine + 1}.]`;
   } else if (!whole) {
     footer = `\n\n[End of file.]`;
   }
   return `${header}\n\n${slice.text}${footer}`;
-}
-
-/**
- * Reads text content of a file within the workspace (capped; see readFileSlice).
- */
-async function readFileTool(workspaceDir, relPath, options = {}) {
-  return formatFileSlice(relPath, readFileSlice(workspaceDir, relPath, options));
 }
 
 /**
@@ -260,7 +251,6 @@ module.exports = {
   setReadBudget,
   readFileSlice,
   formatFileSlice,
-  readFileTool,
   listDirectoryTool,
   searchFilesTool
 };

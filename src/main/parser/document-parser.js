@@ -99,9 +99,6 @@ function cleanPdfText(raw) {
   return reflowParagraphs(text);
 }
 
-// Kept for backward compatibility with any other caller.
-const cleanExtractedText = cleanPdfText;
-
 // ─── Outline extraction ──────────────────────────────────────────────────────
 
 function shorten(s, n = 70) {
@@ -248,11 +245,6 @@ function parseTextBuffer(filePath, buf, stat) {
   };
 }
 
-function parseTextFile(filePath) {
-  const stat = fs.statSync(filePath);
-  return parseTextBuffer(filePath, fs.readFileSync(filePath), stat);
-}
-
 // ─── PDF ─────────────────────────────────────────────────────────────────────
 
 /** Drops a bare page number ("3", "Page 3", "- 3 -") sitting alone as the first or last line of a page. */
@@ -382,16 +374,11 @@ async function parsePdfBuffer(filePath, buf, stat) {
   };
 }
 
-async function parsePdfFile(filePath) {
-  return parsePdfBuffer(filePath, fs.readFileSync(filePath), fs.statSync(filePath));
-}
-
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 /**
  * Detects file type and returns the parsed document, INCLUDING page content.
- * This is a main-process-internal shape: don't ship it to the renderer, send
- * toMetadata(parsed) instead.
+ * This is a main-process-internal shape: don't ship it to the renderer.
  */
 async function parseDocumentFile(filePath) {
   if (!filePath || !fs.existsSync(filePath)) {
@@ -417,13 +404,6 @@ async function parseDocumentFile(filePath) {
   }
 }
 
-/** Lightweight description that is safe/cheap to send over IPC. */
-function toMetadata(doc) {
-  if (!doc) return doc;
-  const { pages, text, ...meta } = doc;
-  return meta;
-}
-
 /** Parses in-memory text as if it were a file called `name` (e.g. a past conversation attached to a chat). */
 function parseTextContent(name, text) {
   const buf = Buffer.from(String(text || ''), 'utf8');
@@ -433,11 +413,7 @@ function parseTextContent(name, text) {
 module.exports = {
   parseDocumentFile,
   parseTextContent,
-  parseTextFile,
-  parsePdfFile,
   parsePdfBuffer,
-  toMetadata,
-  cleanExtractedText,
   cleanPdfText,
   cleanCodeText,
   reflowParagraphs

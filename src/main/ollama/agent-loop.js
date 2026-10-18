@@ -242,11 +242,6 @@ function tryParseFallbackToolCalls(text, toolNames) {
   return calls;
 }
 
-function tryParseFallbackToolCall(text, toolNames) {
-  const calls = tryParseFallbackToolCalls(text, toolNames);
-  return calls.length > 0 ? calls[0] : null;
-}
-
 /** Removes printed tool-call JSON objects from text, leaving any real prose. */
 function stripToolCallJson(text, toolNames) {
   let out = String(text || '');
@@ -460,7 +455,6 @@ async function runAgentLoop({
 module.exports = {
   runAgentLoop,
   buildToolSet,
-  tryParseFallbackToolCall,
   tryParseFallbackToolCalls,
   stripToolCallJson,
   looseParseFallbackObject,

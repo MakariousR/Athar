@@ -2,27 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
-const fs = require('fs');
-
-// The app used to be called "Chat Memory" and kept its data in
-// "%APPDATA%/Chat Memory". Move anything there into the new folder before
-// the app opens it (entries already in the new folder are left alone).
-function moveDataFromOldName() {
-  try {
-    const oldDir = path.join(app.getPath('appData'), 'Chat Memory');
-    const newDir = app.getPath('userData');
-    if (path.resolve(oldDir) === path.resolve(newDir) || !fs.existsSync(oldDir)) return;
-    fs.mkdirSync(newDir, { recursive: true });
-    for (const entry of fs.readdirSync(oldDir)) {
-      const target = path.join(newDir, entry);
-      if (!fs.existsSync(target)) fs.renameSync(path.join(oldDir, entry), target);
-    }
-    if (fs.readdirSync(oldDir).length === 0) fs.rmdirSync(oldDir);
-  } catch (err) {
-    console.error('Could not move data from the old "Chat Memory" folder:', err.message);
-  }
-}
-moveDataFromOldName();
 
 // Started by Claude Desktop / Claude Code as an MCP server: no window, memory tools over stdio
 const MCP_MODE = process.argv.includes('--mcp');

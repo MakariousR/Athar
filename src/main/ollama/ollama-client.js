@@ -60,11 +60,6 @@ async function supportsTools(modelName) {
   return caps === null || caps.includes('tools');
 }
 
-async function isModelInstalled(modelName) {
-  const models = await listModels();
-  return models.some((m) => m.name === modelName || m.name.startsWith(`${modelName}:`));
-}
-
 const EMBED_MODEL_PATTERN = /bge-m3|embed/i;
 
 async function checkAllModels() {
@@ -1063,7 +1058,6 @@ module.exports = {
   PROJECT_QUESTION,
   isOllamaRunning,
   listModels,
-  isModelInstalled,
   checkAllModels,
   pullModel,
   deleteModel,

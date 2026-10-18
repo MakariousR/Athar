@@ -1,6 +1,5 @@
 // Copyright (C) 2026 Makarious Robert
 // SPDX-License-Identifier: AGPL-3.0-or-later
-const fs = require('fs');
 
 /**
  * Parses a Claude export conversations.json into the same normalized
@@ -15,10 +14,6 @@ const fs = require('fs');
  * blocks (text / tool_use / tool_result / thinking), so messages are rebuilt
  * from those blocks.
  */
-function parseClaudeExport(filePath) {
-  return parseClaudeData(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
-}
-
 const PLACEHOLDER_RE = /\n?```\n?This block is not supported on your current device yet\.?\n?```\n?/g;
 const MAX_CODE_CHARS = 20000;       // one file/artifact
 const MAX_OUTPUT_CHARS = 1500;      // command output shown under a command
@@ -181,7 +176,7 @@ function messageText(m) {
   return [attachments, body].filter(Boolean).join('\n\n');
 }
 
-/** Same as parseClaudeExport, for already-parsed JSON. */
+/** Parses an already-parsed Claude conversations.json. */
 function parseClaudeData(data) {
   // Lazy require: chatgpt-parser also requires this module (lazily) for auto-detection.
   const { contentId } = require('./chatgpt-parser');
@@ -226,4 +221,4 @@ function parseClaudeData(data) {
   return threads;
 }
 
-module.exports = { parseClaudeExport, parseClaudeData, messageText };
+module.exports = { parseClaudeData, messageText };
